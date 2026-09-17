@@ -88,8 +88,12 @@ startup default unless the user deliberately chooses a model.
 The model menu's default scope and new-session startup share SDK scope
 resolution. Startup applies the effective model and reasoning pin without
 passing them to `startupWrites` as user choices. Only deliberate overrides reach
-that unchanged persistence rule. Project trust still gates project settings, and
-existing conversations retain SDK model/reasoning restoration.
+that unchanged persistence rule. A deliberate startup choice is validated
+against the full credential-available catalog, not the cycling scope. A matching
+scope pin still applies; otherwise Pi supplies the model's normal reasoning
+default. Missing or uncredentialed choices are rejected, never silently
+replaced. Project trust still gates project settings, and existing conversations
+retain SDK model/reasoning restoration.
 
 `src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
 `src/core/workspace/index.ts` composes one flat `Workspace` object from four
@@ -113,10 +117,12 @@ including the in-progress assistant message), `settledCursor` (the last settled
 raw entry ID, or empty at the root), `status`, `usage`, and `models`. Settlement
 moves the runtime boundary to the end of the branch. History and the live tail
 come from that same snapshot and never overlap. Page load, HTMX responses, and
-SSE events reuse the same views. A live view captures and consumes its pending
-notices and composer insertions synchronously, before awaiting project or model
-enrichment. Events arriving during those awaits belong to the next view;
-read-only alternate branch views do not consume them.
+SSE events reuse the same views. Session reads are non-consuming by default. The
+SSE renderer opts into `consumePending` because it delivers notices and composer
+insertions. It captures and consumes the batch synchronously, before awaiting
+project or model enrichment. Events arriving during those awaits belong to the
+next delivery. Page loads, selectors, metadata, history fragments and alternate
+branch reads leave pending output for the session stream.
 
 The session stream sends unnamed HTML messages containing native HTMX 4
 `hx-partial` elements with explicit targets and swap modes:

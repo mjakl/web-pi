@@ -20,6 +20,8 @@ export type FileScope = { sessionId?: string; cwd?: string };
 
 /** Which slice of which branch a page shows. */
 export type ViewOptions = {
+  /** Only deliveries that render notices and editor insertions consume them (SSE). */
+  consumePending?: boolean;
   /** Branch tip to view; the session's own leaf by default. */
   leaf?: string;
   /** How many settled items the page holds. */

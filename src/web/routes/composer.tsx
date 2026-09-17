@@ -416,6 +416,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const render = async (kind: "activity" | "turn_done") => {
         if (aborted) return;
         const view = await deps.workspace.viewSession(id, {
+          consumePending: true,
           ...warnTokens(c),
           after: cursor,
         });

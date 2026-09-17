@@ -49,6 +49,11 @@ async function fixture(bashOperations?: BashOperations) {
     join(h.agentDir, "models.json"),
     JSON.stringify({
       providers: {
+        uncredentialed: {
+          api: "openai-completions",
+          baseUrl: "http://unused.invalid",
+          models: [{ id: "registered", name: "No credentials" }],
+        },
         [PROVIDER]: {
           api: "openai-completions",
           baseUrl: "http://scripted.invalid",
@@ -70,6 +75,7 @@ async function fixture(bashOperations?: BashOperations) {
   const world = createFakeWorld();
   world.runtime = h.runtime;
   world.sessions = h.catalog;
+  world.webSettings = h.webSettings;
   world.models = createPiModelCatalog({ agentDir: h.agentDir });
   const workspace = createWorkspace(world);
   const app = createWebApp({
@@ -357,26 +363,91 @@ describe("production startup from the rendered composer", () => {
     expect(h.calls).toHaveLength(0);
   });
 
-  it("rejects a stale model choice outside the enabled scope instead of silently falling back", async () => {
-    const control = shell();
-    const { app, h } = await fixture(control.operations);
-    const response = await app.request("/sessions", {
-      method: "POST",
-      headers: { "HX-Request": "true" },
-      body: new URLSearchParams({
-        cwd: h.cwd,
-        text: "!!private command",
-        model: `${PROVIDER}/${MODEL_ID}`,
-      }),
-    });
-    expect(response.headers.get("X-Web-Pi-Submission")).toBeNull();
-    expect(response.headers.get("HX-Trigger")).toContain(
-      "not available in the enabled scope",
-    );
-    expect(h.runtime.live()).toHaveLength(0);
-    expect(control.operations.exec).not.toHaveBeenCalled();
-    expect(h.calls).toHaveLength(0);
-  });
+  it.each([
+    { scope: `${MODEL_2}:high`, selected: MODEL_ID, level: "off" },
+    { scope: MODEL_ID, selected: MODEL_2, level: "low" },
+  ])(
+    "starts a Settings-selected model outside Pi's cycling scope: $selected",
+    async ({ scope, selected, level }) => {
+      const { app, h } = await fixture();
+      const projectSettings = JSON.stringify({
+        enabledModels: [`${PROVIDER}/${scope}`],
+      });
+      await writeFile(join(h.cwd, ".pi", "settings.json"), projectSettings);
+      const globalBefore = await readFile(
+        join(h.agentDir, "settings.json"),
+        "utf8",
+      );
+      const saved = await app.request("/settings/models", {
+        method: "POST",
+        body: new URLSearchParams({
+          cwd: h.cwd,
+          model: JSON.stringify({ provider: PROVIDER, id: selected }),
+        }),
+      });
+      expect(await saved.text()).toContain("Selection saved.");
+      expect(await readFile(join(h.agentDir, "settings.json"), "utf8")).toBe(
+        globalBefore,
+      );
+      const preview = await app.request(
+        `/workspaces/model-selector?${new URLSearchParams({ cwd: h.cwd, model: `${PROVIDER}/${selected}` })}`,
+      );
+      expect(await preview.text()).toContain(
+        `name="model" value="${PROVIDER}/${selected}"`,
+      );
+      const response = await app.request("/sessions", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: new URLSearchParams({
+          cwd: h.cwd,
+          text: "/name chosen outside scope",
+          model: `${PROVIDER}/${selected}`,
+        }),
+      });
+      expect(response.headers.get("X-Web-Pi-Submission")).toBe("accepted");
+      const live = required(h.runtime.live()[0]);
+      expect(live.snapshot().status).toMatchObject({
+        model: { provider: PROVIDER, id: selected },
+        thinkingLevel: level,
+      });
+      const settings: unknown = JSON.parse(
+        await readFile(join(h.agentDir, "settings.json"), "utf8"),
+      );
+      expect(settings).toMatchObject({
+        defaultProvider: PROVIDER,
+        defaultModel: selected,
+        defaultThinkingLevel: "low",
+      });
+      expect(await readFile(join(h.cwd, ".pi", "settings.json"), "utf8")).toBe(
+        projectSettings,
+      );
+      expect(h.calls).toHaveLength(0);
+    },
+  );
+
+  it.each([`${PROVIDER}/missing-model`, "uncredentialed/registered"])(
+    "rejects an unavailable model choice instead of silently falling back: %s",
+    async (model) => {
+      const control = shell();
+      const { app, h } = await fixture(control.operations);
+      const response = await app.request("/sessions", {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: new URLSearchParams({
+          cwd: h.cwd,
+          text: "!!private command",
+          model,
+        }),
+      });
+      expect(response.headers.get("X-Web-Pi-Submission")).toBeNull();
+      expect(response.headers.get("HX-Trigger")).toContain(
+        "Model is not available:",
+      );
+      expect(h.runtime.live()).toHaveLength(0);
+      expect(control.operations.exec).not.toHaveBeenCalled();
+      expect(h.calls).toHaveLength(0);
+    },
+  );
 
   it.each(["untouched", "model", "thinking", "both"])(
     "honours scope independently of preference writes: %s",

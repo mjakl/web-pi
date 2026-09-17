@@ -22,7 +22,14 @@ it("filters rendered model rows by name, provider and ID without changing select
   mount(
     ModelSettings({
       cwd: "/repo",
-      view: { available, selected: available.slice(0, 1), unavailableCount: 0 },
+      view: {
+        available,
+        selected: available.slice(0, 1),
+        patterns: ["alpha/same"],
+        projectPatterns: null,
+        unavailable: [],
+        warnings: [],
+      },
     }),
   );
   const { setUpShell } = await import("@web/client/shell");
@@ -52,4 +59,12 @@ it("filters rendered model rows by name, provider and ID without changing select
       ].map((input) => input.checked),
     ).toEqual([true, false]);
   }
+  const first = document.querySelector<HTMLInputElement>('input[name="model"]');
+  if (!first) throw new Error("Missing checkbox");
+  first.checked = false;
+  first.dispatchEvent(new Event("change", { bubbles: true }));
+  expect(first.checked).toBe(true);
+  expect(document.querySelector("[data-model-status]")?.textContent).toContain(
+    "Keep at least one model selected",
+  );
 });

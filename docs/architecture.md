@@ -32,7 +32,7 @@ Internal interfaces, all consumers in this repository. Defined in
 | `Watcher`          | One file's changes on disk, deduplicated                                                                                     | `src/adapters/fs/watch.ts`           |
 | `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                     | `src/adapters/pi/web-push.ts`        |
 
-`WebSettingsStore` in `src/core/web-settings.ts` owns shared General and Models
+`WebSettingsStore` in `src/core/web-settings.ts` owns shared General
 preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
 web-owned state lives in `<agentDir>/web-pi/`: `settings.json`, `push.json` and
 `worktree-projects.json`. Pi configuration and session files stay outside that
@@ -67,23 +67,37 @@ the unauthenticated registry. Like the existing catalog, it does not load
 project extensions to discover extension-only providers. Availability is the
 SDK's credential check, not a provider request proving account access.
 
-The web-owned `visibleModels` setting is null by default, preserving Pi's scope.
-An explicit array of `{ provider, id }` objects replaces the chooser scope; `[]`
-deliberately leaves no choices, with a Settings recovery link. Newly available
-identities remain hidden after an explicit selection. Saved identities that
-become unavailable are retained across edits and reappear if they return. “Use
-Pi defaults” resets to null. Matching Pi reasoning pins are retained even when
-the chooser uses an explicit selection. Pi's `enabledModels` is not an exact
-visibility contract: it controls CLI cycling, permits patterns and reasoning
-pins, and the existing web resolver falls back to all models for an empty or
-unmatched scope. The Models editor therefore does not write Pi settings.
+Models edits only global `enabledModels` in `<agentDir>/settings.json` through
+Pi's `SettingsManager`. The terminal shares this pattern-based cycling scope;
+General's web-specific preferences remain separate. The editor reads global
+patterns, not the project-merged setting, and identifies trusted project
+overrides without writing them. Untrusted project settings remain unloaded.
 
-Saving waits for the existing atomic web-settings write, then triggers an HTMX
-refresh of the mounted model selector. New-session, stored-session and live/SSE
-selectors share the workspace filtering rule. Visibility does not change startup
-defaults or active/stored session models; a hidden current model remains
-displayed but is absent from selectable entries. A new chat still uses Pi's
-startup default unless the user deliberately chooses a model.
+Absent or empty `enabledModels` means all available models, including future
+models. Opening Settings and saving an unchanged selection write nothing.
+Ordinary saves require at least one available selection. “Use all models”
+explicitly writes an empty array. With no available models, the controls are
+disabled and the saved configuration remains untouched. Nonempty unmatched
+patterns remain visible as unavailable entries and are retained by ordinary
+edits; they do not silently expose all choices.
+
+The Pi adapter owns pattern resolution and persistence. Unchanged wildcard and
+fuzzy patterns retain their spelling and reasoning pins. Excluding a match
+expands only its affected pattern into remaining current identities with their
+effective pins; that pattern then stops admitting future matches. Unavailable
+patterns remain, but diagnostic warnings on successfully resolved patterns do
+not classify them as unavailable. Generated patterns must round-trip through
+Pi's resolver to exactly the requested provider/ID pairs and preserved pins;
+ambiguous or unrepresentable identities are rejected. A stale form is rejected
+rather than overwriting a changed global model list. Pi's locked field-level
+write preserves unrelated external edits; load errors and drained write errors
+are surfaced, including failures swallowed by `flush()`.
+
+Saving invalidates all folder model caches and triggers an HTMX refresh of the
+mounted selector. Config stamps include global and project settings for external
+edits. New-session, stored-session and live/SSE selectors read the effective
+trusted Pi scope. Running and stored sessions retain their current model even
+when it is removed from that scope; no save switches a conversation.
 
 The model menu's default scope and new-session startup share SDK scope
 resolution. Startup applies the effective model and reasoning pin without
@@ -629,9 +643,10 @@ composition root and the only importer of Pi adapters.
   a duplicate extension event.
 - **The models cache is stamped, not just timed.** Credentials and model
   metadata are edited in the Pi terminal, so the cache key carries the
-  modification times of `auth.json` and `models.json`: a terminal login shows up
-  on the next request instead of after the whole 60 s TTL. Granting trust, a
-  plugin action, or writing a new default invalidates it outright.
+  modification times of `auth.json`, `models.json` and global/project
+  `settings.json`: a terminal login or configuration edit shows up on the next
+  request instead of after the whole 60 s TTL. Granting trust, a plugin action,
+  or writing a new default invalidates it outright.
 - **Re-enabling a package loses its filters.** Disabling rewrites the entry as
   an object whose four resource lists are empty; enabling writes the plain
   source string back, so per-resource filters an entry carried do not survive

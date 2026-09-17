@@ -1,4 +1,5 @@
-import { ModelSettings, type ModelsView } from "./ModelSettings.tsx";
+import { ModelSettings } from "./ModelSettings.tsx";
+import type { ModelSettingsView as ModelsView } from "@core/model-settings";
 import {
   type PackageInfo,
   type PackagesView,

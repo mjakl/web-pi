@@ -350,6 +350,27 @@ function setUpPluginExamples(): void {
 }
 
 function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
+  form.addEventListener(
+    "change",
+    (event) => {
+      const checkbox = event.target;
+      if (!(checkbox instanceof HTMLInputElement) || checkbox.name !== "model")
+        return;
+      const selected = form.querySelectorAll(
+        'input[name="model"]:checked',
+      ).length;
+      if (!selected) {
+        checkbox.checked = true;
+        const status = form.querySelector<HTMLElement>("[data-model-status]");
+        if (status)
+          status.textContent =
+            "Keep at least one model selected, or choose Use all models.";
+      }
+      const save = form.querySelector<HTMLButtonElement>("[data-model-save]");
+      if (save) save.disabled = false;
+    },
+    { signal },
+  );
   const filter = form.querySelector<HTMLInputElement>("#settings-model-filter");
   filter?.addEventListener(
     "input",

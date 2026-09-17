@@ -382,13 +382,17 @@ describe("production startup from the rendered composer", () => {
         method: "POST",
         body: new URLSearchParams({
           cwd: h.cwd,
+          patterns: "null",
           model: JSON.stringify({ provider: PROVIDER, id: selected }),
         }),
       });
       expect(await saved.text()).toContain("Selection saved.");
-      expect(await readFile(join(h.agentDir, "settings.json"), "utf8")).toBe(
-        globalBefore,
-      );
+      expect(
+        JSON.parse(await readFile(join(h.agentDir, "settings.json"), "utf8")),
+      ).toEqual({
+        ...JSON.parse(globalBefore),
+        enabledModels: [`${PROVIDER}/${selected}`],
+      });
       const preview = await app.request(
         `/workspaces/model-selector?${new URLSearchParams({ cwd: h.cwd, model: `${PROVIDER}/${selected}` })}`,
       );

@@ -303,20 +303,33 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
                 throw new Error("Expected a model identity");
               return JSON.parse(value) as unknown;
             });
-      await deps.workspace.saveModelVisibility(cwd, selection);
+      await deps.workspace.saveModelSettings(
+        cwd,
+        selection,
+        JSON.parse(field(form, "patterns")) as unknown,
+      );
       c.header("HX-Trigger", "models-changed");
     } catch (error) {
       failed = true;
       message = `Could not save models: ${errorText(error)}`;
     }
-    return c.html(
-      <ModelSettings
-        cwd={cwd}
-        view={await deps.workspace.modelSettings(cwd)}
-        message={message}
-        failed={failed}
-      />,
-    );
+    try {
+      return await c.html(
+        <ModelSettings
+          cwd={cwd}
+          view={await deps.workspace.modelSettings(cwd)}
+          message={message}
+          failed={failed}
+        />,
+      );
+    } catch (error) {
+      return c.html(
+        <div role="alert" class="config-empty-state">
+          Could not load Models: {errorText(error)}. Repair Pi settings and
+          reload.
+        </div>,
+      );
+    }
   });
 
   app.get("/settings", async (c) => {

@@ -719,6 +719,23 @@
   gap: var(--space-6);
 }
 
+.settings-model-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.settings-model-patterns {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.settings-model-patterns summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
 .settings-model-list {
   flex: 1;
   min-height: 100px;

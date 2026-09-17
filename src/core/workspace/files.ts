@@ -12,10 +12,6 @@ import { type FileScope, type FileView, ForbiddenPath } from "./views.ts";
 // The file panel and the `@` menu: listings, the viewer, Git changes, and
 // completion. Every path goes through `authorize` before it is touched.
 
-/** 256 KiB of text, as pi-web; above that the viewer says so. */
-const TEXT_LIMIT = 256 * 1024;
-const MEDIA_LIMIT = 10 * 1024 * 1024;
-
 export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
   /**
    * The folder a completion request may list. Defaults to the session's own,
@@ -165,8 +161,7 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
         ...(change ? { status: change.status } : {}),
       };
       if (kind === "text") {
-        if (info.size > TEXT_LIMIT) view.tooLarge = true;
-        else view.text = await deps.files.readText(path, TEXT_LIMIT);
+        view.text = await deps.files.readText(path);
       }
       if (change) {
         const diff = await deps.git.diff(cwd, change);
@@ -200,9 +195,6 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       const info = await authorize(path, { sessionId });
       if (info === undefined || !info.isFile) {
         throw new FileAccessError("Not a file", 400);
-      }
-      if (fileKind(path) === "image" && info.size > MEDIA_LIMIT) {
-        throw new FileAccessError("Image too large (>10MB)", 413);
       }
       return { size: info.size, stream: deps.files.stream(path, range) };
     },

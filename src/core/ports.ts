@@ -448,8 +448,8 @@ export type Files = {
   stat(path: string): Promise<FileStat | undefined>;
   /** The path with every symlink resolved; undefined when it cannot be. */
   realpath(path: string): Promise<string | undefined>;
-  /** UTF-8 text; throws when the file is larger than `maxBytes`. */
-  readText(path: string, maxBytes: number): Promise<string>;
+  /** Complete UTF-8 text. */
+  readText(path: string): Promise<string>;
   /** Bytes for a media response, optionally one Range slice. */
   stream(
     path: string,

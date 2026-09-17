@@ -64,15 +64,21 @@ describe("file tree", () => {
     expect(entries.find((entry) => entry.name === "src")?.isDir).toBe(true);
   });
 
-  it("stats, resolves, and reads within a byte limit", async () => {
+  it("stats, resolves, and reads text", async () => {
     const files = createFileTree();
     const readme = join(root, "README.md");
     expect((await files.stat(readme))?.isFile).toBe(true);
     expect(await files.stat(join(root, "missing"))).toBeUndefined();
     expect(await files.realpath(readme)).toBe(readme);
     expect(await files.realpath(join(root, "missing"))).toBeUndefined();
-    expect(await files.readText(readme, 100)).toBe("hi");
-    await expect(files.readText(readme, 1)).rejects.toThrow();
+    expect(await files.readText(readme)).toBe("hi");
+  });
+
+  it("reads complete UTF-8 text above the former preview limit", async () => {
+    const path = join(root, "large.txt");
+    const text = `${"é".repeat(131_073)}\nend of file\n`;
+    await writeFile(path, text);
+    expect(await createFileTree().readText(path)).toBe(text);
   });
 
   it("streams a byte range", async () => {

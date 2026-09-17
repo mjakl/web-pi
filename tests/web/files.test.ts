@@ -8,7 +8,14 @@ import { createWorkspace } from "@core/workspace";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createWebApp } from "@web/app";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -49,6 +56,22 @@ beforeAll(async () => {
   await writeFile(join(repo, "report.pdf"), "%PDF-1.7\n");
   await writeFile(join(repo, "a.svg"), "<svg xmlns='x'/>");
   await symlink(outside, join(repo, "escape"));
+  await writeFile(
+    join(repo, "large.ts"),
+    `${`// ${"x".repeat(253)}\n`.repeat(1025)}const lastLine = true;`,
+  );
+  for (const length of [100_001, 262_145]) {
+    await writeFile(
+      join(repo, `large-${String(length)}.md`),
+      `---\ntitle: Large preview\n---\n\n# Start\n\n${"x".repeat(length)}\n\n**End of file**\n`,
+    );
+  }
+  await writeFile(
+    join(repo, "large.html"),
+    `<p>${"x".repeat(262_145)}</p><b>End of file</b>`,
+  );
+  await writeFile(join(repo, "large.png"), PNG);
+  await truncate(join(repo, "large.png"), 10 * 1024 * 1024 + 1);
   git("init", "-q", "-b", "main");
   git("config", "user.email", "test@example.com");
   git("config", "user.name", "Test");
@@ -319,6 +342,52 @@ describe("viewer", () => {
     expect(html).toContain("Enable word wrap");
   });
 
+  it("renders all source above 256 KiB and keeps the line-based highlighting cutoff", async () => {
+    const path = join(repo, "large.ts");
+    const line = `// ${"x".repeat(253)}\n`;
+    const res = await app.request(
+      `/files/view?session=s1&mode=source&path=${encodeURIComponent(path)}`,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-line-number="1026"');
+    expect(html).toContain("const lastLine = true;");
+    expect(html.split(line.trimEnd()).length - 1).toBe(1025);
+    expect(html).not.toContain("hljs-keyword");
+  });
+
+  it.each([100_001, 262_145])(
+    "renders Markdown previews with %i characters in full",
+    async (length) => {
+      const path = join(repo, `large-${String(length)}.md`);
+      const body = "x".repeat(length);
+      const res = await app.request(
+        `/files/view?session=s1&path=${encodeURIComponent(path)}`,
+      );
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("markdown-frontmatter-title");
+      expect(html).toContain('<h1 id="user-content-start">Start</h1>');
+      expect(html).toContain(`<p>${body}</p>`);
+      expect(html).toContain("<strong>End of file</strong>");
+      expect(html).not.toContain("markdown-oversized");
+    },
+  );
+
+  it("renders HTML previews above 256 KiB in the existing sandbox", async () => {
+    const path = join(repo, "large.html");
+    const body = "x".repeat(262_145);
+    const res = await app.request(
+      `/files/view?session=s1&mode=preview&path=${encodeURIComponent(path)}`,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      `srcdoc="&lt;p&gt;${body}&lt;/p&gt;&lt;b&gt;End of file&lt;/b&gt;"`,
+    );
+    expect(html).toContain('sandbox="allow-scripts"');
+  });
+
   it("defaults markdown to the rendered preview with its frontmatter", async () => {
     const url = `/files/view?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`;
     const html = await (await app.request(url)).text();
@@ -395,6 +464,31 @@ describe("viewer", () => {
 describe("raw bytes", () => {
   const url = (extra = "") =>
     `/files/raw?session=s1&path=${encodeURIComponent(join(repo, "logo.png"))}${extra}`;
+
+  it("serves images above 10 MiB inline, as downloads, and as byte ranges", async () => {
+    const path = join(repo, "large.png");
+    const size = 10 * 1024 * 1024 + 1;
+    const largeUrl = `/files/raw?session=s1&path=${encodeURIComponent(path)}`;
+    for (const download of [false, true]) {
+      const res = await app.request(
+        `${largeUrl}${download ? "&download=1" : ""}`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe(
+        download ? "application/octet-stream" : "image/png",
+      );
+      expect(res.headers.get("content-disposition")).toContain(
+        download ? "attachment" : "inline",
+      );
+      expect((await res.arrayBuffer()).byteLength).toBe(size);
+    }
+    const res = await app.request(largeUrl, {
+      headers: { Range: "bytes=0-3" },
+    });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe(`bytes 0-3/${String(size)}`);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG.subarray(0, 4));
+  });
 
   it("opens one stream per request, whatever the range", async () => {
     streams = 0;

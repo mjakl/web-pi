@@ -123,10 +123,8 @@ export type FileView = {
   kind: FileKind;
   language: string;
   size: number;
-  /** A text file within the limit. */
+  /** Complete text for a text file. */
   text?: string;
-  /** A text file too large to render; the reader is told, not truncated. */
-  tooLarge?: boolean;
   /** The file is gone from disk; only the diff is left. */
   deleted?: boolean;
   status?: GitFileStatus;

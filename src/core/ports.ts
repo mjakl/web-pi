@@ -391,6 +391,15 @@ export type ModelListing = {
 };
 
 export type ModelCatalog = {
+  settings(
+    cwd: string,
+  ): Promise<import("@core/model-settings").ModelSettingsView>;
+  saveSettings(
+    cwd: string,
+    edit: import("@core/model-settings").ModelSettingsEdit,
+  ): Promise<void>;
+  /** Credential-available models before Pi's cycling scope is applied. */
+  listAvailable(cwd: string): Promise<ModelOption[]>;
   list(cwd: string): Promise<ModelListing>;
   /** Preview Pi's effective level without opening a session or writing defaults. */
   resolveThinking(

@@ -940,11 +940,11 @@ export function SettingsSectionIcon({
   size = 16,
   width = 1.8,
 }: IconProps & {
-  section: "general" | "skills" | "plugins";
+  section: "general" | "models" | "skills" | "plugins";
   width?: number;
 }) {
   const shape =
-    section === "general" ? (
+    section === "general" || section === "models" ? (
       <>
         <path d="M20 7h-9M14 17H5" />
         <circle cx="7" cy="7" r="3" />

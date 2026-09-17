@@ -116,7 +116,10 @@ otherwise usually `~/.pi/agent`. Current web-pi owns these standalone files:
 
 - `<agentDir>/web-pi/settings.json`: shared `warnTokens` (default **100000**,
   positive safe integer), `theme` (**auto**, or light/dark), and `sound`
-  (**true**, or false). Auto follows each device's OS appearance.
+  (**true**, or false). Auto follows each device's OS appearance. Models is not
+  stored here: Settings → Models edits Pi's global `enabledModels` in
+  `<agentDir>/settings.json`, shared with terminal Pi. Project overrides remain
+  in `.pi/settings.json` and apply only in trusted projects.
 - `<agentDir>/web-pi/push.json`: private VAPID identity and browser
   subscriptions.
 - `<agentDir>/web-pi/worktree-projects.json`: remembered folder/project

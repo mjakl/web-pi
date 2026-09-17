@@ -840,9 +840,8 @@ export function createPiAgentRuntime(options: {
       },
       ...(trust ? { resourceLoaderReloadOptions: trust } : {}),
     });
-    // The SDK does not apply enabledModels at construction. Resolve the same
-    // effective selection the menu shows, without treating it as a preference
-    // override. Existing transcripts retain the SDK's restoration authority.
+    // Pi's cycling scope supplies defaults and reasoning pins, not an allowlist
+    // for deliberate web choices. Existing transcripts retain SDK restoration.
     let effective: StartupChoice = {};
     if (manager.buildSessionContext().messages.length === 0) {
       const listing = await resolveModelListing(
@@ -850,22 +849,30 @@ export function createPiAgentRuntime(options: {
         settingsManager,
       );
       const requested = startup.model;
-      const selected = initialModel(
-        listing.models,
-        requested
-          ? { provider: requested.provider, id: requested.modelId }
-          : listing.preferred,
-      );
-      if (
-        requested &&
-        (selected?.provider !== requested.provider ||
-          selected.id !== requested.modelId)
-      ) {
+      const selected = requested
+        ? (
+            await resolveModelListing(
+              services.modelRuntime,
+              settingsManager,
+              true,
+            )
+          ).models.find(
+            (model) =>
+              model.provider === requested.provider &&
+              model.id === requested.modelId,
+          )
+        : initialModel(listing.models, listing.preferred);
+      if (requested && !selected) {
         throw new Error(
-          `Model is not available in the enabled scope: ${requested.provider}/${requested.modelId}`,
+          `Model is not available: ${requested.provider}/${requested.modelId}`,
         );
       }
-      const thinkingLevel = startup.thinkingLevel ?? initialThinking(selected);
+      const scoped = listing.models.find(
+        (model) =>
+          model.provider === selected?.provider && model.id === selected.id,
+      );
+      const thinkingLevel =
+        startup.thinkingLevel ?? initialThinking(scoped ?? selected);
       effective = {
         ...(selected
           ? { model: { provider: selected.provider, modelId: selected.id } }

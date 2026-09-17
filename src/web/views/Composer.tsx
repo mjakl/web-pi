@@ -359,6 +359,14 @@ export function ModelSelector({
   return (
     <div
       id="model-selector"
+      hx-get={
+        pick.sessionId
+          ? `/sessions/${pick.sessionId}/model-selector`
+          : `/workspaces/model-selector?${new URLSearchParams({ cwd: pick.cwd ?? "", ...(pick.explicitModel && current ? { model: modelValue(current) } : {}), ...(pick.thinkingOverride ? { thinking: pick.thinkingOverride } : {}) }).toString()}`
+      }
+      hx-trigger="models-changed from:body"
+      hx-target="this"
+      hx-swap="outerHTML"
       class={`model-selector is-composer${disabled === true ? " is-disabled" : ""}`}
       {...(oob === true ? { "hx-swap-oob": "outerHTML" } : {})}
     >
@@ -420,7 +428,14 @@ export function ModelSelector({
           class="composer-model-list"
         >
           {models.length === 0 ? (
-            <div class="composer-model-empty">No available models</div>
+            <div class="composer-model-empty">
+              No model choices.{" "}
+              <a
+                href={`/settings?section=models&cwd=${encodeURIComponent(pick.cwd ?? "")}`}
+              >
+                Choose models in Settings
+              </a>
+            </div>
           ) : (
             providers.map((provider) => (
               <div class="composer-model-provider" data-provider={provider}>

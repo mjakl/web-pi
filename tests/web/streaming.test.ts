@@ -273,6 +273,50 @@ it("only serves deferred subagent content for its session and matching entry and
   }
 });
 
+it.each(["refresh", "switch", "page"])(
+  "preserves pending output through a %s request until the next SSE delivery",
+  async (action) => {
+    const f = await streamingFixture();
+    const { document } = await open(f);
+    await expect.poll(() => f.subscribers).toBe(1);
+    f.injectPending("selector-safe notice", "selector-safe text");
+
+    const model = required(f.snapshot.status.model);
+    const response =
+      action === "page"
+        ? await f.app.request(`/sessions/${f.id}`)
+        : action === "refresh"
+          ? await f.app.request(`/sessions/${f.id}/model-selector`)
+          : await f.app.request(
+              `/sessions/${f.id}/model?model=${encodeURIComponent(`${model.provider}/${model.id}`)}`,
+              { method: "POST" },
+            );
+    expect(response.status).toBe(200);
+    const selector = await response.text();
+    expect(selector).toContain('id="model-selector"');
+    expect(selector).not.toContain("selector-safe notice");
+    expect(selector).not.toContain("selector-safe text");
+    expect(f.snapshot.status.notices).toContainEqual({
+      level: "info",
+      message: "selector-safe notice",
+    });
+    expect(f.snapshot.status.editorText).toEqual(["selector-safe text"]);
+
+    f.emit("activity");
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain("selector-safe notice");
+    await expect
+      .poll(
+        () =>
+          document.querySelector<HTMLTextAreaElement>("#composer-text")?.value,
+      )
+      .toContain("selector-safe text");
+    expect(f.snapshot.status.notices).toEqual([]);
+    expect(f.snapshot.status.editorText).toEqual([]);
+  },
+);
+
 it("leaves pending events for the live view after a deferred body request", async () => {
   const f = await streamingFixture();
   f.richRunningTools();

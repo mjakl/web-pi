@@ -952,6 +952,7 @@ export function createFakeWorld(
   }));
   let subscriptions: PushSubscription[] = [];
   let settings = { ...DEFAULT_WEB_SETTINGS };
+  let modelPatterns: string[] | null = null;
   const sent: PushMessage[] = [];
   let created = 0;
 
@@ -1174,9 +1175,38 @@ export function createFakeWorld(
       },
     },
     models: {
+      settings: () =>
+        Promise.resolve({
+          available: options.models ?? [FAKE_MODEL],
+          selected: (options.models ?? [FAKE_MODEL]).filter(
+            (model) =>
+              !modelPatterns?.length ||
+              modelPatterns.includes(`${model.provider}/${model.id}`),
+          ),
+          patterns: modelPatterns,
+          projectPatterns: null,
+          unavailable: [],
+          warnings: [],
+        }),
+      saveSettings: (_cwd, edit) => {
+        if (edit.selected?.length === 0)
+          return Promise.reject(
+            new Error(
+              "Keep at least one available model selected, or choose Use all models.",
+            ),
+          );
+        modelPatterns =
+          edit.selected?.map((model) => `${model.provider}/${model.id}`) ?? [];
+        return Promise.resolve();
+      },
+      listAvailable: () => Promise.resolve(options.models ?? [FAKE_MODEL]),
       list: () =>
         Promise.resolve({
-          models: options.models ?? [FAKE_MODEL],
+          models: (options.models ?? [FAKE_MODEL]).filter(
+            (model) =>
+              !modelPatterns?.length ||
+              modelPatterns.includes(`${model.provider}/${model.id}`),
+          ),
           warnings: [],
         }),
       resolveThinking: (_cwd, model, level, continuing) =>

@@ -293,6 +293,7 @@ describe("explicit startup choices from the rendered form", () => {
       };
       world.models.list = () =>
         Promise.resolve({ models: [scoped, other], warnings: [] });
+      world.models.listAvailable = () => Promise.resolve([scoped, other]);
       // Effective selection and disk writes are exercised through the real
       // adapter in composer-runtime.test.ts, never synthesized by this fake.
       const browser = await openComposer(app, true);

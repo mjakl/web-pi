@@ -153,7 +153,11 @@ export function sessionUseCases({
     fillCompactions(stored.summary.id, stored.entries, page.items);
     const listing = await modelsFor(stored.summary.cwd);
     const model = transcript.lastModel
-      ? listing.models.find(
+      ? (
+          await deps.models
+            .listAvailable(stored.summary.cwd)
+            .catch(() => listing.models)
+        ).find(
           (option) =>
             option.provider === transcript.lastModel?.provider &&
             option.id === transcript.lastModel.id,
@@ -211,9 +215,10 @@ export function sessionUseCases({
       const leafId = snapshot.branch.at(-1)?.id ?? null;
       const requestedLeaf = options.leaf;
       const alternate = requestedLeaf !== undefined && requestedLeaf !== leafId;
-      // Consume only the captured batch, before enrichment can await newer
-      // notices or composer text. Read-only branch views deliver neither.
-      if (!alternate) live.takePending();
+      // Only delivery views own the captured batch; selector/metadata reads
+      // must leave it for a renderer that includes notices and composer text.
+      // Consume before enrichment can await a newer batch.
+      if (!alternate && options.consumePending) live.takePending();
       const [summary] = await decorate(
         [snapshot.summary],
         new Map([[id, snapshot]]),

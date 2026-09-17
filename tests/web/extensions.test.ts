@@ -243,8 +243,8 @@ describe("extension page bridge", () => {
     expect(page).toContain("Reviewing");
   });
 
-  it("hands composer text to the render once and then forgets it", async () => {
-    const { workspace, world } = testApp(() => [
+  it("leaves composer text pending until a delivery view claims it", async () => {
+    const { app, workspace, world } = testApp(() => [
       { insert: "git log --oneline" },
       { text: "done" },
     ]);
@@ -256,7 +256,13 @@ describe("extension page bridge", () => {
     expect(live.snapshot().status.editorText).toEqual(["git log --oneline"]);
     const view = await workspace.viewSession("s1");
     expect(view?.status?.editorText).toEqual(["git log --oneline"]);
-    // An event, not state: the render that delivered it is the last to see it.
+    expect(live.snapshot().status.editorText).toEqual(["git log --oneline"]);
+    await app.request("/sessions/s1");
+    expect(live.snapshot().status.editorText).toEqual(["git log --oneline"]);
+    const delivery = await workspace.viewSession("s1", {
+      consumePending: true,
+    });
+    expect(delivery?.status?.editorText).toEqual(["git log --oneline"]);
     expect(live.snapshot().status.editorText).toEqual([]);
   });
 });

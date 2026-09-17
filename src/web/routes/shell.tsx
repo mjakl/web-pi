@@ -24,6 +24,7 @@ import {
   type SkillsView,
   resolveSection,
 } from "@web/views/Settings";
+import { ModelSettings } from "@web/views/ModelSettings";
 import { StatsPanel } from "@web/views/Stats";
 import { TrustDialog } from "@web/views/Dialogs";
 import type { SidebarView } from "@core/workspace";
@@ -241,10 +242,12 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   /** Skills and plugins need a folder; general does not. */
   async function settingsView(
-    section: "general" | "skills" | "plugins",
+    section: "general" | "models" | "skills" | "plugins",
     cwd: string,
     options: { updates?: SkillsView["updates"]; selected?: string } = {},
   ) {
+    if (section === "models")
+      return { models: await deps.workspace.modelSettings(cwd) };
     if (section === "skills") {
       const listed = await deps.workspace.skills(cwd);
       return {
@@ -284,6 +287,49 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       );
     }
     return c.json(deps.workspace.updateWebSettings(patch));
+  });
+
+  app.post("/settings/models", async (c) => {
+    const form = await c.req.formData();
+    const cwd = field(form, "cwd");
+    let message = "Selection saved.";
+    let failed = false;
+    try {
+      const selection: unknown =
+        form.get("defaults") === "1"
+          ? null
+          : form.getAll("model").map((value) => {
+              if (typeof value !== "string")
+                throw new Error("Expected a model identity");
+              return JSON.parse(value) as unknown;
+            });
+      await deps.workspace.saveModelSettings(
+        cwd,
+        selection,
+        JSON.parse(field(form, "patterns")) as unknown,
+      );
+      c.header("HX-Trigger", "models-changed");
+    } catch (error) {
+      failed = true;
+      message = `Could not save models: ${errorText(error)}`;
+    }
+    try {
+      return await c.html(
+        <ModelSettings
+          cwd={cwd}
+          view={await deps.workspace.modelSettings(cwd)}
+          message={message}
+          failed={failed}
+        />,
+      );
+    } catch (error) {
+      return c.html(
+        <div role="alert" class="config-empty-state">
+          Could not load Models: {errorText(error)}. Repair Pi settings and
+          reload.
+        </div>,
+      );
+    }
   });
 
   app.get("/settings", async (c) => {

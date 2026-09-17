@@ -288,6 +288,15 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
    * is the re-rendered selector, which is what closes the popover and shows
    * the new name.
    */
+  app.get("/sessions/:id/model-selector", async (c) => {
+    const id = c.req.param("id");
+    if (!isSessionId(id)) return c.notFound();
+    const view = await deps.workspace.viewSession(id, warnTokens(c));
+    return view
+      ? c.html(<ModelSelector pick={modelPick(view)} />)
+      : c.notFound();
+  });
+
   app.post("/sessions/:id/model", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
@@ -407,6 +416,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const render = async (kind: "activity" | "turn_done") => {
         if (aborted) return;
         const view = await deps.workspace.viewSession(id, {
+          consumePending: true,
           ...warnTokens(c),
           after: cursor,
         });
@@ -423,7 +433,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           pick.current,
           pick.level,
           pick.levels,
-          pick.models.length,
+          pick.models,
         ]);
         const modelChanged = nextModel !== model;
         model = nextModel;

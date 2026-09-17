@@ -61,11 +61,53 @@ exclusive initial flush and then return to SDK appends. `!!` entries retain
 `excludeFromContext`; no assistant message is invented. Stopping a session
 aborts its shell and awaits settlement before disposal.
 
-The model menu and new-session startup share SDK scope resolution. Startup
-applies the effective model and reasoning pin without passing them to
-`startupWrites` as user choices. Only deliberate overrides reach that unchanged
-persistence rule. Project trust still gates project settings, and existing
-conversations retain SDK model/reasoning restoration.
+Settings → Models lists the full `ModelRuntime.getAvailable()` catalog before
+`enabledModels` narrowing: built-in and configured models with credentials, not
+the unauthenticated registry. Like the existing catalog, it does not load
+project extensions to discover extension-only providers. Availability is the
+SDK's credential check, not a provider request proving account access.
+
+Models edits only global `enabledModels` in `<agentDir>/settings.json` through
+Pi's `SettingsManager`. The terminal shares this pattern-based cycling scope;
+General's web-specific preferences remain separate. The editor reads global
+patterns, not the project-merged setting, and identifies trusted project
+overrides without writing them. Untrusted project settings remain unloaded.
+
+Absent or empty `enabledModels` means all available models, including future
+models. Opening Settings and saving an unchanged selection write nothing.
+Ordinary saves require at least one available selection. “Use all models”
+explicitly writes an empty array. With no available models, the controls are
+disabled and the saved configuration remains untouched. Nonempty unmatched
+patterns remain visible as unavailable entries and are retained by ordinary
+edits; they do not silently expose all choices.
+
+The Pi adapter owns pattern resolution and persistence. Unchanged wildcard and
+fuzzy patterns retain their spelling and reasoning pins. Excluding a match
+expands only its affected pattern into remaining current identities with their
+effective pins; that pattern then stops admitting future matches. Unavailable
+patterns remain, but diagnostic warnings on successfully resolved patterns do
+not classify them as unavailable. Generated patterns must round-trip through
+Pi's resolver to exactly the requested provider/ID pairs and preserved pins;
+ambiguous or unrepresentable identities are rejected. A stale form is rejected
+rather than overwriting a changed global model list. Pi's locked field-level
+write preserves unrelated external edits; load errors and drained write errors
+are surfaced, including failures swallowed by `flush()`.
+
+Saving invalidates all folder model caches and triggers an HTMX refresh of the
+mounted selector. Config stamps include global and project settings for external
+edits. New-session, stored-session and live/SSE selectors read the effective
+trusted Pi scope. Running and stored sessions retain their current model even
+when it is removed from that scope; no save switches a conversation.
+
+The model menu's default scope and new-session startup share SDK scope
+resolution. Startup applies the effective model and reasoning pin without
+passing them to `startupWrites` as user choices. Only deliberate overrides reach
+that unchanged persistence rule. A deliberate startup choice is validated
+against the full credential-available catalog, not the cycling scope. A matching
+scope pin still applies; otherwise Pi supplies the model's normal reasoning
+default. Missing or uncredentialed choices are rejected, never silently
+replaced. Project trust still gates project settings, and existing conversations
+retain SDK model/reasoning restoration.
 
 `src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
 `src/core/workspace/index.ts` composes one flat `Workspace` object from four
@@ -89,10 +131,12 @@ including the in-progress assistant message), `settledCursor` (the last settled
 raw entry ID, or empty at the root), `status`, `usage`, and `models`. Settlement
 moves the runtime boundary to the end of the branch. History and the live tail
 come from that same snapshot and never overlap. Page load, HTMX responses, and
-SSE events reuse the same views. A live view captures and consumes its pending
-notices and composer insertions synchronously, before awaiting project or model
-enrichment. Events arriving during those awaits belong to the next view;
-read-only alternate branch views do not consume them.
+SSE events reuse the same views. Session reads are non-consuming by default. The
+SSE renderer opts into `consumePending` because it delivers notices and composer
+insertions. It captures and consumes the batch synchronously, before awaiting
+project or model enrichment. Events arriving during those awaits belong to the
+next delivery. Page loads, selectors, metadata, history fragments and alternate
+branch reads leave pending output for the session stream.
 
 The session stream sends unnamed HTML messages containing native HTMX 4
 `hx-partial` elements with explicit targets and swap modes:
@@ -571,8 +615,8 @@ composition root and the only importer of Pi adapters.
   extensions, skills and prompts dormant.
 - **Settings is a route that renders as a dialog.** `/settings` re-renders the
   page the reader was on — the open session, else the new-session view — and
-  puts the modal over it, because that is where pi-web keeps it. Its three
-  sections (general, skills, plugins) are server-rendered, the last one
+  puts the modal over it, because that is where pi-web keeps it. Its four
+  sections (general, models, skills, plugins) are server-rendered, the last one
   remembered in a cookie rather than `localStorage`, and the mobile navigation
   is the same list as a native `<select>` — no script. A section that fails to
   load says so; falling back to general would quietly show the wrong page under
@@ -599,9 +643,10 @@ composition root and the only importer of Pi adapters.
   a duplicate extension event.
 - **The models cache is stamped, not just timed.** Credentials and model
   metadata are edited in the Pi terminal, so the cache key carries the
-  modification times of `auth.json` and `models.json`: a terminal login shows up
-  on the next request instead of after the whole 60 s TTL. Granting trust, a
-  plugin action, or writing a new default invalidates it outright.
+  modification times of `auth.json`, `models.json` and global/project
+  `settings.json`: a terminal login or configuration edit shows up on the next
+  request instead of after the whole 60 s TTL. Granting trust, a plugin action,
+  or writing a new default invalidates it outright.
 - **Re-enabling a package loses its filters.** Disabling rewrites the entry as
   an object whose four resource lists are empty; enabling writes the plain
   source string back, so per-resource filters an entry carried do not survive

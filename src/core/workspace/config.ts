@@ -4,6 +4,7 @@ import {
   type SlashCommand,
 } from "@core/composer";
 import { initialModel, type StartupChoice } from "@core/models";
+import { modelSettingsEdit } from "@core/model-settings";
 import type { PackagesView, PackageScope } from "@core/packages";
 import { FileAccessError, isAbsolutePath, samePath } from "@core/path-access";
 import type {
@@ -71,6 +72,9 @@ export function configUseCases({
 
   return {
     validateFolder,
+    modelSettings: (cwd: string) => deps.models.settings(cwd),
+    saveModelSettings: (cwd: string, selected: unknown, patterns: unknown) =>
+      deps.models.saveSettings(cwd, modelSettingsEdit(selected, patterns)),
     webSettings: () => deps.webSettings.get(),
     updateWebSettings: (
       patch: Partial<import("@core/web-settings").WebSettings>,
@@ -140,8 +144,12 @@ export function configUseCases({
       const listing = usable
         ? await modelsFor(cwd)
         : { models: [], warnings: [] };
+      const candidates =
+        usable && choice.model
+          ? await deps.models.listAvailable(cwd).catch(() => listing.models)
+          : listing.models;
       const model =
-        listing.models.find(
+        candidates.find(
           (option) =>
             option.provider === choice.model?.provider &&
             option.id === choice.model?.modelId,

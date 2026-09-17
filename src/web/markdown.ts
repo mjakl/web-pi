@@ -15,6 +15,8 @@ export type MarkdownOptions = {
   sessionId?: string;
   /** Inside the live turn: no diagram preview until the text settles. */
   live?: boolean;
+  /** File previews render fully; messages retain the oversized-source fallback. */
+  filePreview?: boolean;
 };
 
 /** The route the file panel reads bytes from; also used for local images. */
@@ -176,7 +178,7 @@ export function renderMarkdown(
   source: string,
   options: MarkdownOptions = {},
 ): string {
-  if (source.length > MAX_MARKDOWN_CHARS) {
+  if (options.filePreview !== true && source.length > MAX_MARKDOWN_CHARS) {
     // pi-web's SafeMarkdownBody reveal (§4.4.2), as a disclosure.
     const size = escapeHtml(formatBytes(source.length));
     return (

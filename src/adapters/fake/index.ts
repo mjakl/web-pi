@@ -1345,7 +1345,7 @@ export function createFakeWorld(
       list: (directory) => realFiles.list(directory),
       stat: (path) => realFiles.stat(path),
       realpath: (path) => realFiles.realpath(path),
-      readText: (path, maxBytes) => realFiles.readText(path, maxBytes),
+      readText: (path) => realFiles.readText(path),
       stream: (path, range) => realFiles.stream(path, range),
     },
     git: createGit(),

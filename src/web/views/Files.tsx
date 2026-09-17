@@ -687,14 +687,6 @@ function ViewerContent({
   if (mode === "diff") {
     return <DiffView rows={unifiedRows(view.diff ?? "")} />;
   }
-  if (view.tooLarge === true) {
-    return (
-      <div class="file-viewer-empty is-too-large">
-        This file is {formatBytes(view.size)}, above the 256 KB the viewer
-        shows. Download it to read the whole thing.
-      </div>
-    );
-  }
   const text = view.text ?? "";
   if (mode === "preview" && view.language === "html") {
     return (
@@ -712,7 +704,13 @@ function ViewerContent({
       <div class="markdown-file-preview-shell">
         <FrontmatterCard source={text} />
         <div class="markdown-body markdown-file-preview">
-          {raw(renderMarkdown(parsed.body, { cwd: view.cwd, sessionId }))}
+          {raw(
+            renderMarkdown(parsed.body, {
+              cwd: view.cwd,
+              sessionId,
+              filePreview: true,
+            }),
+          )}
         </div>
       </div>
     );

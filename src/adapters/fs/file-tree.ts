@@ -238,11 +238,9 @@ export function createFileTree(): Files {
       );
     },
 
-    async readText(path, maxBytes) {
+    async readText(path) {
       const handle = await open(path, constants.O_RDONLY);
       try {
-        const info = await handle.stat();
-        if (info.size > maxBytes) throw new Error("too large");
         return await handle.readFile("utf8");
       } finally {
         await handle.close();

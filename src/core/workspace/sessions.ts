@@ -153,7 +153,11 @@ export function sessionUseCases({
     fillCompactions(stored.summary.id, stored.entries, page.items);
     const listing = await modelsFor(stored.summary.cwd);
     const model = transcript.lastModel
-      ? listing.models.find(
+      ? (
+          await deps.models
+            .listAvailable(stored.summary.cwd)
+            .catch(() => listing.models)
+        ).find(
           (option) =>
             option.provider === transcript.lastModel?.provider &&
             option.id === transcript.lastModel.id,

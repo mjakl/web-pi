@@ -32,7 +32,7 @@ Internal interfaces, all consumers in this repository. Defined in
 | `Watcher`          | One file's changes on disk, deduplicated                                                                                     | `src/adapters/fs/watch.ts`           |
 | `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                     | `src/adapters/pi/web-push.ts`        |
 
-`WebSettingsStore` in `src/core/web-settings.ts` owns shared General
+`WebSettingsStore` in `src/core/web-settings.ts` owns shared General and Models
 preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
 web-owned state lives in `<agentDir>/web-pi/`: `settings.json`, `push.json` and
 `worktree-projects.json`. Pi configuration and session files stay outside that
@@ -61,11 +61,35 @@ exclusive initial flush and then return to SDK appends. `!!` entries retain
 `excludeFromContext`; no assistant message is invented. Stopping a session
 aborts its shell and awaits settlement before disposal.
 
-The model menu and new-session startup share SDK scope resolution. Startup
-applies the effective model and reasoning pin without passing them to
-`startupWrites` as user choices. Only deliberate overrides reach that unchanged
-persistence rule. Project trust still gates project settings, and existing
-conversations retain SDK model/reasoning restoration.
+Settings → Models lists the full `ModelRuntime.getAvailable()` catalog before
+`enabledModels` narrowing: built-in and configured models with credentials, not
+the unauthenticated registry. Like the existing catalog, it does not load
+project extensions to discover extension-only providers. Availability is the
+SDK's credential check, not a provider request proving account access.
+
+The web-owned `visibleModels` setting is null by default, preserving Pi's scope.
+An explicit array of `{ provider, id }` objects replaces the chooser scope; `[]`
+deliberately leaves no choices, with a Settings recovery link. Newly available
+identities remain hidden after an explicit selection. Saved identities that
+become unavailable are retained across edits and reappear if they return. “Use
+Pi defaults” resets to null. Matching Pi reasoning pins are retained even when
+the chooser uses an explicit selection. Pi's `enabledModels` is not an exact
+visibility contract: it controls CLI cycling, permits patterns and reasoning
+pins, and the existing web resolver falls back to all models for an empty or
+unmatched scope. The Models editor therefore does not write Pi settings.
+
+Saving waits for the existing atomic web-settings write, then triggers an HTMX
+refresh of the mounted model selector. New-session, stored-session and live/SSE
+selectors share the workspace filtering rule. Visibility does not change startup
+defaults or active/stored session models; a hidden current model remains
+displayed but is absent from selectable entries. A new chat still uses Pi's
+startup default unless the user deliberately chooses a model.
+
+The model menu's default scope and new-session startup share SDK scope
+resolution. Startup applies the effective model and reasoning pin without
+passing them to `startupWrites` as user choices. Only deliberate overrides reach
+that unchanged persistence rule. Project trust still gates project settings, and
+existing conversations retain SDK model/reasoning restoration.
 
 `src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
 `src/core/workspace/index.ts` composes one flat `Workspace` object from four
@@ -571,8 +595,8 @@ composition root and the only importer of Pi adapters.
   extensions, skills and prompts dormant.
 - **Settings is a route that renders as a dialog.** `/settings` re-renders the
   page the reader was on — the open session, else the new-session view — and
-  puts the modal over it, because that is where pi-web keeps it. Its three
-  sections (general, skills, plugins) are server-rendered, the last one
+  puts the modal over it, because that is where pi-web keeps it. Its four
+  sections (general, models, skills, plugins) are server-rendered, the last one
   remembered in a cookie rather than `localStorage`, and the mobile navigation
   is the same list as a native `<select>` — no script. A section that fails to
   load says so; falling back to general would quietly show the wrong page under

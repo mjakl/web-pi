@@ -24,6 +24,7 @@ const defaults = {
   theme: "auto",
   sound: true,
   systemPromptAddition: null,
+  visibleModels: null,
 };
 
 describe("shared web settings routes", () => {

@@ -18,6 +18,7 @@ const CACHE_TTL_MS = 60_000;
 export async function resolveModelListing(
   runtime: ModelRuntime,
   settings: SettingsManager,
+  fullCatalog = false,
 ): Promise<ModelListing> {
   const available = await runtime.getAvailable();
   const describe = (model: (typeof available)[number]): ModelOption => ({
@@ -40,7 +41,7 @@ export async function resolveModelListing(
   const patterns = (settings.getEnabledModels() ?? [])
     .map((pattern) => pattern.trim())
     .filter((pattern) => pattern !== "");
-  if (patterns.length === 0) {
+  if (fullCatalog || patterns.length === 0) {
     return { models: available.map(describe), warnings: [], ...preferred };
   }
   const scope = await resolveModelScopeWithDiagnostics(patterns, runtime);
@@ -97,11 +98,16 @@ export function createPiModelCatalog(options: {
     const settings = SettingsManager.create(cwd, options.agentDir);
     const trust = projectTrustReloadOptions(cwd, options.agentDir);
     if (trust) settings.setProjectTrusted(await trust.resolveProjectTrust());
-    return {
-      runtime,
-      settings,
-      listing: await resolveModelListing(runtime, settings),
-    };
+    const listing = await resolveModelListing(runtime, settings);
+    const full = await resolveModelListing(runtime, settings, true);
+    const available = full.models.map(
+      (model) =>
+        listing.models.find(
+          (scoped) =>
+            scoped.provider === model.provider && scoped.id === model.id,
+        ) ?? model,
+    );
+    return { runtime, settings, listing, available };
   }
 
   function stateFor(cwd: string) {
@@ -121,6 +127,9 @@ export function createPiModelCatalog(options: {
   }
 
   return {
+    async listAvailable(cwd) {
+      return (await stateFor(cwd)).available;
+    },
     async list(cwd) {
       return (await stateFor(cwd)).listing;
     },

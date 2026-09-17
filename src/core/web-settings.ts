@@ -7,6 +7,8 @@ export type WebSettings = {
   warnTokens: number;
   theme: "light" | "dark" | "auto";
   sound: boolean;
+  /** Null follows Pi's scope; an empty list deliberately offers no choices. */
+  visibleModels: { provider: string; id: string }[] | null;
   /** Null follows the built-in default; an empty string disables the addition. */
   systemPromptAddition: string | null;
 };
@@ -15,6 +17,7 @@ export const DEFAULT_WEB_SETTINGS: WebSettings = {
   warnTokens: DEFAULT_WARN_TOKENS,
   theme: "auto",
   sound: true,
+  visibleModels: null,
   systemPromptAddition: null,
 };
 
@@ -39,6 +42,25 @@ export function webSettingsPatch(value: unknown): Partial<WebSettings> {
       patch.theme = setting;
     } else if (key === "sound" && typeof setting === "boolean") {
       patch.sound = setting;
+    } else if (
+      key === "visibleModels" &&
+      (setting === null ||
+        (Array.isArray(setting) &&
+          setting.every(
+            (entry: unknown) =>
+              !!entry &&
+              typeof entry === "object" &&
+              !Array.isArray(entry) &&
+              Object.keys(entry).length === 2 &&
+              "provider" in entry &&
+              typeof entry.provider === "string" &&
+              entry.provider.length > 0 &&
+              "id" in entry &&
+              typeof entry.id === "string" &&
+              entry.id.length > 0,
+          )))
+    ) {
+      patch.visibleModels = setting as WebSettings["visibleModels"];
     } else if (
       key === "systemPromptAddition" &&
       (setting === null || typeof setting === "string")

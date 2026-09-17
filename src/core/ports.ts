@@ -391,6 +391,8 @@ export type ModelListing = {
 };
 
 export type ModelCatalog = {
+  /** Credential-available models before Pi's cycling scope is applied. */
+  listAvailable(cwd: string): Promise<ModelOption[]>;
   list(cwd: string): Promise<ModelListing>;
   /** Preview Pi's effective level without opening a session or writing defaults. */
   resolveThinking(

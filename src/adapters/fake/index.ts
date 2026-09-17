@@ -1174,6 +1174,7 @@ export function createFakeWorld(
       },
     },
     models: {
+      listAvailable: () => Promise.resolve(options.models ?? [FAKE_MODEL]),
       list: () =>
         Promise.resolve({
           models: options.models ?? [FAKE_MODEL],

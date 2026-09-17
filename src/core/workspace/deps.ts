@@ -59,7 +59,19 @@ export function createShared(deps: WorkspaceDeps) {
 
   async function modelsFor(cwd: string): Promise<ModelListing> {
     try {
-      return await deps.models.list(cwd);
+      const listing = await deps.models.list(cwd);
+      const visible = deps.webSettings.get().visibleModels;
+      if (visible === null) return listing;
+      const available = await deps.models.listAvailable(cwd);
+      return {
+        ...listing,
+        models: available.filter((model) =>
+          visible.some(
+            (choice) =>
+              choice.provider === model.provider && choice.id === model.id,
+          ),
+        ),
+      };
     } catch {
       return { models: [], warnings: [] };
     }

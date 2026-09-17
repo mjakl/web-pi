@@ -349,7 +349,30 @@ function setUpPluginExamples(): void {
   });
 }
 
+function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
+  const filter = form.querySelector<HTMLInputElement>("#settings-model-filter");
+  filter?.addEventListener(
+    "input",
+    () => {
+      const query = filter.value.trim().toLocaleLowerCase();
+      let count = 0;
+      for (const row of form.querySelectorAll<HTMLElement>(
+        "[data-model-search]",
+      )) {
+        row.hidden = !(row.dataset["modelSearch"] ?? "")
+          .toLocaleLowerCase()
+          .includes(query);
+        if (!row.hidden) count++;
+      }
+      const empty = form.querySelector<HTMLElement>("[data-model-empty]");
+      if (empty) empty.hidden = count > 0;
+    },
+    { signal },
+  );
+}
+
 export function setUpShell(): void {
+  setUpRegion(".settings-models", mountModelSettings);
   setUpTheme();
   setUpRegion("main", setUpTitle);
   setUpPreferences();

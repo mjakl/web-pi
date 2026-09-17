@@ -1,3 +1,4 @@
+import { ModelSettings, type ModelsView } from "./ModelSettings.tsx";
 import {
   type PackageInfo,
   type PackagesView,
@@ -39,6 +40,7 @@ const THEME_OPTIONS = [
 
 export const SETTINGS_SECTIONS = [
   { key: "general", label: "General", needsProject: false },
+  { key: "models", label: "Models", needsProject: false },
   { key: "skills", label: "Skills", needsProject: true },
   { key: "plugins", label: "Plugins", needsProject: true },
 ] as const;
@@ -1161,11 +1163,13 @@ export function SettingsBody({
   home,
   error,
   settings,
+  models,
 }: {
   section: SettingsSection;
   cwd: string;
   skills?: SkillsView;
   plugins?: PackagesView;
+  models?: ModelsView;
   home?: string;
   /** Loading the section failed; saying so beats a silent empty panel. */
   error?: string;
@@ -1178,6 +1182,8 @@ export function SettingsBody({
       </div>
     );
   }
+  if (section === "models" && models)
+    return <ModelSettings cwd={cwd} view={models} />;
   if (section === "skills" && skills) {
     return (
       <SkillsSection view={skills} {...(home === undefined ? {} : { home })} />
@@ -1208,6 +1214,7 @@ export function SettingsDialog(props: {
   home?: string;
   error?: string;
   settings?: WebSettings;
+  models?: ModelsView;
   back: string;
 }) {
   return (

@@ -4,6 +4,7 @@ import {
   type SlashCommand,
 } from "@core/composer";
 import { initialModel, type StartupChoice } from "@core/models";
+import { webSettingsPatch } from "@core/web-settings";
 import type { PackagesView, PackageScope } from "@core/packages";
 import { FileAccessError, isAbsolutePath, samePath } from "@core/path-access";
 import type {
@@ -71,6 +72,44 @@ export function configUseCases({
 
   return {
     validateFolder,
+    async modelSettings(cwd: string) {
+      const available = await deps.models.listAvailable(cwd);
+      const listing = await modelsFor(cwd);
+      const saved = deps.webSettings.get().visibleModels;
+      const unavailableCount = (saved ?? []).filter(
+        (choice) =>
+          !available.some(
+            (model) =>
+              model.provider === choice.provider && model.id === choice.id,
+          ),
+      ).length;
+      return { available, selected: listing.models, unavailableCount };
+    },
+    async saveModelVisibility(cwd: string, selection: unknown) {
+      const patch = webSettingsPatch({ visibleModels: selection });
+      if (patch.visibleModels !== null && patch.visibleModels !== undefined) {
+        const available = await deps.models.listAvailable(cwd);
+        const matches = (
+          a: { provider: string; id: string },
+          b: { provider: string; id: string },
+        ) => a.provider === b.provider && a.id === b.id;
+        if (
+          patch.visibleModels.some(
+            (choice) => !available.some((model) => matches(choice, model)),
+          )
+        ) {
+          throw new Error(
+            "A selected model is no longer available. Reload Models and try again.",
+          );
+        }
+        // Keep unavailable saved identities so a temporary credential loss is reversible.
+        const missing = (deps.webSettings.get().visibleModels ?? []).filter(
+          (choice) => !available.some((model) => matches(choice, model)),
+        );
+        patch.visibleModels = [...missing, ...patch.visibleModels];
+      }
+      return deps.webSettings.update(patch);
+    },
     webSettings: () => deps.webSettings.get(),
     updateWebSettings: (
       patch: Partial<import("@core/web-settings").WebSettings>,
@@ -140,12 +179,20 @@ export function configUseCases({
       const listing = usable
         ? await modelsFor(cwd)
         : { models: [], warnings: [] };
+      // Visibility only curates choices; it must not change Pi's startup default.
+      const defaults = usable
+        ? await deps.models.list(cwd).catch(() => listing)
+        : listing;
+      const candidates =
+        usable && choice.model
+          ? await deps.models.listAvailable(cwd).catch(() => listing.models)
+          : defaults.models;
       const model =
-        listing.models.find(
+        candidates.find(
           (option) =>
             option.provider === choice.model?.provider &&
             option.id === choice.model?.modelId,
-        ) ?? initialModel(listing.models, listing.preferred);
+        ) ?? initialModel(defaults.models, defaults.preferred);
       return {
         cwd,
         available,

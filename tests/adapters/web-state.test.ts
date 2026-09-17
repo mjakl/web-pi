@@ -143,6 +143,7 @@ describe("web state cutover", () => {
     });
     rmSync(join(f.agentDir, "web-pi"), { recursive: true });
     expect(createWebSettingsStore(f.agentDir).get()).toEqual({
+      visibleModels: null,
       systemPromptAddition: null,
       warnTokens: 100000,
       theme: "auto",
@@ -173,6 +174,7 @@ describe("shared settings storage", () => {
         sound: false,
         warnTokens: 42,
         systemPromptAddition: value,
+        visibleModels: null,
       });
     }
   });
@@ -182,6 +184,7 @@ describe("shared settings storage", () => {
     const one = createWebSettingsStore(agentDir);
     const two = createWebSettingsStore(agentDir);
     expect(one.get()).toEqual({
+      visibleModels: null,
       systemPromptAddition: null,
       warnTokens: 100000,
       theme: "auto",
@@ -190,6 +193,7 @@ describe("shared settings storage", () => {
     one.update({ theme: "dark" });
     two.update({ sound: false });
     expect(one.get()).toEqual({
+      visibleModels: null,
       systemPromptAddition: null,
       warnTokens: 100000,
       theme: "dark",

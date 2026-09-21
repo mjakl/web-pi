@@ -18,11 +18,16 @@ import {
   type SessionStats,
 } from "@core/session-entries";
 import {
-  compareSessions,
+  isSubagentSession,
   recentProjects,
   type SessionRowMetadata,
   type SessionSummary,
 } from "@core/sessions";
+import {
+  sessionTree,
+  sessionTreePage,
+  type SessionTreePageOptions,
+} from "@core/session-tree";
 import {
   assistantItem,
   deferThinking,
@@ -43,6 +48,8 @@ export function sessionUseCases({
   entriesOf,
   modelsFor,
   requireFolder,
+  requireWritableSession,
+  inspectionOnly,
   cwdOf,
 }: Shared) {
   function liveView(
@@ -151,18 +158,22 @@ export function sessionUseCases({
     });
     deferThinking(page.items);
     fillCompactions(stored.summary.id, stored.entries, page.items);
-    const listing = await modelsFor(stored.summary.cwd);
-    const model = transcript.lastModel
-      ? (
-          await deps.models
-            .listAvailable(stored.summary.cwd)
-            .catch(() => listing.models)
-        ).find(
-          (option) =>
-            option.provider === transcript.lastModel?.provider &&
-            option.id === transcript.lastModel.id,
-        )
-      : undefined;
+    const readOnly = isSubagentSession(summary);
+    const listing = readOnly
+      ? { models: [], warnings: [] }
+      : await modelsFor(stored.summary.cwd);
+    const model =
+      !readOnly && transcript.lastModel
+        ? (
+            await deps.models
+              .listAvailable(stored.summary.cwd)
+              .catch(() => listing.models)
+          ).find(
+            (option) =>
+              option.provider === transcript.lastModel?.provider &&
+              option.id === transcript.lastModel.id,
+          )
+        : undefined;
     return {
       summary,
       items: page.items,
@@ -203,17 +214,33 @@ export function sessionUseCases({
     };
   }
 
+  function resolveViewOptions(
+    entries: readonly SessionEntry[],
+    options: ViewOptions,
+  ): ViewOptions {
+    const resolved = { ...options };
+    for (const key of ["leaf", "before", "through"] as const) {
+      const entryId = options[key];
+      if (entryId !== undefined)
+        resolved[key] = deps.sessions.resolveEntryId(entries, entryId);
+    }
+    // `after` is also a DOM reconciliation cursor. Migrated IDs must trigger
+    // the existing whole-transcript reset, not leave old element IDs mounted.
+    return resolved;
+  }
+
   async function viewSession(
     id: string,
     options: ViewOptions = {},
   ): Promise<SessionView | undefined> {
     // A running session owns its file, so even another branch of it is read
     // from the runtime: the file on disk may be a flush behind.
-    const live = deps.runtime.get(id);
+    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
     if (live) {
       const snapshot = live.snapshot();
+      const resolved = resolveViewOptions(snapshot.entries, options);
       const leafId = snapshot.branch.at(-1)?.id ?? null;
-      const requestedLeaf = options.leaf;
+      const requestedLeaf = resolved.leaf;
       const alternate = requestedLeaf !== undefined && requestedLeaf !== leafId;
       // Only delivery views own the captured batch; selector/metadata reads
       // must leave it for a renderer that includes notices and composer text.
@@ -235,19 +262,29 @@ export function sessionUseCases({
             leafId,
           },
           summary,
-          options,
+          resolved,
         );
       }
-      return liveView(snapshot, summary, await modelsFor(summary.cwd), options);
+      return liveView(
+        snapshot,
+        summary,
+        await modelsFor(summary.cwd),
+        resolved,
+      );
     }
     const stored = await deps.sessions.read(id, options.leaf);
     if (!stored) return undefined;
     const [summary] = await decorate([stored.summary]);
     if (!summary) return undefined;
-    return storedView(stored, summary, options);
+    return storedView(
+      stored,
+      summary,
+      resolveViewOptions(stored.entries, options),
+    );
   }
 
   async function stop(id: string): Promise<void> {
+    await requireWritableSession(id);
     await deps.runtime.get(id)?.stop();
   }
 
@@ -256,10 +293,12 @@ export function sessionUseCases({
     id: string,
     targetId: string,
     starred: boolean,
-  ): Promise<void> {
+  ): Promise<string> {
+    await requireWritableSession(id);
     const live = deps.runtime.get(id);
-    if (live) live.setStar(targetId, starred);
-    else await deps.sessions.setStar(id, targetId, starred);
+    return live
+      ? live.setStar(targetId, starred)
+      : deps.sessions.setStar(id, targetId, starred);
   }
 
   /**
@@ -272,7 +311,11 @@ export function sessionUseCases({
   ): Promise<
     { summary: SessionSummary; metadata: SessionRowMetadata } | undefined
   > {
-    const snapshot = deps.runtime.get(id)?.snapshot();
+    return readRow(id, await inspectionOnly(id));
+  }
+
+  async function readRow(id: string, readOnly: boolean) {
+    const snapshot = readOnly ? undefined : deps.runtime.get(id)?.snapshot();
     const found = snapshot
       ? {
           summary: snapshot.summary,
@@ -313,23 +356,50 @@ export function sessionUseCases({
       return recentProjects(await listedSessions());
     },
 
-    /** One global page; only these rows load transcript metadata. */
-    async sidebar(options: { offset?: number } = {}): Promise<SidebarView> {
-      const sessions = (await listedSessions()).sort(compareSessions);
-      const offset = options.offset ?? 0;
-      const next = offset + 50;
-      const page = await Promise.all(
-        sessions.slice(offset, next).map(async (summary) => {
-          const found = await row(summary.id);
-          return (
-            found && { ...found, summary: { ...summary, ...found.summary } }
-          );
-        }),
-      );
-      return {
-        rows: page.filter((found) => found !== undefined),
-        ...(next < sessions.length ? { nextOffset: next } : {}),
-      };
+    /** Build the global tree before paging roots or any parent's children. */
+    async sidebar(options: SessionTreePageOptions = {}): Promise<SidebarView> {
+      const tree = sessionTree(await listedSessions());
+      async function pageOf(
+        pageOptions: SessionTreePageOptions,
+      ): Promise<SidebarView> {
+        const page = sessionTreePage(tree, pageOptions);
+        const rows = await Promise.all(
+          page.nodes.map(async (node) => {
+            const { summary, children } = node;
+            const found = await readRow(summary.id, isSubagentSession(summary));
+            if (!found) return undefined;
+            const preload =
+              children.length > 0 &&
+              page.selectedPath.has(summary.id) &&
+              summary.id !== options.selectedId;
+            return {
+              ...found,
+              summary: { ...summary, ...found.summary },
+              ...(children.length > 0 ? { childCount: children.length } : {}),
+              ...(preload
+                ? {
+                    children: await pageOf({
+                      parentId: summary.id,
+                      ...(options.selectedId === undefined
+                        ? {}
+                        : { selectedId: options.selectedId }),
+                    }),
+                  }
+                : {}),
+            };
+          }),
+        );
+        return {
+          rows: rows.filter((row) => row !== undefined),
+          ...(pageOptions.parentId === undefined
+            ? {}
+            : { parentId: pageOptions.parentId }),
+          ...(page.nextOffset === undefined
+            ? {}
+            : { nextOffset: page.nextOffset }),
+        };
+      }
+      return pageOf(options);
     },
 
     async sessionStats(
@@ -365,12 +435,14 @@ export function sessionUseCases({
 
     /** A live session owns its file; only a stopped one is edited on disk. */
     async rename(id: string, name: string): Promise<void> {
+      await requireWritableSession(id);
       const live = deps.runtime.get(id);
       if (live) live.setName(name);
       else await deps.sessions.rename(id, name);
     },
 
     async clearStars(id: string): Promise<void> {
+      await requireWritableSession(id);
       const stored = await entriesOf(id);
       if (!stored) return;
       for (const targetId of readStars(stored.entries)) {
@@ -414,7 +486,8 @@ export function sessionUseCases({
       return (await live.navigateTree(targetId)) ?? "";
     },
 
-    exportHtml(id: string): Promise<{ html: string; filename: string }> {
+    async exportHtml(id: string): Promise<{ html: string; filename: string }> {
+      await requireWritableSession(id);
       return deps.sessions.exportHtml(id);
     },
 

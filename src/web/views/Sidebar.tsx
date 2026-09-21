@@ -1,5 +1,6 @@
 import {
   type ProjectEntry,
+  isSubagentSession,
   relativeTime,
   type SessionRowMetadata,
   sessionTitle,
@@ -153,16 +154,17 @@ export function SessionRow({
   const title = sessionTitle(summary, metadata);
   const selected = id === activeId;
   const menuId = `row-menu-${id}`;
+  const inspectionOnly = isSubagentSession(summary);
   return (
     <div
       id={`row-${id}`}
-      class={`session-row${selected ? " is-selected" : ""}${summary.live === true ? " is-live" : ""}`}
+      class={`session-row${selected ? " is-selected" : ""}${summary.live === true ? " is-live" : ""}${inspectionOnly ? " is-inspection" : ""}`}
       data-session-id={id}
       data-title={title.toLowerCase()}
       {...(oob === true ? { "hx-swap-oob": "true" } : {})}
     >
       <a href={`/sessions/${id}`} class="session-row-link">
-        <SessionIndicator summary={summary} />
+        {inspectionOnly ? null : <SessionIndicator summary={summary} />}
         <div
           class={`session-row-location${summary.cwdAvailable === false ? " is-unavailable" : ""}`}
         >
@@ -223,22 +225,81 @@ export function SessionRow({
             row re-rendered on its own does not know its position — so
             client/sidebar.ts fills this in and decides what shows. */}
         <kbd class="session-shortcut" aria-hidden="true" hidden />
-        <button
-          type="button"
-          class="session-menu-trigger"
-          popovertarget={menuId}
-          aria-label={`Session actions for ${title}`}
-          aria-controls={menuId}
-        >
-          <MoreDotsIcon size={16} radius={1.8} />
-        </button>
+        {inspectionOnly ? null : (
+          <button
+            type="button"
+            class="session-menu-trigger"
+            popovertarget={menuId}
+            aria-label={`Session actions for ${title}`}
+            aria-controls={menuId}
+          >
+            <MoreDotsIcon size={16} radius={1.8} />
+          </button>
+        )}
       </div>
-      <RowMenu summary={summary} metadata={metadata} />
+      {inspectionOnly ? null : (
+        <RowMenu summary={summary} metadata={metadata} />
+      )}
     </div>
   );
 }
 
-/** One page of rows, plus the sentinel that fetches the page after it. */
+/** Row actions replace only the body, leaving its disclosure and children intact. */
+function SessionNode({
+  row,
+  activeId,
+}: {
+  row: SidebarView["rows"][number];
+  activeId?: string;
+}) {
+  const { summary, childCount = 0, children } = row;
+  const query = new URLSearchParams({ parent: summary.id });
+  if (activeId !== undefined) query.set("selected", activeId);
+  return (
+    <div id={`node-${summary.id}`} class="session-node">
+      <SessionRow {...row} {...(activeId === undefined ? {} : { activeId })} />
+      {childCount > 0 ? (
+        <details
+          class="session-children"
+          data-parent-session-id={summary.id}
+          open={children !== undefined}
+        >
+          <summary class="session-children-toggle">
+            <span class="session-children-closed" aria-hidden="true">
+              ▸
+            </span>
+            <span class="session-children-open" aria-hidden="true">
+              ▾
+            </span>
+            {String(childCount)}{" "}
+            {childCount === 1 ? "sub-session" : "sub-sessions"}
+          </summary>
+          <div class="session-subtree">
+            {children === undefined ? (
+              <div
+                class="session-children-loading"
+                hx-get={`/sidebar/rows?${query.toString()}`}
+                hx-trigger="load[this.closest('details').open], web-pi:children"
+                hx-sync="this:drop"
+                hx-target="this"
+                hx-swap="outerHTML"
+              >
+                Loading sub-sessions…
+              </div>
+            ) : (
+              <SessionRows
+                view={children}
+                {...(activeId === undefined ? {} : { activeId })}
+              />
+            )}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+/** One page of siblings, plus the sentinel that fetches the page after it. */
 export function SessionRows({
   view,
   activeId,
@@ -247,11 +308,13 @@ export function SessionRows({
   activeId?: string;
 }) {
   const query = new URLSearchParams({ after: String(view.nextOffset) });
+  if (view.parentId !== undefined) query.set("parent", view.parentId);
+  if (activeId !== undefined) query.set("selected", activeId);
   return (
     <>
       {view.rows.map((row) => (
-        <SessionRow
-          {...row}
+        <SessionNode
+          row={row}
           {...(activeId === undefined ? {} : { activeId })}
         />
       ))}

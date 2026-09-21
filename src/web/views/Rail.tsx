@@ -1,3 +1,4 @@
+import { isSubagentSession } from "@core/sessions";
 import type { RailMark } from "@core/conversation-rail";
 import type { SessionView } from "@core/workspace";
 import { StarIcon } from "./icons.tsx";
@@ -36,15 +37,18 @@ function Node({
   mark,
   rows,
   sessionId,
+  readOnly,
 }: {
   mark: RailMark;
   rows: number;
   sessionId: string;
+  readOnly: boolean;
 }) {
   const top = rowTop(mark.row, rows);
   const left = `${String(WIDTH / 2 + mark.lane * LANE)}px`;
   // Off the branch being read: a button that moves the session to its tip.
   if (!mark.active) {
+    if (readOnly) return null;
     const label =
       mark.kind === "star"
         ? "Switch branch to starred answer"
@@ -218,7 +222,12 @@ export function Rail({ view, oob }: { view: SessionView; oob?: boolean }) {
           fork in the session, so a linear rail carries the spine too. */}
       <Graph marks={marks} rows={rows} />
       {marks.map((mark) => (
-        <Node mark={mark} rows={rows} sessionId={view.summary.id} />
+        <Node
+          mark={mark}
+          rows={rows}
+          sessionId={view.summary.id}
+          readOnly={isSubagentSession(view.summary)}
+        />
       ))}
     </div>
   );

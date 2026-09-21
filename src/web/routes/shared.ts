@@ -36,7 +36,7 @@ export type RouteContext = {
   deps: WebDeps;
   assets: StaticAssets;
   renderIntervalMs: number;
-  sidebarOf: () => Promise<SidebarView>;
+  sidebarOf: (selectedId?: string) => Promise<SidebarView>;
   remember: (c: Context, name: string, value: string) => void;
   newCwd: (c: Context) => string;
   currentCwd: (c: Context) => Promise<string>;

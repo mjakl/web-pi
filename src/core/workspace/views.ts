@@ -84,8 +84,16 @@ export type SessionView = {
 /** The global session list, bounded to one page of metadata. */
 export type SidebarView = {
   /** This page's readable rows, with metadata ready to render. */
-  rows: { summary: SessionSummary; metadata: SessionRowMetadata }[];
-  /** Offset in sessions, including any unreadable rows omitted from this page. */
+  rows: {
+    summary: SessionSummary;
+    metadata: SessionRowMetadata;
+    childCount?: number;
+    /** Only the selected ancestor path is preloaded. */
+    children?: SidebarView;
+  }[];
+  /** Direct children of this node; absent for a root page. */
+  parentId?: string;
+  /** Sibling offset, including unreadable and already-pinned rows. */
   nextOffset?: number;
 };
 
@@ -134,3 +142,13 @@ export type FileView = {
 
 /** Where a file request may point: the session's own working folder. */
 export class ForbiddenPath extends Error {}
+
+/** Saved delegated runs must never be resumed or modified by this workspace. */
+export class InspectionOnlySession extends Error {
+  constructor() {
+    super(
+      "Subagent sessions are inspection only. View the saved transcript; continue work in the parent session.",
+    );
+    this.name = "InspectionOnlySession";
+  }
+}

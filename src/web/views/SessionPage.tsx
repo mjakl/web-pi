@@ -5,6 +5,7 @@ import {
 } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { ImageAttachment } from "@core/ports";
+import { isSubagentSession } from "@core/sessions";
 import type { SessionStats } from "@core/session-entries";
 import type { NewSessionView, SessionView, SidebarView } from "@core/workspace";
 import { Composer, DropZone } from "./Composer.tsx";
@@ -54,6 +55,7 @@ function TopBar({
   panels,
   compactOff,
   compacting,
+  inspectionOnly = false,
 }: {
   sessionId?: string;
   usage?: ContextUsage;
@@ -66,6 +68,7 @@ function TopBar({
   /** A read-only or busy session refuses to compact; the button dims. */
   compactOff?: boolean;
   compacting?: boolean;
+  inspectionOnly?: boolean;
 }) {
   return (
     <div id="top-bar" class="shell-top-bar">
@@ -92,109 +95,113 @@ function TopBar({
         {/* Under 480px pi-web keeps the three tabs behind this button and
             slides them in over the bar (AppShell.tsx L1978-L2090); the media
             query in areas/shell.css is what hides it above that width. */}
-        <button
-          type="button"
-          id="mobile-toolbar-more"
-          class="shell-icon-button is-left-control"
-          aria-controls="top-bar-tabs"
-          aria-expanded="false"
-          title="More controls"
-          aria-label="More controls"
-        >
-          <span data-more-closed-icon>
-            <MoreDotsIcon size={17} />
-          </span>
-          <span data-more-open-icon hidden>
-            <CloseIcon />
-          </span>
-        </button>
+        {!inspectionOnly && (
+          <button
+            type="button"
+            id="mobile-toolbar-more"
+            class="shell-icon-button is-left-control"
+            aria-controls="top-bar-tabs"
+            aria-expanded="false"
+            title="More controls"
+            aria-label="More controls"
+          >
+            <span data-more-closed-icon>
+              <MoreDotsIcon size={17} />
+            </span>
+            <span data-more-open-icon hidden>
+              <CloseIcon />
+            </span>
+          </button>
+        )}
         {/* pi-web draws the group whenever the chat area does, so a page
             with no session yet still has it (AppShell.tsx L1224), with
             Full history disabled until there is a history to export. */}
-        <div id="top-bar-tabs" class="shell-top-bar-tabs">
-          {sessionId === undefined ? (
+        {!inspectionOnly && (
+          <div id="top-bar-tabs" class="shell-top-bar-tabs">
+            {sessionId === undefined ? (
+              <button
+                type="button"
+                class="shell-top-bar-tab"
+                data-top-bar-tab
+                disabled
+                title="Full history is available after the session is saved"
+                aria-label="Full history"
+              >
+                <HistoryIcon />
+                <span>Full history</span>
+              </button>
+            ) : (
+              <a
+                class="shell-top-bar-tab"
+                data-top-bar-tab
+                href={`/sessions/${sessionId}/export`}
+                target="_blank"
+                rel="noreferrer"
+                title="Full history"
+                aria-label="Full history"
+              >
+                <HistoryIcon />
+                <span>Full history</span>
+              </a>
+            )}
             <button
               type="button"
               class="shell-top-bar-tab"
               data-top-bar-tab
-              disabled
-              title="Full history is available after the session is saved"
-              aria-label="Full history"
+              data-top-panel="system"
+              data-panel-loaded={panels?.system === true ? "true" : undefined}
+              aria-pressed="false"
+              title="System prompt"
+              aria-label="System prompt"
+              hx-get={
+                sessionId === undefined
+                  ? "/panels/system"
+                  : `/sessions/${sessionId}/system-prompt`
+              }
+              hx-target="#top-panel"
+              hx-swap="innerHTML"
             >
-              <HistoryIcon />
-              <span>Full history</span>
-            </button>
-          ) : (
-            <a
-              class="shell-top-bar-tab"
-              data-top-bar-tab
-              href={`/sessions/${sessionId}/export`}
-              target="_blank"
-              rel="noreferrer"
-              title="Full history"
-              aria-label="Full history"
-            >
-              <HistoryIcon />
-              <span>Full history</span>
-            </a>
-          )}
-          <button
-            type="button"
-            class="shell-top-bar-tab"
-            data-top-bar-tab
-            data-top-panel="system"
-            data-panel-loaded={panels?.system === true ? "true" : undefined}
-            aria-pressed="false"
-            title="System prompt"
-            aria-label="System prompt"
-            hx-get={
-              sessionId === undefined
-                ? "/panels/system"
-                : `/sessions/${sessionId}/system-prompt`
-            }
-            hx-target="#top-panel"
-            hx-swap="innerHTML"
-          >
-            {/* pi-web tints both icons with the accent once the session has
+              {/* pi-web tints both icons with the accent once the session has
                 told it what they hold, and leaves them dim until then
                 (AppShell.tsx L1341, L1406). Only an attached session knows,
                 which is why a stored one stays dim in pi-web too. */}
-            <span data-panel-icon class="shell-panel-icon">
-              <SystemPromptIcon />
-            </span>
-            <span>System</span>
-          </button>
-          <button
-            type="button"
-            class="shell-top-bar-tab"
-            data-top-bar-tab
-            data-top-panel="tools"
-            data-panel-loaded={panels?.tools === true ? "true" : undefined}
-            aria-pressed="false"
-            title="Tool definitions"
-            aria-label="Tool definitions"
-            hx-get={
-              sessionId === undefined
-                ? "/panels/tools"
-                : `/sessions/${sessionId}/tools`
-            }
-            hx-target="#top-panel"
-            hx-swap="innerHTML"
-          >
-            <span data-panel-icon class="shell-panel-icon">
-              <WrenchIcon />
-            </span>
-            <span>Tools</span>
-          </button>
-        </div>
-        {sessionId === undefined ? null : (
+              <span data-panel-icon class="shell-panel-icon">
+                <SystemPromptIcon />
+              </span>
+              <span>System</span>
+            </button>
+            <button
+              type="button"
+              class="shell-top-bar-tab"
+              data-top-bar-tab
+              data-top-panel="tools"
+              data-panel-loaded={panels?.tools === true ? "true" : undefined}
+              aria-pressed="false"
+              title="Tool definitions"
+              aria-label="Tool definitions"
+              hx-get={
+                sessionId === undefined
+                  ? "/panels/tools"
+                  : `/sessions/${sessionId}/tools`
+              }
+              hx-target="#top-panel"
+              hx-swap="innerHTML"
+            >
+              <span data-panel-icon class="shell-panel-icon">
+                <WrenchIcon />
+              </span>
+              <span>Tools</span>
+            </button>
+          </div>
+        )}
+        {sessionId === undefined || inspectionOnly ? null : (
           <SessionStatsButton
             sessionId={sessionId}
             {...(usage === undefined ? {} : { usage })}
             {...(tokens === undefined ? {} : { tokens })}
           />
         )}
-        {sessionId === undefined ? null : (
+        {sessionId === undefined || inspectionOnly ? null : (
           <>
             <CompactButton
               sessionId={sessionId}
@@ -328,6 +335,7 @@ export function Shell({
   panels,
   compactOff,
   compacting,
+  inspectionOnly = false,
   children,
   overlay,
 }: {
@@ -346,6 +354,7 @@ export function Shell({
   panels?: { system: boolean; tools: boolean };
   compactOff?: boolean;
   compacting?: boolean;
+  inspectionOnly?: boolean;
   children?: unknown;
   /** An overlay over the whole shell: the settings dialog. */
   overlay?: unknown;
@@ -366,6 +375,7 @@ export function Shell({
         {...(panels === undefined ? {} : { panels })}
         {...(compactOff === true ? { compactOff } : {})}
         compacting={compacting ?? false}
+        inspectionOnly={inspectionOnly}
       />
       <main
         class="shell-main"
@@ -373,7 +383,7 @@ export function Shell({
         data-cwd={cwd}
         data-cwd-available={cwdAvailable === false ? "false" : undefined}
         hx-sse:connect={
-          activeId
+          activeId && !inspectionOnly
             ? `/sessions/${activeId}/events?after=${encodeURIComponent(settledCursor ?? "")}`
             : undefined
         }
@@ -557,6 +567,7 @@ export function SessionPage({
   overlay?: unknown;
 }) {
   const { summary } = view;
+  const inspectionOnly = isSubagentSession(summary);
   // A session whose folder is gone stays readable: only the actions that
   // would run the agent in it disappear.
   const missingFolder = summary.cwdAvailable === false;
@@ -565,6 +576,7 @@ export function SessionPage({
       sidebar={sidebar}
       fragment={fragment}
       activeId={summary.id}
+      inspectionOnly={inspectionOnly}
       cwdAvailable={summary.cwdAvailable}
       settledCursor={view.settledCursor}
       cwd={summary.cwd}
@@ -581,35 +593,50 @@ export function SessionPage({
           })}
       {...(compactDisabled(view) ? { compactOff: true } : {})}
       compacting={view.status?.compacting ?? false}
-      {...(trust === undefined ? {} : { trust })}
+      {...(trust === undefined || inspectionOnly ? {} : { trust })}
       {...(overlay === undefined ? {} : { overlay })}
     >
       <section class="chat-window" aria-label="Messages">
-        <DropZone />
+        {!inspectionOnly && <DropZone />}
         <Transcript view={view} />
-        <footer class="chat-composer">
-          {missingFolder ? (
-            <MissingFolderNotice />
-          ) : view.otherBranch ? null : (
-            <Composer
-              sessionId={summary.id}
-              cwd={summary.cwd}
-              draft={draft}
-              images={images}
-              view={view}
-              status={<Status view={view} />}
-            />
-          )}
-          <Shelf status={view.status} />
-        </footer>
+        {inspectionOnly && (
+          <div class="branch-sync-notice" role="status">
+            Delegated session — saved transcript, inspection only. Refresh to
+            see saved updates.
+          </div>
+        )}
+        {!inspectionOnly && (
+          <footer class="chat-composer">
+            {missingFolder ? (
+              <MissingFolderNotice />
+            ) : view.otherBranch ? null : (
+              <Composer
+                sessionId={summary.id}
+                cwd={summary.cwd}
+                draft={draft}
+                images={images}
+                view={view}
+                status={<Status view={view} />}
+              />
+            )}
+            <Shelf status={view.status} />
+          </footer>
+        )}
       </section>
-      <CustomPanel sessionId={summary.id} frame={view.status?.custom ?? null} />
-      <ExtensionDialog
-        sessionId={summary.id}
-        dialog={view.status?.dialog ?? null}
-      />
-      {/* Text an extension asked to put in the composer arrives here. */}
-      <div id="editor-insert" hidden />
+      {!inspectionOnly && (
+        <>
+          <CustomPanel
+            sessionId={summary.id}
+            frame={view.status?.custom ?? null}
+          />
+          <ExtensionDialog
+            sessionId={summary.id}
+            dialog={view.status?.dialog ?? null}
+          />
+          {/* Text an extension asked to put in the composer arrives here. */}
+          <div id="editor-insert" hidden />
+        </>
+      )}
     </Shell>
   );
 }

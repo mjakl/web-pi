@@ -11,7 +11,8 @@ import { contentParts } from "@core/transcript";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type AssistantMessage,
-  type Context,
+  type TranscriptContext,
+  type JsonObject,
   createAssistantMessageEventStream,
   type Model,
   type SimpleStreamOptions,
@@ -40,13 +41,13 @@ export const CONTEXT_WINDOW = 4000;
 
 /** One provider call under the test's control. */
 export type Turn = {
-  context: Context;
+  context: TranscriptContext;
   options: SimpleStreamOptions | undefined;
   text(delta: string): void;
   /** Streams the arguments as two JSON halves, then finishes the call. */
-  toolCall(name: string, args: Record<string, unknown>): void;
+  toolCall(name: string, args: JsonObject): void;
   /** Starts a tool call and leaves its arguments half streamed. */
-  toolCallStart(name: string, args: Record<string, unknown>): void;
+  toolCallStart(name: string, args: JsonObject): void;
   toolCallEnd(): void;
   done(usage?: { input?: number; output?: number }): void;
   error(message: string): void;
@@ -80,7 +81,7 @@ let callCounter = 0;
 
 function playTurn(
   model: Model<string>,
-  context: Context,
+  context: TranscriptContext,
   options: SimpleStreamOptions | undefined,
   script: Script,
 ) {
@@ -260,7 +261,7 @@ export async function createHarness(
   );
   const scripts: Script[] = [];
   const calls: {
-    context: Context;
+    context: TranscriptContext;
     options: SimpleStreamOptions | undefined;
   }[] = [];
   const provider: InlineExtension = {
@@ -333,10 +334,16 @@ export async function createHarness(
   };
 }
 
-/** The message entries on the branch, as `role:text`. */
+/** Non-system message entries on the branch, as `role:text`. */
 export function messages(session: LiveSession): string[] {
   return session.snapshot().branch.flatMap((entry) => {
-    if (entry.type !== "message" || !("content" in entry.message)) return [];
+    if (
+      entry.type !== "message" ||
+      entry.message.role === "system" ||
+      !("content" in entry.message)
+    ) {
+      return [];
+    }
     const text = contentParts(entry.message.content)
       .map((part) =>
         part.type === "text" ? (part.text ?? "") : `[${part.type}]`,

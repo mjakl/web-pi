@@ -19,18 +19,18 @@ shared server settings.
 Internal interfaces, all consumers in this repository. Defined in
 `src/core/ports.ts`:
 
-| Port               | Purpose                                                                                                                      | Adapter                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `SessionCatalog`   | List from headers only; read one branch; row metadata; rename, delete, star, fork, clone, rewind, export                     | `src/adapters/pi/session-catalog.ts` |
-| `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                          | `src/adapters/pi/agent-runtime.ts`   |
-| `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()` | same                                 |
-| `ModelCatalog`     | Models Pi has credentials for, narrowed by `enabledModels`, with the configured default and per-pattern reasoning pins       | `src/adapters/pi/model-catalog.ts`   |
-| `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                   | `src/adapters/pi/projects.ts`        |
-| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                           | `src/adapters/pi/resources.ts`       |
-| `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                     | `src/adapters/fs/file-tree.ts`       |
-| `Git`              | `git status` of a folder and the patch for one file                                                                          | `src/adapters/git/git.ts`            |
-| `Watcher`          | One file's changes on disk, deduplicated                                                                                     | `src/adapters/fs/watch.ts`           |
-| `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                     | `src/adapters/pi/web-push.ts`        |
+| Port               | Purpose                                                                                                                           | Adapter                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `SessionCatalog`   | List headers and delegation origins; read a non-writing snapshot; row metadata; rename, delete, star, fork, clone, rewind, export | `src/adapters/pi/session-catalog.ts` |
+| `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                               | `src/adapters/pi/agent-runtime.ts`   |
+| `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`      | same                                 |
+| `ModelCatalog`     | Models Pi has credentials for, narrowed by `enabledModels`, with the configured default and per-pattern reasoning pins            | `src/adapters/pi/model-catalog.ts`   |
+| `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                        | `src/adapters/pi/projects.ts`        |
+| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                | `src/adapters/pi/resources.ts`       |
+| `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                          | `src/adapters/fs/file-tree.ts`       |
+| `Git`              | `git status` of a folder and the patch for one file                                                                               | `src/adapters/git/git.ts`            |
+| `Watcher`          | One file's changes on disk, deduplicated                                                                                          | `src/adapters/fs/watch.ts`           |
+| `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                          | `src/adapters/pi/web-push.ts`        |
 
 `WebSettingsStore` in `src/core/web-settings.ts` owns shared General
 preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
@@ -210,9 +210,10 @@ no-swap rules preserve error toasts without replacing the requested region.
 
 A second stream, `GET /events`, belongs to the global sidebar rather than one
 session or project. Opening, starting a turn, finishing and stopping replace the
-sorted first 50 rows through `hx-partial`; only that page loads row metadata.
-The runtime announces `started` only when it becomes busy, not for every token.
-A named `finished` event carries the session id, which the browser records as an
+sorted first 50 root subtrees through `hx-partial`. Delegation discovery
+precedes pagination; transcript bodies are not retained for the list. The
+runtime announces `started` only when it becomes busy, not for every token. A
+named `finished` event carries the session id, which the browser records as an
 unread dot in `localStorage`, including for rows that have not loaded yet. The
 list and its small `#sidebar-events` owner live in `#session-nav` and survive
 conversation and directory navigation. No cookie or query scopes the stream. Row
@@ -396,29 +397,52 @@ composition root and the only importer of Pi adapters.
   would take the server with it.
 - **Raw HTML in Markdown is escaped**, not sanitised. No allowlist to maintain,
   no script can pass.
-- **The sidebar is global, in pages.** A real store holds ~2,750 sessions across
-  ~256 projects; shipping every row made a session page 3.0 MB.
-  `src/core/sessions.ts` orders running sessions first, then live, then newest
-  modified. The workspace returns one 50-row `SidebarView`, and an
-  `hx-trigger="intersect once"` sentinel loads subsequent pages. Every row shows
-  its folder basename with a full-path tooltip and an optional worktree branch.
-  The blank new-session screen fetches existing project/worktree choices only
-  when its selector opens, without loading transcript metadata. The old
-  `web-pi-project` cookie and project query no longer filter anything.
-- **Sidebar pages arrive with complete row metadata.** Catalog listing reads one
-  header per file. Before rendering a page, the workspace loads titles, message
-  counts and star counts for its 50 rows. Initial documents, refreshes,
-  pagination and SSE list replacements use this same path, with no per-row
-  metadata-loading request. The adapter streams each file line by line and
-  retains its size/mtime cache. Unreadable files are omitted; readable untitled
-  or empty sessions keep their normal fallback labels. Page offsets still count
-  omitted files, so pagination does not repeat rows. Cold pages can take longer
-  because metadata must be ready before the response. The row endpoint remains
-  for actions and live updates.
-- **pi-subagent runs are ordinary rows.** Half the files in a real store are
-  `subagent.<hex>` sessions: transcripts of one tool call. pi-web lists them
-  with everything else, so web-pi does too; the list pages fifty rows at a time,
-  which is what keeps a store of thousands cheap to open.
+- **The sidebar is a global, paged delegation tree.** A real store holds ~2,750
+  sessions across ~256 projects; shipping every row made a session page 3.0 MB.
+  `src/core/session-tree.ts` groups only persisted delegation origins, across
+  working folders. Each sibling subtree sorts by its best known local activity
+  (running, then live, then stored), newest member mtime, and ID for ties. A
+  row's own timestamp and status never inherit its descendants' values. The
+  workspace returns 50 roots at a time; child siblings load in pages of 50 on
+  expansion. An off-page selected ancestor is included on the first page and
+  omitted from later pages to avoid duplicates. Every row keeps its own folder
+  and optional worktree branch. The old project cookie and query do not filter
+  the list.
+- **Listing discovers origins before pagination.** The catalog reads each header
+  and streams changed files for delegation origins. Visible rows also stream
+  their row metadata. Both use bounded file-stamp caches rather than retaining
+  transcript bodies. This makes cold discovery more expensive than header-only
+  listing, but avoids hiding children on another page or in another working
+  folder. Initial pages, refreshes, pagination and SSE list replacements use the
+  same projection. Unreadable files are omitted; untitled and empty sessions
+  keep fallback labels. Page offsets count unreadable rows. External appends and
+  new sessions are discovered on refresh or local rescan; there is no
+  external-session watcher or live-status promise.
+- **Delegation origin is separate from Pi fork ancestry.** The
+  `pi-subagent:delegation` custom entry has data
+  `{version:1, childSessionId, parentSessionId, agent, handle}`. An origin
+  belongs only to the header whose ID equals `childSessionId`; copied entries in
+  forks and parent-seeded children do not establish ownership. Conflicting,
+  malformed or self-origin claims create no edge. All edges within a cycle are
+  discarded. Missing parents become roots without losing their descendants. Pi's
+  header `parentSession`/summary `parentId` never creates a delegation edge.
+  Deleting an ordinary parent does not delete or rewrite delegated children;
+  refresh promotes them. Cloning an ordinary session does not clone its
+  delegation tree. Only new named persisted children receive producer records;
+  there is no backfill, historical reconstruction, registry, or ephemeral child
+  row.
+- **Delegated conversations are strictly inspection-only.** Own-ID origin claims
+  (even malformed ones) and legacy `subagent.*` IDs are read-only. Legacy IDs
+  alone imply no ancestry. The workspace refuses all source mutations, runtime
+  attachment, extension input and runtime-starting panels, including direct HTTP
+  requests. Saved transcript pages, earlier messages, thinking, tools, images
+  and copy use catalog snapshots, never an external runtime. The conversation
+  shows an inspection notice and no composer or mutation controls; sidebar cards
+  have no activity or menu icon. The native disclosure footer counts direct
+  children. Browser-local expansion preferences survive row/list swaps; selected
+  ancestors are revealed without changing those preferences. Row-only actions
+  replace the card body inside a stable tree wrapper, and keyboard shortcuts
+  number only visible rows.
 - **The conversation rail is server-rendered and positioned in percentages.**
   `src/core/conversation-rail.ts` is pi-web's `lib/conversation-rail.ts` fed
   from the flat entry list rather than a compressed tree: web-pi already holds
@@ -489,19 +513,30 @@ composition root and the only importer of Pi adapters.
   (`<details name>`, no script). A widget whose content is a component is
   rendered through the same headless pi-tui as a custom UI.
 - **Session edits go through Pi's `SessionManager`.** Renames, stars, forks and
-  clones are appends the SDK writes, so the CLI and web-pi never disagree about
-  the JSONL format; stars are `web-pi:star` custom entries. The old
-  `pi-web:star` type is not recognized or migrated. Only delete (re-parenting
-  children) and rewind rewrite a file, because the SDK cannot remove entries.
-  Fork and rewind return an `EditableMessage` containing the selected user's
-  text and images, extracted before any rewrite. The replacement composer
-  consumes images through the queue-recall slot, without recompressing stored
-  bytes. A restored-draft marker makes even empty history text authoritative
-  over localStorage. Images still do not persist as drafts across reloads.
-- **HTML export spawns the Pi CLI**, as pi-web does: the SDK's exporter is
-  behind the package export map. The exported page's recursive tree walks are
-  rewritten as iterative ones, or a long session overflows the browser's stack;
-  if a rewrite no longer matches the SDK's template the page is still served.
+  clones use the SDK, so the CLI and web-pi agree on the JSONL format; stars are
+  `web-pi:star` custom entries. Catalog reads instead parse raw JSONL and
+  project it through an in-memory manager: they never open the source with a
+  writable `SessionManager`, repair a partial append, initialize an empty file,
+  lock it, or persist a migration. Old-format migration stays in memory, with
+  stable IDs for repeated inspection requests. If an ordinary session's writer
+  later migrates those IDs, saved links resolve against the current entries
+  without another file read; star responses use the writer's target ID. A stale
+  SSE cursor still resets the transcript so mounted element IDs catch up. The
+  old `pi-web:star` type is not recognized or migrated. Only delete
+  (re-parenting children) and rewind rewrite a file, because the SDK cannot
+  remove entries. Delegated children are not Pi fork children and are never
+  rewritten by parent deletion. Fork and rewind return an `EditableMessage`
+  containing the selected user's text and images, extracted before any rewrite.
+  The replacement composer consumes images through the queue-recall slot,
+  without recompressing stored bytes. A restored-draft marker makes even empty
+  history text authoritative over localStorage. Images still do not persist as
+  drafts across reloads.
+- **HTML export spawns the Pi CLI** for ordinary sessions: the SDK's exporter is
+  behind the package export map. It receives a temporary snapshot, not the
+  source path, because the CLI opens a writable manager. The exported page's
+  recursive tree walks are rewritten as iterative ones, or a long session
+  overflows the browser's stack; if a rewrite no longer matches the SDK's
+  template the page is still served.
 - **The transcript pages backwards, and defers old reasoning.** A page holds the
   last 50 items of the branch, extended back to a turn boundary, and a sentinel
   with `hx-trigger="intersect once"` swaps itself for the page before it; the

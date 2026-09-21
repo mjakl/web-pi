@@ -214,7 +214,69 @@ scale.entries.push({
   tokensBefore: 40_000,
   firstKeptEntryId: "scale-u",
 });
-const sessions = [release, navigation, tools, light, scale];
+function delegate(child: FakeStoredSession, parent: string) {
+  const origin = {
+    version: 1,
+    childSessionId: child.summary.id,
+    parentSessionId: parent,
+    agent: "reviewer",
+    handle: "release-review",
+  };
+  child.summary.inspectionOnly = true;
+  child.summary.delegation = {
+    parentSessionId: parent,
+    agent: origin.agent,
+    handle: origin.handle,
+  };
+  child.entries.push({
+    type: "custom",
+    id: `${child.summary.id}-origin`,
+    parentId: child.entries.at(-1)?.id ?? null,
+    timestamp,
+    customType: "pi-subagent:delegation",
+    data: origin,
+  });
+}
+
+const reviewCwd = join(root, "release-review-worktree-with-a-long-name");
+mkdirSync(reviewCwd);
+const delegated = Array.from({ length: 6 }, (_, index) => {
+  const child = session(
+    `review-${String(index + 1)}`,
+    index === 5
+      ? "Check the very long release compatibility title with nested conversations and useful own-folder metadata"
+      : `Review detail ${String(index + 1)}`,
+    "Inspect the saved release review. Do not change the source conversation.",
+    '## Saved review\n\nThe release helper preserves existing labels. This is a saved conversation, not a live status report.\n\n```ts\nreleaseLabel("1.4.0");\n```',
+  );
+  child.summary.cwd = reviewCwd;
+  delegate(child, index === 0 ? "tools" : `review-${String(index)}`);
+  return child;
+});
+delegate(tools, "release");
+const releaseNotes = session(
+  "release-notes",
+  "Check the release notes",
+  "Read the release notes for accuracy.",
+  "The release notes match the saved change.",
+);
+delegate(releaseNotes, "release");
+const legacy = session(
+  "subagent.legacy-fixture",
+  "Earlier saved review",
+  "Inspect this legacy conversation.",
+  "No delegation ancestry is recorded for this older conversation.",
+);
+const sessions = [
+  release,
+  navigation,
+  tools,
+  light,
+  scale,
+  releaseNotes,
+  legacy,
+  ...delegated,
+];
 for (const stored of sessions) {
   for (const [index, entry] of stored.entries.entries()) {
     const time = Date.parse(timestamp) + index * 15_000;
@@ -225,6 +287,12 @@ for (const stored of sessions) {
 const world = createFakeWorld({
   sessions,
   files: ["README.md", "src/release.ts"],
+  projects: (folder) => ({
+    root: cwd,
+    branch: folder === reviewCwd ? "review/compatibility-long-branch" : "main",
+    isWorktree: folder === reviewCwd,
+    isTopLevel: true,
+  }),
 });
 const app = createWebApp({
   workspace: createWorkspace(world),

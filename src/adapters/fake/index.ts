@@ -61,6 +61,7 @@ import {
 } from "@core/session-entries";
 import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 // In-memory implementations of every outbound port. Tests and the
@@ -113,7 +114,7 @@ export type ScriptedStep =
       progress?: string[];
       result?: string;
       isError?: boolean;
-      details?: unknown;
+      details?: JsonValue;
     };
 
 export type FakeStoredSession = {
@@ -733,12 +734,13 @@ class FakeLiveSession implements LiveSession {
     this.emit({ type: "activity" });
   }
 
-  setStar(targetId: string, starred: boolean): void {
+  setStar(targetId: string, starred: boolean): string {
     assertAnswer(this.stored, targetId);
     this.append(
       starEntry(this.nextId(), leafOf(this.stored), targetId, starred),
     );
     this.emit({ type: "activity" });
+    return targetId;
   }
 
   commands(): SlashCommand[] {
@@ -1015,6 +1017,7 @@ export function createFakeWorld(
     sessions: {
       list: () => Promise.resolve([...store.values()].map((s) => s.summary)),
       folder: (id) => Promise.resolve(store.get(id)?.summary.cwd),
+      resolveEntryId: (_entries, entryId) => entryId,
       read: (id, leafId) => {
         const stored = store.get(id);
         return Promise.resolve(
@@ -1078,7 +1081,7 @@ export function createFakeWorld(
           ),
         );
         touch(stored);
-        return Promise.resolve();
+        return Promise.resolve(targetId);
       },
       fork: (id, entryId) => {
         const stored = need(id);

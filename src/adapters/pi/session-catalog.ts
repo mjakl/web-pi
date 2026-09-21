@@ -1,6 +1,10 @@
 import { pathKey } from "@core/path-access";
 import type { SessionCatalog, SessionRead } from "@core/ports";
 import {
+  delegationFold,
+  type SessionDelegation,
+} from "@core/session-delegation";
+import {
   rowMetadataFold,
   STAR_TYPE,
   editableUserMessage,
@@ -23,22 +27,25 @@ import {
   openSync,
   readSync,
 } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { exportSessionHtml } from "./session-export.ts";
+import {
+  readSessionSnapshot,
+  resolveSnapshotEntryId,
+  sessionHeader,
+} from "./session-snapshot.ts";
 import {
   branchToNewFile,
   removeSessionFile,
   rewindSessionFile,
 } from "./session-files.ts";
 
-// Reads Pi's sessions/<encoded-cwd>/*.jsonl store. Listing touches only the
-// first line of every file (the header) and the stat of the descriptor it is
-// already holding: a store of thousands of files is listed on every sidebar
-// render, and one awaited stat per file was most of that cost. Sidebar pages
-// then load their rows' metadata by streaming each file line by line instead
-// of holding it.
+// Listing reads each header and streams delegation metadata on a changed
+// stamp, before the workspace paginates. Neither discovery nor row metadata
+// retains transcripts; only a requested session snapshot loads all entries.
 
 const HEADER_MAX_BYTES = 8192;
 const METADATA_CACHE_MAX = 4096;
@@ -53,7 +60,26 @@ type Header = {
   parentSession?: string;
   modifiedAt: string;
   fileSize: number;
+  stamp: string;
 };
+
+function fileStamp(info: {
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  dev: number;
+  ino: number;
+}): string {
+  return [info.size, info.mtimeMs, info.ctimeMs, info.dev, info.ino].join("\0");
+}
+
+function cacheFile<T>(cache: Map<string, T>, filePath: string, value: T): void {
+  if (!cache.has(filePath) && cache.size >= METADATA_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(filePath, value);
+}
 
 function readHeader(filePath: string): Header | undefined {
   let fd: number | undefined;
@@ -61,23 +87,13 @@ function readHeader(filePath: string): Header | undefined {
     fd = openSync(filePath, "r");
     const info = fstatSync(fd);
     const bytes = readSync(fd, headerBuffer, 0, HEADER_MAX_BYTES, 0);
-    const newline = headerBuffer.indexOf(10);
-    if (newline < 0 || newline > bytes) return undefined;
-    const parsed: unknown = JSON.parse(
-      headerBuffer.subarray(0, newline).toString(),
+    const buffer = headerBuffer.subarray(0, bytes);
+    const newline = buffer.indexOf(10);
+    if (newline < 0 && info.size > bytes) return undefined;
+    const header = sessionHeader(
+      JSON.parse(buffer.subarray(0, newline < 0 ? bytes : newline).toString()),
     );
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const header = parsed as Partial<Record<keyof Header | "type", unknown>>;
-    if (
-      header.type !== "session" ||
-      !isSessionId(header.id) ||
-      typeof header.cwd !== "string" ||
-      !isAbsolute(header.cwd) ||
-      typeof header.timestamp !== "string" ||
-      Number.isNaN(Date.parse(header.timestamp))
-    ) {
-      return undefined;
-    }
+    if (!header) return undefined;
     return {
       id: header.id,
       cwd: header.cwd,
@@ -88,6 +104,7 @@ function readHeader(filePath: string): Header | undefined {
         : {}),
       modifiedAt: info.mtime.toISOString(),
       fileSize: info.size,
+      stamp: fileStamp(info),
     };
   } catch (error) {
     if (error instanceof SyntaxError || isFileReadError(error))
@@ -116,22 +133,63 @@ function isFileReadError(error: unknown): boolean {
  */
 async function streamRowMetadata(
   filePath: string,
-  file: { modifiedAt: string; fileSize: number },
-): Promise<SessionRowMetadata> {
+  header: Header,
+): Promise<
+  | { metadata: SessionRowMetadata; classification: SessionDelegation }
+  | undefined
+> {
   const fold = rowMetadataFold();
+  const delegation = delegationFold(header.id);
+  const valid = await streamEntries(filePath, header.id, (entry) => {
+    delegation.add(entry);
+    fold.add(entry as SessionEntry);
+  });
+  if (!valid) return undefined;
+  return {
+    metadata: fold.finish({
+      modifiedAt: header.modifiedAt,
+      fileSize: header.fileSize,
+    }),
+    classification: delegation.finish(),
+  };
+}
+
+async function streamDelegation(
+  filePath: string,
+  header: Header,
+): Promise<SessionDelegation | undefined> {
+  const fold = delegationFold(header.id);
+  const valid = await streamEntries(filePath, header.id, (entry) => {
+    fold.add(entry);
+  });
+  return valid ? fold.finish() : undefined;
+}
+
+async function streamEntries(
+  filePath: string,
+  sessionId: string,
+  add: (entry: unknown) => void,
+): Promise<boolean> {
   const lines = createInterface({
     input: createReadStream(filePath, "utf8"),
     crlfDelay: Number.POSITIVE_INFINITY,
   });
+  let first = true;
   for await (const line of lines) {
-    if (!line) continue;
     try {
-      fold.add(JSON.parse(line) as SessionEntry);
+      const entry: unknown = JSON.parse(line);
+      if (first) {
+        if (sessionHeader(entry)?.id !== sessionId) return false;
+        first = false;
+      } else {
+        add(entry);
+      }
     } catch {
-      continue;
+      if (first) return false;
+      // A producer may still be appending the last JSONL entry.
     }
   }
-  return fold.finish(file);
+  return !first;
 }
 
 /**
@@ -150,7 +208,10 @@ function contextTokensAt(
   const cached = compactionTokens.get(key);
   if (cached !== undefined) return cached;
   try {
-    const context = buildSessionContext([...entries], entryId);
+    const context = buildSessionContext(
+      [...entries],
+      resolveSnapshotEntryId(entries, entryId),
+    );
     const total = context.messages.reduce(
       (sum, message) => sum + estimateTokens(message),
       0,
@@ -189,6 +250,10 @@ export function createPiSessionCatalog(options: {
 }): PiSessionCatalog {
   const sessionsDir = join(options.agentDir, "sessions");
   const paths = new Map<string, string>();
+  const delegations = new Map<
+    string,
+    { stamp: string; value: SessionDelegation }
+  >();
   // One entry per file: a re-read replaces the stamp instead of leaving the
   // superseded key behind, so the cap never evicts a hot session for a stale
   // copy of itself.
@@ -228,6 +293,16 @@ export function createPiSessionCatalog(options: {
       try {
         const header = readHeader(filePath);
         if (!header) continue;
+        const cached = delegations.get(filePath);
+        const classification =
+          cached?.stamp === header.stamp
+            ? cached.value
+            : await streamDelegation(filePath, header);
+        if (!classification) continue;
+        cacheFile(delegations, filePath, {
+          stamp: header.stamp,
+          value: classification,
+        });
         paths.set(header.id, filePath);
         idByPath.set(pathKey(filePath), header.id);
         if (header.parentSession !== undefined) {
@@ -240,6 +315,7 @@ export function createPiSessionCatalog(options: {
           modifiedAt: header.modifiedAt,
           fileSize: header.fileSize,
           filePath,
+          ...classification,
         });
       } catch {
         // Unreadable or concurrently removed files are left out.
@@ -268,10 +344,21 @@ export function createPiSessionCatalog(options: {
     return SessionManager.open(await fileOf(id));
   }
 
+  async function openSelection(id: string, entryId?: string) {
+    const filePath = await fileOf(id);
+    const manager = SessionManager.open(filePath);
+    const selectedId =
+      entryId === undefined
+        ? undefined
+        : resolveSnapshotEntryId(manager.getEntries(), entryId);
+    return { filePath, manager, selectedId };
+  }
+
   return {
     list: scan,
     pathOf,
     contextTokensAt,
+    resolveEntryId: resolveSnapshotEntryId,
     remember(id, filePath) {
       paths.set(id, filePath);
     },
@@ -286,24 +373,30 @@ export function createPiSessionCatalog(options: {
     async read(id, leafId): Promise<SessionRead | undefined> {
       const filePath = await pathOf(id);
       if (!filePath) return undefined;
-      const info = await stat(filePath);
-      const manager = SessionManager.open(filePath);
-      const header = manager.getHeader();
-      if (!header) return undefined;
-      const name = manager.getSessionName();
+      const snapshot = await readSessionSnapshot(filePath, leafId).catch(
+        (error: unknown) => {
+          if (isFileReadError(error)) return undefined;
+          throw error;
+        },
+      );
+      if (!snapshot || snapshot.header.id !== id) return undefined;
+      const { header, name, entries } = snapshot;
+      const delegation = delegationFold(id);
+      for (const entry of entries) delegation.add(entry);
       return {
         summary: {
           id: header.id,
           cwd: header.cwd,
           ...(name ? { name } : {}),
           createdAt: header.timestamp,
-          modifiedAt: info.mtime.toISOString(),
-          fileSize: info.size,
+          modifiedAt: snapshot.modifiedAt,
+          fileSize: snapshot.fileSize,
           filePath,
+          ...delegation.finish(),
         },
-        branch: manager.getBranch(leafId),
-        entries: manager.getEntries(),
-        leafId: manager.getLeafId(),
+        branch: snapshot.branch,
+        entries,
+        leafId: snapshot.leafId,
       };
     },
 
@@ -317,22 +410,24 @@ export function createPiSessionCatalog(options: {
         throw error;
       });
       if (!info) return undefined;
-      const stamp = `${String(info.size)}\0${String(info.mtimeMs)}`;
+      const stamp = fileStamp(info);
       const cached = rows.get(filePath);
-      if (cached?.stamp === stamp) return cached.row;
+      if (cached?.stamp === stamp && cached.row.summary.id === id)
+        return cached.row;
       const header = readHeader(filePath);
-      if (!header) return undefined;
+      if (!header || header.id !== id) return undefined;
       const file = {
         modifiedAt: info.mtime.toISOString(),
         fileSize: info.size,
       };
-      const metadata = await streamRowMetadata(filePath, file).catch(
+      const streamed = await streamRowMetadata(filePath, header).catch(
         (error: unknown) => {
           if (isFileReadError(error)) return undefined;
           throw error;
         },
       );
-      if (!metadata) return undefined;
+      if (!streamed) return undefined;
+      const { metadata, classification } = streamed;
       const row = {
         summary: {
           id: header.id,
@@ -340,14 +435,12 @@ export function createPiSessionCatalog(options: {
           ...(metadata.name ? { name: metadata.name } : {}),
           createdAt: header.timestamp,
           ...file,
+          ...classification,
         },
         metadata,
       };
-      if (!rows.has(filePath) && rows.size >= METADATA_CACHE_MAX) {
-        const oldest = rows.keys().next().value;
-        if (oldest !== undefined) rows.delete(oldest);
-      }
-      rows.set(filePath, { stamp, row });
+      cacheFile(rows, filePath, { stamp, row });
+      cacheFile(delegations, filePath, { stamp, value: classification });
       return row;
     },
 
@@ -361,18 +454,21 @@ export function createPiSessionCatalog(options: {
     },
 
     async setStar(id, targetId, starred) {
-      const manager = await openManager(id);
-      const target = manager.getEntry(targetId);
+      const { manager, selectedId } = await openSelection(id, targetId);
+      const target = manager.getEntry(selectedId ?? targetId);
       if (target?.type !== "message" || target.message.role !== "assistant") {
         throw new Error("Star target must be an assistant answer");
       }
-      manager.appendCustomEntry(STAR_TYPE, { targetId, starred });
+      manager.appendCustomEntry(STAR_TYPE, { targetId: target.id, starred });
+      return target.id;
     },
 
     async fork(id, entryId) {
-      const filePath = await fileOf(id);
-      const manager = SessionManager.open(filePath);
-      const entry = manager.getEntry(entryId);
+      const { filePath, manager, selectedId } = await openSelection(
+        id,
+        entryId,
+      );
+      const entry = manager.getEntry(selectedId ?? entryId);
       if (!entry) throw new Error("Select an existing conversation message");
       const draft = editableUserMessage(entry) ?? { text: "", images: [] };
       // Editing a user message reopens the history *before* it; anything else
@@ -392,9 +488,8 @@ export function createPiSessionCatalog(options: {
     },
 
     async clone(id, leafId) {
-      const filePath = await fileOf(id);
-      const manager = SessionManager.open(filePath);
-      const leaf = leafId ?? manager.getLeafId();
+      const { filePath, manager, selectedId } = await openSelection(id, leafId);
+      const leaf = selectedId ?? manager.getLeafId();
       if (leaf === null) throw new Error("Cannot clone an empty session");
       const cloned = branchToNewFile(filePath, leaf);
       paths.set(cloned.id, cloned.file);
@@ -402,11 +497,29 @@ export function createPiSessionCatalog(options: {
     },
 
     async rewind(id, entryId) {
-      return rewindSessionFile(await fileOf(id), entryId);
+      const { filePath, selectedId } = await openSelection(id, entryId);
+      return rewindSessionFile(filePath, selectedId ?? entryId);
     },
 
     async exportHtml(id) {
-      return exportSessionHtml(await fileOf(id));
+      const filePath = await pathOf(id);
+      if (!filePath) throw new Error("Session not found");
+      const snapshot = await readSessionSnapshot(filePath);
+      if (!snapshot || snapshot.header.id !== id)
+        throw new Error("Session not found");
+      // The CLI exporter opens a writable SessionManager. Give it a temporary
+      // snapshot so inspection cannot repair or migrate the producer's file.
+      const directory = await mkdtemp(join(tmpdir(), "web-pi-export-source-"));
+      try {
+        const input = join(directory, basename(filePath));
+        const content = [snapshot.header, ...snapshot.entries]
+          .map((entry) => JSON.stringify(entry))
+          .join("\n");
+        await writeFile(input, `${content}\n`);
+        return await exportSessionHtml(input);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
     },
   };
 }

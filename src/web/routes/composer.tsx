@@ -6,7 +6,7 @@ import { bashCommand } from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
 import { isSessionId } from "@core/sessions";
-import { ForbiddenPath } from "@core/workspace";
+import { ForbiddenPath, InspectionOnlySession } from "@core/workspace";
 import {
   CommandMenu,
   ComposerText,
@@ -45,6 +45,28 @@ import {
 
 export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, renderIntervalMs, warnTokens, guard } = ctx;
+
+  for (const action of [
+    "prompt",
+    "commands",
+    "compact",
+    "compact/abort",
+    "queue/recall",
+    "abort",
+    "model-selector",
+    "model",
+    "events",
+  ]) {
+    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
+      const id = c.req.param("id");
+      if (!id || !isSessionId(id)) return c.notFound();
+      return guard(c, async () => {
+        await deps.workspace.requireWritableSession(id);
+        await next();
+        return c.res;
+      });
+    });
+  }
 
   app.post("/sessions", (c) => submit(c));
   app.post("/sessions/:id/prompt", (c) => {
@@ -184,10 +206,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     });
   });
 
-  app.post("/sessions/:id/compact/abort", (c) => {
+  app.post("/sessions/:id/compact/abort", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    deps.workspace.abortCompaction(id);
+    await deps.workspace.abortCompaction(id);
     return c.body(null, 204);
   });
 
@@ -196,10 +218,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
    * the images those messages carried riding along out of band for the client
    * bundle to put back into the attachment strip.
    */
-  app.post("/sessions/:id/queue/recall", (c) => {
+  app.post("/sessions/:id/queue/recall", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const recalled = deps.workspace.recallQueue(id);
+    const recalled = await deps.workspace.recallQueue(id);
     return c.html(
       <>
         <ComposerText draft={recalled.text} />
@@ -315,6 +337,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         ...(isThinkingLevel(thinking) ? { thinkingLevel: thinking } : {}),
       });
     } catch (error) {
+      if (error instanceof InspectionOnlySession)
+        return c.text(error.message, 403);
       return c.text(errorText(error), 400);
     }
     const view = await deps.workspace.viewSession(id, warnTokens(c));
@@ -626,11 +650,11 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       };
       // A page for a stored session opens its stream before any runtime
       // exists; reconcile it, then wait for the first prompt to create one.
-      let unsubscribe = deps.workspace.subscribe(id, listener);
+      let unsubscribe = await deps.workspace.subscribe(id, listener);
       if (!unsubscribe) enqueue("activity");
       while (!unsubscribe && !aborted) {
         await sleep(500);
-        unsubscribe = deps.workspace.subscribe(id, listener);
+        unsubscribe = await deps.workspace.subscribe(id, listener);
       }
       if (!unsubscribe) return;
       // The client may have missed activity between page render and connect.

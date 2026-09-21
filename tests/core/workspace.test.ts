@@ -16,10 +16,14 @@ async function sendFirst(
   return id;
 }
 
-const settle = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
+async function waitForIdle(
+  workspace: ReturnType<typeof createWorkspace>,
+  id: string,
+) {
+  await vi.waitFor(async () => {
+    expect((await workspace.viewSession(id))?.status?.running).toBe(false);
   });
+}
 
 describe("workspace over the fake runtime", () => {
   it("streams a turn and settles it into the transcript", async () => {
@@ -31,7 +35,7 @@ describe("workspace over the fake runtime", () => {
     expect(during?.status?.running).toBe(true);
     expect(during?.turn.map((item) => item.kind)).toEqual(["user"]);
 
-    await settle(50);
+    await waitForIdle(workspace, id);
     const after = await workspace.viewSession(id);
     expect(after?.status?.running).toBe(false);
     // Reconciliation after the delivered cursor must never repeat the turn.
@@ -55,10 +59,10 @@ describe("workspace over the fake runtime", () => {
   it("lists sessions globally and derives directory choices separately", async () => {
     const world = createFakeWorld({ delayMs: 2 });
     const workspace = createWorkspace(world);
-    await sendFirst(workspace, "/repo/a", "x");
-    await settle(30);
-    await sendFirst(workspace, "/repo/b", "y");
-    await settle(30);
+    const first = await sendFirst(workspace, "/repo/a", "x");
+    await waitForIdle(workspace, first);
+    const second = await sendFirst(workspace, "/repo/b", "y");
+    await waitForIdle(workspace, second);
 
     const sidebar = await workspace.sidebar();
     expect(sidebar.rows.map((row) => row.summary.cwd)).toEqual([
@@ -78,10 +82,18 @@ describe("workspace over the fake runtime", () => {
     const world = createFakeWorld({ delayMs: 2, reply: () => "answer" });
     const workspace = createWorkspace(world);
     const id = await sendFirst(workspace, "/repo/a", "first question");
-    await settle(30);
-    const read = vi.spyOn(world.sessions, "rowMetadata");
+    await waitForIdle(workspace, id);
+    const stored = await world.sessions.rowMetadata(id);
+    if (!stored) throw new Error("Expected a stored session");
+    vi.spyOn(world.sessions, "rowMetadata").mockResolvedValue({
+      ...stored,
+      metadata: {
+        ...stored.metadata,
+        messageCount: 0,
+        firstMessage: "stale file",
+      },
+    });
     const row = await workspace.row(id);
-    expect(read).not.toHaveBeenCalled();
     expect(row?.summary.live).toBe(true);
     expect(row?.metadata.messageCount).toBe(2);
     expect(row?.metadata.firstMessage).toBe("first question");
@@ -91,7 +103,7 @@ describe("workspace over the fake runtime", () => {
     const world = createFakeWorld({ delayMs: 2, reply: () => "answer" });
     const workspace = createWorkspace(world);
     const id = await sendFirst(workspace, "/tmp/project", "hi");
-    await settle(50);
+    await waitForIdle(workspace, id);
 
     // A star, a rename, an extension status: all of them are `activity`, and
     // none of them may put the turn that already settled back on screen.
@@ -109,7 +121,7 @@ describe("workspace over the fake runtime", () => {
     const world = createFakeWorld({ delayMs: 2, reply: () => "answer" });
     const workspace = createWorkspace(world);
     const id = await sendFirst(workspace, "/tmp/project", "first");
-    await settle(50);
+    await waitForIdle(workspace, id);
     const first = (await workspace.viewSession(id))?.items[0]?.entryId ?? "";
     // A live session owns its file; reading it from disk could serve a branch
     // Pi has not flushed yet, so the file must not be touched at all.
@@ -126,11 +138,11 @@ describe("workspace over the fake runtime", () => {
     const world = createFakeWorld({ delayMs: 2 });
     const workspace = createWorkspace(world);
     const id = await sendFirst(workspace, "/tmp/project", "first");
-    await settle(50);
+    await waitForIdle(workspace, id);
     await workspace.send(id, "", {
       images: [{ data: "AAAA", mimeType: "image/png" }],
     });
-    await settle(50);
+    await waitForIdle(workspace, id);
 
     const items = (await workspace.viewSession(id))?.items ?? [];
     const wordless = items.filter((item) => item.kind === "user").at(-1);
@@ -210,7 +222,7 @@ describe("workspace over the fake runtime", () => {
       images: [{ data: "AAAA", mimeType: "image/png" }],
     });
 
-    const recalled = workspace.recallQueue(id);
+    const recalled = await workspace.recallQueue(id);
     expect(recalled.text).toBe("second");
     expect(recalled.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
   });

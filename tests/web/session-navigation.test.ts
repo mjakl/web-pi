@@ -721,7 +721,7 @@ it("retains progressively loaded global rows across cross-directory navigation",
   ).toHaveLength(50);
   const sentinel = b.document.querySelector(".session-rows-loading");
   const url = sentinel?.getAttribute("hx-get");
-  expect(url).toBe("/sidebar/rows?after=50");
+  expect(url).toBe("/sidebar/rows?after=50&selected=s1");
   await b.window.eval(
     `htmx.ajax('GET',${JSON.stringify(url)},{source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'})`,
   );

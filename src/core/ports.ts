@@ -52,12 +52,14 @@ export type SessionRead = {
 
 /** Pi's session files: read without starting an agent, and edited in place. */
 export type SessionCatalog = {
-  /** Headers only, so a store with thousands of sessions stays cheap. */
+  /** Headers plus stamped, streamed delegation metadata; no retained transcripts. */
   list(): Promise<SessionSummary[]>;
   /** Working folder from the current header only; undefined if unreadable. */
   folder(id: string): Promise<string | undefined>;
   /** Undefined when the id is unknown. */
   read(id: string, leafId?: string): Promise<SessionRead | undefined>;
+  /** Resolve a saved snapshot ID against current entries, without file access. */
+  resolveEntryId(entries: readonly SessionEntry[], entryId: string): string;
   /**
    * One sidebar row: the header summary plus the counts a full pass over the
    * file yields. Cached by size and mtime, so a second visit is free.
@@ -78,9 +80,10 @@ export type SessionCatalog = {
     entryId: string,
   ): number | undefined;
   rename(id: string, name: string): Promise<void>;
-  /** Deletes the file and re-attaches its children to its own parent. */
+  /** Deletes the file and reparents Pi forks, never delegated conversations. */
   remove(id: string): Promise<void>;
-  setStar(id: string, targetId: string, starred: boolean): Promise<void>;
+  /** Returns the persisted target ID, which migration may have changed. */
+  setStar(id: string, targetId: string, starred: boolean): Promise<string>;
   /** New session file holding the path from root to `entryId`. */
   fork(id: string, entryId: string): Promise<{ id: string } & EditableMessage>;
   /** New session file holding the path from root to a branch tip. */
@@ -316,7 +319,8 @@ export type LiveSession = {
   setModel(provider: string, modelId: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel): void;
   setName(name: string): void;
-  setStar(targetId: string, starred: boolean): void;
+  /** Returns the writer's target ID, resolving old saved snapshot IDs. */
+  setStar(targetId: string, starred: boolean): string;
   /** Move the leaf to another entry. Returns the user text to re-edit, if any. */
   navigateTree(targetId: string): Promise<string | undefined>;
   /** Extension commands, prompt templates, and skills this session knows. */

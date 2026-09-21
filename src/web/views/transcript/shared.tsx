@@ -17,8 +17,10 @@ export type ItemActions = {
   /** Resolves relative file links in Markdown. */
   cwd: string;
   starred: Set<string>;
-  /** Set while another branch is being viewed: nothing may be changed. */
+  /** History edits are unavailable on alternate branches or missing folders. */
   readOnly?: boolean;
+  /** Delegated transcripts also refuse metadata edits such as stars. */
+  inspectionOnly?: boolean;
   /** Entry ids whose message shows a time. */
   timestamps?: Set<string>;
   /** Inside the running turn: no actions, no diagram preview. */
@@ -281,6 +283,7 @@ export function StarButton({
   entryId: string;
   actions: ItemActions;
 }) {
+  if (actions.inspectionOnly) return null;
   const starred = actions.starred.has(entryId);
   const label = starred ? "Unstar answer" : "Star answer";
   return (

@@ -14,7 +14,7 @@ concurrency:
 
 env:
   # A CI host fixture, not a pinned product SDK dependency.
-  PI_FIXTURE_VERSION: 0.85.1
+  PI_FIXTURE_VERSION: 0.86.1
 
 jobs:
   source:

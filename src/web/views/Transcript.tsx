@@ -1,3 +1,4 @@
+import { isSubagentSession } from "@core/sessions";
 import type { SessionView } from "@core/workspace";
 import {
   type ItemActions,
@@ -23,12 +24,14 @@ function pageTitle(view: SessionView): string {
 /** Initial pages and canonical rewrites share the transcript and rail owner. */
 export function Transcript({ view }: { view: SessionView }) {
   const { summary } = view;
+  const inspectionOnly = isSubagentSession(summary);
   const leafId = view.leaves.find((leaf) => leaf.current)?.id;
   const actions: ItemActions = {
     sessionId: summary.id,
     cwd: summary.cwd,
     starred: view.starred,
-    ...(view.otherBranch || summary.cwdAvailable === false
+    ...(inspectionOnly ? { inspectionOnly: true } : {}),
+    ...(inspectionOnly || view.otherBranch || summary.cwdAvailable === false
       ? { readOnly: true }
       : {}),
     ...(turnBusy(view.status) ? { busy: true } : {}),
@@ -41,7 +44,7 @@ export function Transcript({ view }: { view: SessionView }) {
             <span hidden data-page-title>
               {pageTitle(view)}
             </span>
-            {view.otherBranch ? (
+            {view.otherBranch && !inspectionOnly ? (
               <div class="branch-sync-notice" role="status">
                 <span>Viewing another branch of this session, read only.</span>
                 <button
@@ -70,7 +73,7 @@ export function Transcript({ view }: { view: SessionView }) {
               <TurnFragment
                 items={view.turn}
                 actions={actions}
-                status={view.status}
+                status={inspectionOnly ? null : view.status}
               />
             </div>
           </div>

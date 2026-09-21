@@ -1,5 +1,5 @@
 import type { HTMLButtonElement } from "happy-dom";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 import { rewritableSession } from "#/web/fixtures/rewritable-session";
@@ -96,6 +96,10 @@ it.each(["u31", "u1"])(
   "replaces history after another tab rewinds to %s, including the empty branch",
   async (entryId) => {
     const f = await rewritableSession();
+    const subscribed = vi.spyOn(
+      required(f.world.runtime.get(f.id)),
+      "subscribe",
+    );
     const transport = disconnectable((request) => f.app.request(request));
     const browser = await htmxBrowser(
       await (await f.app.request(`/sessions/${f.id}`)).text(),
@@ -107,6 +111,10 @@ it.each(["u31", "u1"])(
     browsers.push(browser);
     const { document } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
+    // A response body exists before async inspection checks finish. This case
+    // must stop an already-subscribed runtime to exercise reconnection.
+    await expect.poll(() => subscribed.mock.calls.length).toBe(1);
+    subscribed.mockRestore();
     const owner = document.querySelector("main");
     const oldLog = document.querySelector("#log");
     expect(
@@ -133,7 +141,10 @@ it.each(["u31", "u1"])(
         document.querySelector(".load-earlier")?.getAttribute("hx-get"),
       ).toContain("before=u6");
     }
-    await expect.poll(() => transport.connections.length).toBe(2);
+    // DOM replacement can precede stream EOF and the jittered reconnect delay.
+    await expect
+      .poll(() => transport.connections.length, { timeout: 5000 })
+      .toBe(2);
     expect(
       required(transport.connections[1]).request.headers.get("Last-Event-ID"),
     ).not.toBeNull();

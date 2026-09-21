@@ -1,4 +1,5 @@
 import type { ImageAttachment } from "@core/ports";
+import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
 import { honoFactory } from "@web/hono";
 import { HtmlLayout } from "@web/HtmlLayout";
@@ -36,7 +37,8 @@ export function createWebApp(deps: WebDeps) {
   const renderIntervalMs = deps.renderIntervalMs ?? 100;
   const assets = staticAssets(deps.staticRoot);
 
-  const sidebarOf = () => deps.workspace.sidebar();
+  const sidebarOf = (selectedId?: string) =>
+    deps.workspace.sidebar(selectedId === undefined ? {} : { selectedId });
 
   function remember(c: Context, name: string, value: string): void {
     if (getCookie(c, name) === value) return;
@@ -74,7 +76,7 @@ export function createWebApp(deps: WebDeps) {
     images: ImageAttachment[] = [],
   ): Promise<Response> {
     const [sidebar, view] = await Promise.all([
-      sidebarOf(),
+      sidebarOf(id),
       deps.workspace.viewSession(id, warnTokens()),
     ]);
     if (!view) return c.notFound();
@@ -121,7 +123,7 @@ export function createWebApp(deps: WebDeps) {
     } catch (error) {
       toastHeader(c, errorText(error));
       c.header("HX-Reswap", "none");
-      return c.body(null, 200);
+      return c.body(null, error instanceof InspectionOnlySession ? 403 : 200);
     }
   }
 

@@ -1,11 +1,13 @@
 // Transcript pages and fragments: paging, entry sub-resources, stars,
 // branching, and the export. The transcript area owns this module.
 
-import { isSessionId } from "@core/sessions";
+import { isSessionId, isSubagentSession } from "@core/sessions";
+import { InspectionOnlySession } from "@core/workspace";
 import { renderMarkdown } from "@web/markdown";
 import { EarlierPage, StarButton, ToolBody } from "@web/views/Items";
 import { SessionRow } from "@web/views/Sidebar";
 import { turnBusy } from "@web/views/Status";
+import type { Context } from "hono";
 import { raw } from "hono/html";
 import {
   type RouteContext,
@@ -17,6 +19,18 @@ import {
 
 export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, page, guard } = ctx;
+
+  for (const action of ["export", "star", "fork", "navigate", "rewind"]) {
+    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
+      const id = c.req.param("id");
+      if (!id || !isSessionId(id)) return c.notFound();
+      return guard(c, async () => {
+        await deps.workspace.requireWritableSession(id);
+        await next();
+        return c.res;
+      });
+    });
+  }
 
   app.get("/sessions/:id/last-assistant-text", async (c) => {
     const id = c.req.param("id");
@@ -39,6 +53,8 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
         "X-Frame-Options": "DENY",
       });
     } catch (error) {
+      if (error instanceof InspectionOnlySession)
+        return c.text(error.message, 403);
       return c.text(errorText(error), 500);
     }
   });
@@ -69,12 +85,15 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
           sessionId: id,
           cwd: view.summary.cwd,
           starred: view.starred,
-          ...(view.otherBranch ? { readOnly: true } : {}),
+          ...(isSubagentSession(view.summary) ? { inspectionOnly: true } : {}),
+          ...(view.otherBranch || isSubagentSession(view.summary)
+            ? { readOnly: true }
+            : {}),
           ...(turnBusy(view.status) ? { busy: true } : {}),
         }}
         hasMore={view.hasMore}
         {...(view.oldestId === undefined ? {} : { oldestId: view.oldestId })}
-        {...(leaf === undefined ? {} : { leaf })}
+        {...(view.leaf === undefined ? {} : { leaf: view.leaf })}
       />,
     );
   });
@@ -128,7 +147,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
     const entryId = field(form, "entryId");
     const starred = field(form, "starred") === "true";
     return guard(c, async () => {
-      await deps.workspace.setStar(id, entryId, starred);
+      const targetId = await deps.workspace.setStar(id, entryId, starred);
       const [view, found] = await Promise.all([
         deps.workspace.viewSession(id),
         deps.workspace.row(id),
@@ -137,7 +156,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
       return c.html(
         <>
           <StarButton
-            entryId={entryId}
+            entryId={targetId}
             actions={{
               sessionId: id,
               cwd: view.summary.cwd,

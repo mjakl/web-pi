@@ -23,6 +23,7 @@ export function configUseCases({
   deps,
   authorize,
   folderAvailable,
+  inspectionOnly,
   modelsFor,
   projectRootOf,
   validatedRoots,
@@ -68,6 +69,16 @@ export function configUseCases({
     const projectRoot = (await projectRootOf(cwd)) ?? cwd;
     validatedRoots.add(projectRoot);
     return { cwd, projectRoot };
+  }
+
+  async function writableRuntimes(cwd: string) {
+    const sessions = deps.runtime
+      .live()
+      .filter((session) => samePath(session.snapshot().summary.cwd, cwd));
+    const writable = await Promise.all(
+      sessions.map(async (session) => !(await inspectionOnly(session.id))),
+    );
+    return sessions.filter((_session, index) => writable[index]);
   }
 
   return {
@@ -201,9 +212,7 @@ export function configUseCases({
       if (!status.requiresTrust) {
         throw new Error("This project has no resources that require trust");
       }
-      const running = deps.runtime
-        .live()
-        .filter((live) => samePath(live.snapshot().summary.cwd, cwd));
+      const running = await writableRuntimes(cwd);
       if (running.some((live) => live.snapshot().status.running)) {
         throw new Error(
           "Wait for the active session to finish before trusting this project",
@@ -290,9 +299,7 @@ export function configUseCases({
      * it started.
      */
     async reloadFolder(cwd: string): Promise<number> {
-      const live = deps.runtime
-        .live()
-        .filter((session) => samePath(session.snapshot().summary.cwd, cwd));
+      const live = await writableRuntimes(cwd);
       for (const session of live) await session.reload();
       return live.length;
     },

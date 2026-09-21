@@ -71,6 +71,9 @@
   margin: 5px 0 var(--space-4);
   list-style-position: outside;
 }
+.markdown-body ol {
+  padding-left: 2.5em;
+}
 .markdown-body li {
   margin: 3px 0;
   padding-left: var(--space-1);

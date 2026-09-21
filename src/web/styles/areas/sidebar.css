@@ -206,6 +206,69 @@
 .session-row.is-renaming {
   cursor: default;
 }
+.session-node:has(> .session-children) > .session-row {
+  border-bottom: 0;
+}
+.session-children-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  padding: 2px 16px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  cursor: pointer;
+  list-style: none;
+}
+.session-children-toggle::-webkit-details-marker {
+  display: none;
+}
+.session-children-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.session-children-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.session-node:has(> .session-row.is-selected) > .session-children > summary {
+  background: var(--bg-selected);
+}
+.session-children-open,
+.session-children[open] > summary > .session-children-closed {
+  display: none;
+}
+.session-children[open] > summary > .session-children-open {
+  display: inline;
+}
+.session-subtree {
+  margin-left: 10px;
+  border-left: 1px solid var(--border);
+}
+/* Keep deeply nested runs readable in the narrow sidebar. */
+.session-subtree .session-subtree .session-subtree .session-subtree {
+  margin-left: 0;
+  border-left: 0;
+}
+.session-subtree .session-row {
+  padding-left: 10px;
+}
+.session-subtree .session-children-toggle {
+  padding-left: 10px;
+}
+.session-row.is-inspection .session-row-link {
+  grid-template-columns: minmax(0, 1fr);
+}
+.session-row.is-inspection .session-row-link > div {
+  grid-column: 1;
+}
+.session-row.is-inspection:not(:has(.session-shortcut:not([hidden])))
+  .session-row-location {
+  padding-right: 0;
+}
 .session-rename-input {
   flex: 1;
   font-size: var(--text-sm);
@@ -335,7 +398,8 @@
   color: var(--text-muted);
   cursor: pointer;
 }
-.session-rows-loading {
+.session-rows-loading,
+.session-children-loading {
   padding: var(--space-4) var(--space-6);
   font-size: var(--text-xs);
   color: var(--text-dim);

@@ -5,7 +5,8 @@ import { webSettingsPatch } from "@core/web-settings";
 
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
-import { isSessionId } from "@core/sessions";
+import { isSessionId, isSubagentSession } from "@core/sessions";
+import { InspectionOnlySession } from "@core/workspace";
 import { Partial } from "@web/views/Partial";
 import { ExplorerSection } from "@web/views/Sidebar";
 import {
@@ -55,6 +56,23 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     warnTokens,
     guard,
   } = ctx;
+
+  for (const action of [
+    "tools",
+    "system-prompt",
+    "ui/:requestId",
+    "ui/:requestId/input",
+  ]) {
+    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
+      const id = c.req.param("id");
+      if (!id || !isSessionId(id)) return c.notFound();
+      return guard(c, async () => {
+        await deps.workspace.requireWritableSession(id);
+        await next();
+        return c.res;
+      });
+    });
+  }
 
   // Same-folder navigation retains the expanded tree. File requests use the
   // displayed session header, so its authorization context still changes.
@@ -141,11 +159,17 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         : await deps.workspace
             .viewSession(id, warnTokens(c))
             .catch(() => undefined);
-    const sidebar = resolved ?? (await sidebarOf());
+    const sidebar =
+      resolved ??
+      (await deps.workspace.sidebar(
+        id === undefined ? {} : { selectedId: id },
+      ));
     if (view) {
-      const trust = await deps.workspace
-        .trustStatus(view.summary.cwd)
-        .catch(() => undefined);
+      const trust = isSubagentSession(view.summary)
+        ? undefined
+        : await deps.workspace
+            .trustStatus(view.summary.cwd)
+            .catch(() => undefined);
       return c.render(
         <SessionPage
           sidebar={sidebar}
@@ -180,14 +204,16 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     };
     const fragment = c.req.header("HX-Target") === "div#session-region";
     const [sidebar, view] = await Promise.all([
-      fragment ? undefined : sidebarOf(),
+      fragment ? undefined : deps.workspace.sidebar({ selectedId: id }),
       deps.workspace.viewSession(id, options).catch(() => undefined),
     ]);
     if (!view) return c.notFound();
     if (!fragment) remember(c, SESSION_COOKIE, id);
-    const trust = await deps.workspace
-      .trustStatus(view.summary.cwd)
-      .catch(() => undefined);
+    const trust = isSubagentSession(view.summary)
+      ? undefined
+      : await deps.workspace
+          .trustStatus(view.summary.cwd)
+          .catch(() => undefined);
     const page = (
       <SessionPage
         sidebar={sidebar}
@@ -333,7 +359,10 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   });
 
   app.get("/settings", async (c) => {
-    const sidebar = await sidebarOf();
+    const selectedId = currentSessionId(c);
+    const sidebar = await deps.workspace.sidebar(
+      selectedId === undefined ? {} : { selectedId },
+    );
     const cwd = await currentCwd(c);
     const available = await deps.workspace.newSession(cwd);
     const usable = available.available ? cwd : "";
@@ -616,26 +645,38 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/sessions/:id/tools", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const tool = c.req.query("tool");
-    const tools = await deps.workspace
-      .toolDefinitions(id)
-      .catch(() => undefined);
-    return c.html(
-      <ToolsPanel
-        sessionId={id}
-        {...(tools === undefined ? {} : { tools })}
-        {...(tool === undefined ? {} : { selected: tool })}
-      />,
-    );
+    return guard(c, async () => {
+      const tool = c.req.query("tool");
+      const tools = await deps.workspace
+        .toolDefinitions(id)
+        .catch((error: unknown) => {
+          if (error instanceof InspectionOnlySession) throw error;
+          return undefined;
+        });
+      return c.html(
+        <ToolsPanel
+          sessionId={id}
+          {...(tools === undefined ? {} : { tools })}
+          {...(tool === undefined ? {} : { selected: tool })}
+        />,
+      );
+    });
   });
 
   app.get("/sessions/:id/system-prompt", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const prompt = await deps.workspace.systemPrompt(id).catch(() => undefined);
-    return c.html(
-      <SystemPromptPanel {...(prompt === undefined ? {} : { prompt })} />,
-    );
+    return guard(c, async () => {
+      const prompt = await deps.workspace
+        .systemPrompt(id)
+        .catch((error: unknown) => {
+          if (error instanceof InspectionOnlySession) throw error;
+          return undefined;
+        });
+      return c.html(
+        <SystemPromptPanel {...(prompt === undefined ? {} : { prompt })} />,
+      );
+    });
   });
 
   /**
@@ -658,7 +699,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           : form.has("value")
             ? { value: rawField(form, "value") }
             : { cancelled: true };
-    const answered = deps.workspace.answerDialog(
+    const answered = await deps.workspace.answerDialog(
       id,
       c.req.param("requestId"),
       answer,
@@ -675,7 +716,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     const form = await c.req.formData();
     const data = form.get("data");
     if (typeof data !== "string" || data === "") return c.body(null, 204);
-    deps.workspace.customInput(id, c.req.param("requestId"), data);
+    await deps.workspace.customInput(id, c.req.param("requestId"), data);
     return c.body(null, 204);
   });
 

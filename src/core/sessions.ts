@@ -19,6 +19,14 @@ export type SessionSummary = {
   isWorktree?: boolean;
   /** Id of the session this one was forked from, when the header names one. */
   parentId?: string;
+  /** Externally owned transcript: inspect it without opening a writer. */
+  inspectionOnly?: boolean;
+  /** Persisted immediate delegation origin, independent of fork ancestry. */
+  delegation?: {
+    parentSessionId: string;
+    agent: string;
+    handle: string;
+  };
   /** The JSONL Pi keeps this conversation in; shown in the statistics panel. */
   filePath?: string;
 };
@@ -51,13 +59,9 @@ export function projectKeyOf(session: SessionSummary): string {
   return session.projectRoot ?? session.cwd;
 }
 
-/**
- * pi-subagent writes each run as its own session file named
- * `<timestamp>_subagent.<hex>.jsonl`, so its id is `subagent.<hex>`. They are
- * transcripts of a tool call, not conversations somebody started.
- */
+/** Persisted delegation ownership, plus legacy tool-call transcript IDs. */
 export function isSubagentSession(summary: SessionSummary): boolean {
-  return summary.id.startsWith("subagent.");
+  return summary.inspectionOnly === true || summary.id.startsWith("subagent.");
 }
 
 /** Sidebar order: working sessions first, then live ones, then by age. */

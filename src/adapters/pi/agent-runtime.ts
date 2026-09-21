@@ -54,6 +54,7 @@ import { createExtensionUi } from "./extension-ui.ts";
 import { projectTrustReloadOptions } from "./project-trust.ts";
 import { resolveModelListing } from "./model-catalog.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
+import { resolveSnapshotEntryId } from "./session-snapshot.ts";
 
 /** Streaming tool arguments kept for the card; the entry holds the rest. */
 const PARTIAL_ARGUMENT_CHARS = 4096;
@@ -517,14 +518,17 @@ class PiLiveSession implements LiveSession {
     this.emit({ type: "activity" });
   }
 
-  setStar(targetId: string, starred: boolean): void {
+  setStar(targetId: string, starred: boolean): string {
     const manager = this.inner.sessionManager;
-    const target = manager.getEntry(targetId);
+    const target = manager.getEntry(
+      resolveSnapshotEntryId(manager.getEntries(), targetId),
+    );
     if (target?.type !== "message" || target.message.role !== "assistant") {
       throw new Error("Star target must be an assistant answer");
     }
-    manager.appendCustomEntry(STAR_TYPE, { targetId, starred });
+    manager.appendCustomEntry(STAR_TYPE, { targetId: target.id, starred });
     this.emit({ type: "activity" });
+    return target.id;
   }
 
   /** Moves the leaf inside the same file; extensions see `session_before_tree`. */
@@ -541,7 +545,11 @@ class PiLiveSession implements LiveSession {
     targetId: string,
     summarize?: boolean,
   ): Promise<{ cancelled: boolean; editorText?: string }> {
-    const result = await this.inner.navigateTree(targetId, {
+    const target = resolveSnapshotEntryId(
+      this.inner.sessionManager.getEntries(),
+      targetId,
+    );
+    const result = await this.inner.navigateTree(target, {
       ...(summarize === undefined ? {} : { summarize }),
     });
     this.turnStart = this.inner.sessionManager.getBranch().length;

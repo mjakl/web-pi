@@ -24,7 +24,8 @@ import type {
   Skills,
   Watcher,
 } from "@core/ports";
-import type { SessionSummary } from "@core/sessions";
+import { isSubagentSession, type SessionSummary } from "@core/sessions";
+import { InspectionOnlySession } from "./views.ts";
 import { type ProjectInfo, unavailableFolderMessage } from "@core/workspaces";
 
 // The ports the workspace is built over, and the internals more than one
@@ -83,10 +84,14 @@ export function createShared(deps: WorkspaceDeps) {
       }),
     );
     return sessions.map((session) => {
-      const live = deps.runtime.get(session.id);
+      const inspectionOnly = isSubagentSession(session);
+      const live = inspectionOnly ? undefined : deps.runtime.get(session.id);
       const project = roots.get(session.cwd);
       return {
         ...session,
+        ...(inspectionOnly
+          ? { inspectionOnly: true, live: false, running: false }
+          : {}),
         ...(live
           ? {
               live: true,
@@ -103,12 +108,24 @@ export function createShared(deps: WorkspaceDeps) {
     });
   }
 
+  /** Classify from persisted origin, never from a possibly unrelated runtime. */
+  async function inspectionOnly(id: string): Promise<boolean> {
+    if (id.startsWith("subagent.")) return true;
+    const stored = await deps.sessions.rowMetadata(id);
+    return stored !== undefined && isSubagentSession(stored.summary);
+  }
+
+  async function requireWritableSession(id: string): Promise<void> {
+    if (await inspectionOnly(id)) throw new InspectionOnlySession();
+  }
+
   /**
    * Reading, exporting and stopping stay open when a session's folder is
    * gone; everything that would run the agent in it is refused with the one
    * message the page also shows.
    */
   async function requireFolder(id: string): Promise<void> {
+    await requireWritableSession(id);
     const summary = await summaryOf(id);
     if (summary?.cwdAvailable === false) {
       throw new Error(unavailableFolderMessage(summary.cwd));
@@ -120,7 +137,7 @@ export function createShared(deps: WorkspaceDeps) {
   }
 
   async function summaryOf(id: string): Promise<SessionSummary | undefined> {
-    const live = deps.runtime.get(id);
+    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
     if (live) {
       const snapshot = live.snapshot();
       const [decorated] = await decorate(
@@ -137,7 +154,7 @@ export function createShared(deps: WorkspaceDeps) {
 
   /** Whichever of the two writers owns this session right now. */
   async function entriesOf(id: string): Promise<SessionRead | undefined> {
-    const live = deps.runtime.get(id);
+    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
     if (live) {
       const snapshot = live.snapshot();
       return {
@@ -152,7 +169,9 @@ export function createShared(deps: WorkspaceDeps) {
 
   async function cwdOf(sessionId: string | undefined): Promise<string> {
     if (sessionId === undefined) return "";
-    const live = deps.runtime.get(sessionId);
+    const live = (await inspectionOnly(sessionId))
+      ? undefined
+      : deps.runtime.get(sessionId);
     return live
       ? live.snapshot().summary.cwd
       : ((await deps.sessions.folder(sessionId)) ?? "");
@@ -261,6 +280,8 @@ export function createShared(deps: WorkspaceDeps) {
     modelsFor,
     decorate,
     requireFolder,
+    inspectionOnly,
+    requireWritableSession,
     folderAvailable,
     summaryOf,
     entriesOf,

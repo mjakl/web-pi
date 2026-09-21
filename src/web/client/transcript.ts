@@ -2,6 +2,7 @@ import { requestContext, settledContent, swapTasks } from "./htmx.ts";
 import { codeText, highlightIn } from "./highlight.ts";
 import { setUpImagePreview } from "./images.ts";
 import { setUpMermaid } from "./mermaid.ts";
+import { setUpMarkdownLinks } from "./markdown-links.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpRail } from "./rail.ts";
 
@@ -90,6 +91,7 @@ export function setUpTranscript(): void {
   setUpImagePreview();
   setUpCopy();
   setUpMermaid();
+  setUpMarkdownLinks();
   // Native cleanup removes triggers, but does not abort ordinary requests.
   // A rewritten transcript must not keep fetching or accept a late old page.
   // Body-targeted history actions belong to navigation: their response restores

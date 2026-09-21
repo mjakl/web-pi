@@ -18,13 +18,14 @@ export type {
   SidebarView,
   ViewOptions,
 } from "./views.ts";
-export { ForbiddenPath } from "./views.ts";
+export { ForbiddenPath, InspectionOnlySession } from "./views.ts";
 
 export type Workspace = ReturnType<typeof createWorkspace>;
 
 export function createWorkspace(deps: WorkspaceDeps) {
   const shared = createShared(deps);
   return {
+    requireWritableSession: shared.requireWritableSession,
     ...sessionUseCases(shared),
     ...liveUseCases(shared),
     ...fileUseCases(shared),

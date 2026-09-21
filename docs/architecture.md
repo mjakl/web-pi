@@ -77,8 +77,16 @@ Ordinary saved pages start session SSE only when web-pi acquires runtime
 ownership. The first ownership frame reconciles their loaded window before
 resuming the existing cursor protocol. A stopped runtime sends `web-pi:saved`
 with observation metadata and closes its stream; the mounted page resumes
-saved-only checks. Inspection-only children never make that handoff. These saved
-updates make no claim about external process activity or token streaming.
+saved-only checks. A connection with no runtime owner makes the same handoff,
+including initial connections and reconnects that missed the stop. Live frames
+carry the rendered branch tip and last content entry alongside the live tail,
+separate from the settled transport cursor, plus an inert fragment for stopped
+controls. A missed-stop handoff clears owned status and extension UI without
+refreshing the model selector, even if saved history is unavailable. Recovery
+uses the rendered cursors, not the saved file's current branch, and clears the
+live tail only after an accepted saved reconciliation. Inspection-only children
+never make that handoff. These saved updates make no claim about external
+process activity or token streaming.
 
 `LiveSession` is the deep module: SDK event choreography (partial messages,
 compaction, retries, queue, extension notices) stays inside; callers only read a

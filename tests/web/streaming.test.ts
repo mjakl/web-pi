@@ -866,7 +866,7 @@ it.each(["disconnect", "body replacement"])(
   },
 );
 
-it("recovers a stored session whose new runtime finishes before the subscription wait finds it", async () => {
+it("recovers a new runtime after a no-owner connection returns to saved observation", async () => {
   const f = await streamingFixture();
   f.finish("stored answer", false);
   f.world.store.set(f.id, {
@@ -880,8 +880,11 @@ it("recovers a stored session whose new runtime finishes before the subscription
   expect(f.subscribers).toBe(0);
   f.finish("finished before runtime subscription", false);
   attached = true;
+  // The no-owner stream now closes; the next two-second saved check hands off.
   await expect
-    .poll(() => document.querySelector("#entry-a2")?.textContent)
+    .poll(() => document.querySelector("#entry-a2")?.textContent, {
+      timeout: 4000,
+    })
     .toContain("finished before runtime subscription");
   expect(document.querySelectorAll("#entry-a1")).toHaveLength(1);
   expect(document.querySelectorAll("#entry-a2")).toHaveLength(1);

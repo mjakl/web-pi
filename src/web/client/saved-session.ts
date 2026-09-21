@@ -140,33 +140,53 @@ export function setUpSavedSession(): void {
         schedule(resume ? 0 : INTERVAL_MS);
       }
     };
+    const returnToSaved = async (event: Event) => {
+      const data = JSON.parse(
+        (event as CustomEvent<{ data: string }>).detail.data,
+      ) as {
+        revision?: string;
+        leaf?: string | null;
+        contentLeaf?: string | null;
+      };
+      const recovery = owner.querySelector<HTMLTemplateElement>(
+        "template[data-live-recovery]",
+      );
+      if (data.revision === undefined && recovery) {
+        // A missed stop has no saved snapshot to acknowledge. Reconcile from
+        // the last rendered live branch, including content in its current turn.
+        owner.dataset["savedRevision"] = "";
+        owner.dataset["savedLeaf"] = recovery.dataset["leaf"] ?? "";
+        owner.dataset["savedContentLeaf"] =
+          recovery.dataset["contentLeaf"] ?? "";
+        await htmx().swap({
+          sourceElement: owner,
+          target: owner,
+          text: recovery.innerHTML,
+          swap: "none",
+        });
+        if (signal.aborted || !owner.isConnected) return;
+      }
+      if (data.revision !== undefined)
+        owner.dataset["savedRevision"] = data.revision;
+      if (data.leaf !== undefined) owner.dataset["savedLeaf"] = data.leaf ?? "";
+      if (data.contentLeaf !== undefined)
+        owner.dataset["savedContentLeaf"] = data.contentLeaf ?? "";
+      owned = false;
+      handoff = false;
+      loadDeferredHistory();
+      const stream = event.target;
+      // hx-sse:close closes this connection after dispatching the named event.
+      // The next handoff gets a fresh transport owner and fresh cursor/window.
+      queueMicrotask(() => {
+        if (stream instanceof Element && stream !== owner) stream.remove();
+        else owner.removeAttribute("hx-sse:connect");
+      });
+      schedule();
+    };
     owner.addEventListener(
       "web-pi:saved",
       (event) => {
-        const data = JSON.parse(
-          (event as CustomEvent<{ data: string }>).detail.data,
-        ) as {
-          revision?: string;
-          leaf?: string | null;
-          contentLeaf?: string | null;
-        };
-        if (data.revision !== undefined)
-          owner.dataset["savedRevision"] = data.revision;
-        if (data.leaf !== undefined)
-          owner.dataset["savedLeaf"] = data.leaf ?? "";
-        if (data.contentLeaf !== undefined)
-          owner.dataset["savedContentLeaf"] = data.contentLeaf ?? "";
-        owned = false;
-        handoff = false;
-        loadDeferredHistory();
-        const stream = event.target;
-        // hx-sse:close closes this connection after dispatching the named event.
-        // The next handoff gets a fresh transport owner and fresh cursor/window.
-        queueMicrotask(() => {
-          if (stream instanceof Element && stream !== owner) stream.remove();
-          else owner.removeAttribute("hx-sse:connect");
-        });
-        schedule();
+        void returnToSaved(event);
       },
       { signal },
     );

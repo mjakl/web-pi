@@ -108,6 +108,10 @@ export function sessionUseCases({
     ]);
     return {
       summary,
+      liveRecovery: {
+        leaf: leafId,
+        contentLeaf: turn.contentLeaf ?? settled.contentLeaf,
+      },
       items: page.items,
       hasMore: page.hasMore,
       ...(page.oldestId === undefined ? {} : { oldestId: page.oldestId }),
@@ -183,6 +187,11 @@ export function sessionUseCases({
         : undefined;
     return {
       summary,
+      ...(summary.live
+        ? {
+            liveRecovery: { leaf: leafId, contentLeaf: transcript.contentLeaf },
+          }
+        : {}),
       ...(stored.revision === undefined || summary.live
         ? {}
         : {

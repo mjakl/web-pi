@@ -1,3 +1,4 @@
+import { contextUsage } from "@core/context-usage";
 import { isSubagentSession } from "@core/sessions";
 import type { SessionView } from "@core/workspace";
 import {
@@ -6,7 +7,10 @@ import {
   LoadEarlier,
   TurnFragment,
 } from "./Items.tsx";
-import { turnBusy } from "./Status.tsx";
+import { Status, turnBusy } from "./Status.tsx";
+import { ShelfBody } from "./Shelf.tsx";
+import { CustomPanelBody, ExtensionDialogBody } from "./Extensions.tsx";
+import { Partial } from "./Partial.tsx";
 import { Rail } from "./Rail.tsx";
 import { JumpToLatestIcon } from "./icons.tsx";
 
@@ -53,6 +57,34 @@ export function SavedMessages({ view }: { view: SessionView }) {
   );
 }
 
+/** A missed stop can clear owned UI even when its saved history is unreadable. */
+export function LiveRecovery({ view }: { view: SessionView }) {
+  if (!view.liveRecovery) return null;
+  const stopped = {
+    ...view,
+    status: null,
+    usage: contextUsage({ tokens: null, contextWindow: null }),
+  };
+  return (
+    <template
+      data-live-recovery
+      data-leaf={view.liveRecovery.leaf ?? ""}
+      data-content-leaf={view.liveRecovery.contentLeaf ?? ""}
+    >
+      <Status view={stopped} oob partial />
+      <Partial target="#shelf" swap="outerHTML">
+        <ShelfBody status={null} />
+      </Partial>
+      <Partial target="#extension-dialog">
+        <ExtensionDialogBody sessionId={view.summary.id} dialog={null} />
+      </Partial>
+      <Partial target="#custom-ui">
+        <CustomPanelBody sessionId={view.summary.id} frame={null} />
+      </Partial>
+    </template>
+  );
+}
+
 /** Initial pages and canonical rewrites share the transcript and rail owner. */
 export function Transcript({ view }: { view: SessionView }) {
   const { summary } = view;
@@ -86,6 +118,7 @@ export function Transcript({ view }: { view: SessionView }) {
               <SavedMessages view={view} />
             </div>
             <div id="turn">
+              <LiveRecovery view={view} />
               <TurnFragment
                 items={view.turn}
                 actions={actions}

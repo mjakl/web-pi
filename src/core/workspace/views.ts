@@ -54,6 +54,8 @@ export type SavedSessionUpdate =
 export type SessionView = {
   /** Cursor for saved-only observation; absent on runtime-owned branches. */
   savedObservation?: SavedObservation;
+  /** Rendered runtime branch, including the live tail, for a missed-stop handoff. */
+  liveRecovery?: Pick<SavedObservation, "leaf" | "contentLeaf">;
   summary: SessionSummary;
   /** Settled conversation, before the current turn. */
   items: TranscriptItem[];

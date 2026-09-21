@@ -303,12 +303,12 @@ describe("saved-only workspace observation", () => {
     });
     expect(snapshot).not.toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
-    expect(
-      (await workspace.viewSession("saved"))?.savedObservation,
-    ).toBeUndefined();
-    expect(
-      (await workspace.viewSession("saved", { leaf: "a" }))?.savedObservation,
-    ).toBeUndefined();
+    const current = await workspace.viewSession("saved");
+    expect(current?.savedObservation).toBeUndefined();
+    expect(current?.liveRecovery).toEqual({ leaf: "b", contentLeaf: "b" });
+    const alternate = await workspace.viewSession("saved", { leaf: "a" });
+    expect(alternate?.savedObservation).toBeUndefined();
+    expect(alternate?.liveRecovery).toEqual({ leaf: "a", contentLeaf: "a" });
   });
 
   it("hands off if a runtime acquired the session while its saved file was being read", async () => {

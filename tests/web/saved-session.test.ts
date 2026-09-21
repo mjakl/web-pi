@@ -9,6 +9,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { htmxBrowser } from "#/web/htmx4-browser";
+import { disconnectable } from "#/web/fixtures/disconnect";
 
 const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
 const stopRuntimes: (() => Promise<void>)[] = [];
@@ -494,6 +495,299 @@ it("returns to saved observation when ownership ends before the stream connects"
     .toContain("External answer after race");
   expect(f.open).not.toHaveBeenCalled();
 }, 10000);
+
+it.each(["initial", "reconnect"])(
+  "recovers a missed stop on %s from the rendered branch without losing history or accepting a rewind",
+  async (connection) => {
+    const entries: SessionEntry[] = [];
+    for (let i = 0; i < 35; i += 1) {
+      entries.push(
+        userEntry(
+          `u${String(i)}`,
+          entries.at(-1)?.id ?? null,
+          `Question ${String(i)}`,
+        ),
+        assistantEntry(
+          `a${String(i)}`,
+          `u${String(i)}`,
+          `Answer ${String(i)}`,
+          100,
+        ),
+      );
+    }
+    const f = fixture(false, entries);
+    await f.workspace.activate(f.id);
+    const live = required(f.world.runtime.get(f.id));
+    let subscribers = 0;
+    const subscribe = live.subscribe.bind(live);
+    vi.spyOn(live, "subscribe").mockImplementation((listener) => {
+      subscribers += 1;
+      const unsubscribe = subscribe(listener);
+      return () => {
+        subscribers -= 1;
+        unsubscribe();
+      };
+    });
+    const snapshot = live.snapshot.bind(live);
+    let running = false;
+    let turnStart = entries.length;
+    const partial = assistantEntry(
+      "partial-fixture",
+      null,
+      "Unsettled live tail",
+      100,
+    );
+    if (partial.type !== "message" || partial.message.role !== "assistant")
+      throw new Error("Invalid partial fixture");
+    const partialMessage = partial.message;
+    vi.spyOn(live, "snapshot").mockImplementation(() => {
+      const current = snapshot();
+      return running
+        ? {
+            ...current,
+            turnStart,
+            partial: partialMessage,
+            status: {
+              ...current.status,
+              running: true,
+              queue: [{ behavior: "steer", text: "Queued while owned" }],
+              statuses: { task: "Owned extension status" },
+              widgets: [
+                {
+                  key: "owned-widget",
+                  lines: ["Owned widget"],
+                  placement: "aboveEditor",
+                },
+              ],
+              dialog: {
+                id: "owned-dialog",
+                method: "input",
+                title: "Owned extension dialog",
+              },
+              custom: { id: "owned-panel", lines: ["Owned terminal panel"] },
+            },
+          }
+        : current;
+    });
+    const advance = async () => {
+      f.stored.entries.push(
+        userEntry("new-settled-user", "a34", "Delivered while owned"),
+        assistantEntry(
+          "new-settled-answer",
+          "new-settled-user",
+          "New settled answer",
+          100,
+        ),
+        {
+          type: "session_info",
+          id: "settled-meta",
+          parentId: "new-settled-answer",
+          timestamp: "2026-09-01T00:00:00.000Z",
+          name: "Settled name",
+        },
+      );
+      turnStart = f.stored.entries.length;
+      f.stored.entries.push(
+        userEntry("live-user", "settled-meta", "Read while owned"),
+        tool("live-tool", "live-user", "live-call"),
+        result(
+          "live-result",
+          "live-tool",
+          "live-call",
+          "Delivered tool output",
+        ),
+        {
+          type: "session_info",
+          id: "live-meta",
+          parentId: "live-result",
+          timestamp: "2026-09-01T00:00:00.000Z",
+          name: "Live name",
+        },
+      );
+      running = true;
+      await live.navigateTree("live-meta");
+    };
+    if (connection === "initial") await advance();
+    const connect = Promise.withResolvers<undefined>();
+    const transport = disconnectable(async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === `/sessions/${f.id}/events` && connection === "initial")
+        await connect.promise;
+      return f.app.request(request);
+    });
+    const browser = await htmxBrowser(
+      await (await f.app.request(`/sessions/${f.id}`)).text(),
+      (request) =>
+        new URL(request.url).pathname === "/events"
+          ? new Response("")
+          : transport.request(request),
+    );
+    browsers.push(browser);
+    const { document, window } = browser;
+    const sentinel = required(document.querySelector(".load-earlier"));
+    await window.eval(
+      `htmx.ajax('GET', ${JSON.stringify(required(sentinel.getAttribute("hx-get")))}, {target:'.load-earlier', swap:'outerHTML'})`,
+    );
+    const oldest = required(document.querySelector("#entry-u0"));
+    const log = required(document.querySelector("#log"));
+    if (connection === "reconnect") {
+      await expect.poll(() => subscribers).toBe(1);
+      await advance();
+      await expect
+        .poll(
+          () =>
+            document.querySelector("#entry-new-settled-answer")?.textContent,
+        )
+        .toContain("New settled answer");
+      await expect
+        .poll(() => document.querySelector("#turn")?.textContent)
+        .toContain("Unsettled live tail");
+    }
+    expect(document.querySelector("#turn")?.textContent).toContain(
+      "Unsettled live tail",
+    );
+    await expect
+      .poll(() => document.querySelector("#shelf")?.textContent)
+      .toContain("Owned widget");
+    await expect
+      .poll(() => document.querySelector("#extension-dialog dialog"))
+      .not.toBeNull();
+    await expect
+      .poll(() => document.querySelector("#custom-ui dialog"))
+      .not.toBeNull();
+    expect(
+      document.querySelector("#session-state")?.hasAttribute("data-running"),
+    ).toBe(true);
+    expect(
+      document.querySelector('#composer button[aria-label="Stop agent"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("#context-compact")?.hasAttribute("disabled"),
+    ).toBe(true);
+    const selector = required(document.querySelector("#model-selector"));
+    const selectedModel = required(
+      selector.querySelector("#model-trigger"),
+    ).textContent;
+    const stoppedControls = () => {
+      expect(
+        document.querySelector("#session-state")?.hasAttribute("data-running"),
+      ).toBe(false);
+      expect(
+        document.querySelector("#composer")?.hasAttribute("data-running"),
+      ).toBe(false);
+      expect(
+        document.querySelector('#composer button[aria-label="Stop agent"]'),
+      ).toBeNull();
+      expect(
+        document.querySelector("#context-compact")?.hasAttribute("disabled"),
+      ).toBe(false);
+      expect(
+        document
+          .querySelector("#context-readout")
+          ?.hasAttribute("data-context-readout"),
+      ).toBe(false);
+      expect(document.querySelector("#status .composer-queue")).toBeNull();
+      expect(document.querySelector("#shelf")?.textContent).toBe("");
+      expect(document.querySelector("#shelf")?.hasAttribute("hidden")).toBe(
+        true,
+      );
+      expect(document.querySelector("#extension-dialog")?.textContent).toBe("");
+      expect(document.querySelector("#custom-ui")?.textContent).toBe("");
+      expect(document.querySelector("#model-selector")).toBe(selector);
+      expect(selector.querySelector("#model-trigger")?.textContent).toBe(
+        selectedModel,
+      );
+      expect(
+        selector.querySelector("#model-trigger")?.hasAttribute("disabled"),
+      ).toBe(false);
+    };
+    if (connection === "reconnect") {
+      required(transport.connections[0]).disconnect();
+      await expect.poll(() => subscribers).toBe(0);
+    }
+    await f.workspace.stop(f.id);
+    f.open.mockClear();
+    f.models.mockClear();
+    const availableModels = vi.spyOn(f.world.models, "listAvailable");
+    const thinking = vi.spyOn(f.world.models, "resolveThinking");
+    // A real rewind can retain the metadata tip while removing a raw tool result.
+    // Do not clear the live tail or replace its completed card until a safe read.
+    const resultIndex = f.stored.entries.findIndex(
+      (entry) => entry.id === "live-result",
+    );
+    const removed = required(f.stored.entries.splice(resultIndex, 1)[0]);
+    const metadata = required(
+      f.stored.entries.find((entry) => entry.id === "live-meta"),
+    );
+    metadata.parentId = "live-tool";
+    connect.resolve(undefined);
+    const observations: string[] = [];
+    const observe = f.workspace.observeSavedSession.bind(f.workspace);
+    vi.spyOn(f.workspace, "observeSavedSession").mockImplementation(
+      async (...args) => {
+        const update = await observe(...args);
+        observations.push(update.kind);
+        return update;
+      },
+    );
+    await expect
+      .poll(() => observations, { timeout: 5000 })
+      .toContain("unavailable");
+    const savedRequest = required(
+      browser.requests.find((request) =>
+        new URL(request.url).pathname.endsWith("/saved"),
+      ),
+    );
+    expect(Object.fromEntries(new URL(savedRequest.url).searchParams)).toEqual({
+      revision: "",
+      leaf: "live-meta",
+      contentLeaf: "live-result",
+      through: "u0",
+    });
+    expect(document.querySelector("#turn")?.textContent).toContain(
+      "Unsettled live tail",
+    );
+    expect(document.querySelector("#entry-u0")).toBe(oldest);
+    stoppedControls();
+    if (connection === "reconnect")
+      expect(
+        required(transport.connections[1]).request.headers.get("Last-Event-ID"),
+      ).toBe("settled=settled-meta");
+    f.stored.entries.splice(resultIndex, 0, removed);
+    metadata.parentId = "live-result";
+    f.stored.entries.push(
+      assistantEntry(
+        "external-recovered",
+        "live-meta",
+        "Recovered external answer",
+        100,
+      ),
+      userEntry("sibling", "a34", "Do not select this sibling"),
+    );
+    f.stored.leafId = "sibling";
+    await expect
+      .poll(
+        () => document.querySelector("#entry-external-recovered")?.textContent,
+        { timeout: 4000 },
+      )
+      .toContain("Recovered external answer");
+    expect(document.querySelector("#entry-sibling")).toBeNull();
+    expect(
+      document.querySelector("#entry-new-settled-answer")?.textContent,
+    ).toContain("New settled answer");
+    expect(document.querySelectorAll("#tool-live-call")).toHaveLength(1);
+    expect(document.querySelector("#turn")?.textContent).toBe("");
+    expect(document.querySelector("#entry-u0")).toBe(oldest);
+    expect(document.querySelector("#log")).toBe(log);
+    expect(document.querySelector(".load-earlier")).toBeNull();
+    stoppedControls();
+    expect(f.open).not.toHaveBeenCalled();
+    expect(f.models).not.toHaveBeenCalled();
+    expect(availableModels).not.toHaveBeenCalled();
+    expect(thinking).not.toHaveBeenCalled();
+  },
+  15000,
+);
 
 it("observes an empty saved session and keeps its last good content when the file disappears", async () => {
   const f = fixture(false, []);

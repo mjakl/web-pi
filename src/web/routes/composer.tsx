@@ -31,7 +31,7 @@ import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
 import { Status, turnBusy } from "@web/views/Status";
-import { SavedMessages, Transcript } from "@web/views/Transcript";
+import { LiveRecovery, SavedMessages, Transcript } from "@web/views/Transcript";
 import { type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
@@ -43,7 +43,6 @@ import {
   html,
   readSubmission,
   sessionLocation,
-  sleep,
   toastHeader,
 } from "./shared.ts";
 
@@ -520,6 +519,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
                     </Partial>
                   ) : null}
                   <Partial target="#turn" swap="innerMorph">
+                    <LiveRecovery view={view} />
                     <TurnFragment
                       items={view.turn}
                       actions={actions}
@@ -699,21 +699,14 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           });
         }
       };
-      // Saved pages use observation until a runtime owns them. A disconnect or
-      // a direct legacy stream request may still arrive while there is no owner;
-      // wait without reconciling a saved page against the default file branch.
-      let unsubscribe = await deps.workspace.subscribe(id, listener);
-      if (!unsubscribe && c.req.query("saved") === "1") {
-        // Ownership can disappear between the observation response and connect.
-        // Return to saved observation without replacing its branch or history.
+      const unsubscribe = await deps.workspace.subscribe(id, listener);
+      if (!unsubscribe) {
+        // A stop can precede the first connection or happen while disconnected.
+        // The browser retains its rendered branch cursor; the saved file's
+        // current branch and Last-Event-ID cannot identify that whole window.
         await stream.writeSSE({ event: "web-pi:saved", data: "{}" });
         return;
       }
-      while (!unsubscribe && !aborted) {
-        await sleep(500);
-        unsubscribe = await deps.workspace.subscribe(id, listener);
-      }
-      if (!unsubscribe) return;
       // The client may have missed activity between page render and connect.
       enqueue("activity");
       const heartbeat = setInterval(() => {

@@ -100,6 +100,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
         <Partial target="#messages" swap="innerMorph">
           <SavedMessages view={update.view} />
         </Partial>
+        <Partial target="#turn" swap="innerMorph" />
         <Rail view={update.view} oob />
       </>,
     );

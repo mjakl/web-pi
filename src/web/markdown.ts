@@ -144,7 +144,10 @@ function markedFor(options: MarkdownOptions): Marked {
           return `<a href="#user-content-${attribute(href.slice(1))}">${content}</a>`;
         }
         if (/^(https?:|mailto:)/i.test(href)) {
-          return `<a href="${attribute(href)}" target="_blank" rel="noopener noreferrer">${content}</a>`;
+          const webLink = /^https?:\/\//i.test(href)
+            ? " data-markdown-link"
+            : "";
+          return `<a href="${attribute(href)}"${webLink} target="_blank" rel="noopener noreferrer">${content}</a>`;
         }
         const file = localFilePath(href, options.cwd);
         if (file !== null) {

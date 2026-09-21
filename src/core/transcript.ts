@@ -182,6 +182,8 @@ export type TranscriptItem =
 
 export type Transcript = {
   items: TranscriptItem[];
+  /** Last raw content entry, including a result folded into an earlier tool card. */
+  contentLeaf: string | null;
   /** Tokens the last completed model call reported for its whole context. */
   lastContextTokens: number | null;
   lastModel: { provider: string; id: string } | null;
@@ -615,6 +617,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
   const openCalls = new Map<string, ToolCallView>();
   const requestedAt = new Map<string, number>();
   let lastContextTokens: number | null = null;
+  let contentLeaf: string | null = null;
   let lastModel: Transcript["lastModel"] = null;
   let lastThinking: string | null = null;
   let previousMs: number | undefined;
@@ -624,6 +627,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
       case "message": {
         const { message } = entry;
         if (message.role === "user") {
+          contentLeaf = entry.id;
           const text = contentText(message.content);
           items.push({
             kind: "user",
@@ -634,6 +638,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
             ...optional("command", skillCommand(text)),
           });
         } else if (message.role === "assistant") {
+          contentLeaf = entry.id;
           const item = assistantItem(entry.id, message, {
             timestamp: entry.timestamp,
             ...(previousMs === undefined ? {} : { previousMs }),
@@ -648,6 +653,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
           lastModel = { provider: message.provider, id: message.model };
           items.push(item);
         } else if (message.role === "toolResult") {
+          contentLeaf = entry.id;
           const call = openCalls.get(message.toolCallId);
           if (call) {
             attachResult(
@@ -658,6 +664,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
             );
           }
         } else if (message.role === "bashExecution") {
+          contentLeaf = entry.id;
           items.push({
             kind: "bash",
             entryId: entry.id,
@@ -676,6 +683,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
         break;
       }
       case "compaction": {
+        contentLeaf = entry.id;
         previousMs = entryMs(entry.timestamp);
         const parsed = parseCompactionSummary(entry.summary);
         items.push({
@@ -697,6 +705,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
         break;
       case "branch_summary":
         if (entry.summary.trim() !== "") {
+          contentLeaf = entry.id;
           previousMs = entryMs(entry.timestamp);
           items.push({
             kind: "branch_summary",
@@ -709,6 +718,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
       case "custom_message":
         previousMs = entryMs(entry.timestamp);
         if (entry.display) {
+          contentLeaf = entry.id;
           const text = contentText(entry.content);
           items.push({
             kind: "note",
@@ -731,7 +741,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
         break;
     }
   }
-  return { items, lastContextTokens, lastModel, lastThinking };
+  return { items, contentLeaf, lastContextTokens, lastModel, lastThinking };
 }
 
 /**

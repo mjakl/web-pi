@@ -1,4 +1,4 @@
-import { assistantEntry, userEntry } from "@adapters/fake/index";
+import { assistantEntry, bashEntry, userEntry } from "@adapters/fake/index";
 import { conversationRail } from "@core/conversation-rail";
 import {
   assistantItem,
@@ -383,6 +383,108 @@ describe("projectTranscript", () => {
         : null,
     );
     expect(deferred).toEqual([false, false, true, false, false]);
+  });
+});
+
+describe("transcript content cursor", () => {
+  const base = {
+    id: "content",
+    parentId: null,
+    timestamp: "2026-09-10T00:00:00.000Z",
+  };
+  const examples: [string, SessionEntry, string | null][] = [
+    ["user", userEntry("content", null, "Question"), "content"],
+    ["assistant", assistantEntry("content", null, "Answer", 100), "content"],
+    [
+      "tool result",
+      { ...toolResult("content", "call"), parentId: null },
+      "content",
+    ],
+    ["bash", bashEntry("content", null, "pwd", "/repo", false), "content"],
+    [
+      "compaction",
+      {
+        ...base,
+        type: "compaction",
+        summary: "Summary",
+        firstKeptEntryId: "kept",
+        tokensBefore: 100,
+      },
+      "content",
+    ],
+    [
+      "branch summary",
+      {
+        ...base,
+        type: "branch_summary",
+        fromId: "before",
+        summary: "Branch context",
+      },
+      "content",
+    ],
+    [
+      "empty branch summary",
+      { ...base, type: "branch_summary", fromId: "before", summary: "  " },
+      null,
+    ],
+    [
+      "displayed custom message",
+      {
+        ...base,
+        type: "custom_message",
+        customType: "note",
+        content: "Visible",
+        display: true,
+      },
+      "content",
+    ],
+    [
+      "hidden custom message",
+      {
+        ...base,
+        type: "custom_message",
+        customType: "note",
+        content: "Hidden",
+        display: false,
+      },
+      null,
+    ],
+    [
+      "model",
+      { ...base, type: "model_change", provider: "fake", modelId: "fake-1" },
+      null,
+    ],
+    [
+      "thinking level",
+      { ...base, type: "thinking_level_change", thinkingLevel: "high" },
+      null,
+    ],
+    [
+      "custom metadata",
+      { ...base, type: "custom", customType: "metadata", data: {} },
+      null,
+    ],
+  ];
+
+  it.each(examples)(
+    "tracks %s independently of a later metadata leaf",
+    (_name, entry, expected) => {
+      const transcript = projectTranscript([
+        entry,
+        {
+          type: "session_info",
+          id: "name",
+          parentId: entry.id,
+          timestamp: base.timestamp,
+          name: "Later title",
+        },
+      ]);
+      expect(transcript.contentLeaf).toBe(expected);
+    },
+  );
+
+  it("has no content cursor for an empty transcript", () => {
+    expect(projectTranscript([]).contentLeaf).toBeNull();
   });
 });
 

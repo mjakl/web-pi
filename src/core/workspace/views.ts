@@ -36,7 +36,26 @@ export type ViewOptions = {
   warnTokens?: number;
 };
 
+export type SavedObservation = {
+  revision: string;
+  leaf: string | null;
+  /** Last content-bearing raw entry; metadata can survive a destructive rewind. */
+  contentLeaf: string | null;
+};
+
+export type SavedObservationOptions = SavedObservation & { through?: string };
+
+export type SavedSessionUpdate =
+  | { kind: "unchanged" }
+  | { kind: "unavailable"; revision?: string }
+  | { kind: "owned" }
+  | { kind: "changed"; view: SessionView };
+
 export type SessionView = {
+  /** Cursor for saved-only observation; absent on runtime-owned branches. */
+  savedObservation?: SavedObservation;
+  /** Rendered runtime branch, including the live tail, for a missed-stop handoff. */
+  liveRecovery?: Pick<SavedObservation, "leaf" | "contentLeaf">;
   summary: SessionSummary;
   /** Settled conversation, before the current turn. */
   items: TranscriptItem[];

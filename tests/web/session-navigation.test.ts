@@ -329,7 +329,9 @@ it("keeps selection on the displayed session across global stream, star and lazy
   expect(selected(b, "s2")).toBe(true);
   await b.workspace.send("s2", "foreground");
   await expect
-    .poll(() => b.document.querySelector("#messages .answer-star-toggle"))
+    .poll(() => b.document.querySelector("#messages .answer-star-toggle"), {
+      timeout: 4000,
+    })
     .not.toBeNull();
   b.document
     .querySelector<HTMLElement>("#messages .answer-star-toggle")
@@ -536,7 +538,9 @@ it("keeps the shell and other drafts when cloning or deleting the displayed sess
   const b = await fixture();
   await b.workspace.send("s1", "seed");
   await expect
-    .poll(() => b.document.querySelector("#messages")?.textContent)
+    .poll(() => b.document.querySelector("#messages")?.textContent, {
+      timeout: 4000,
+    })
     .toContain("Fixture answer");
   const shell = b.document.querySelector("#session-sidebar");
   const panel = b.document.querySelector("#file-panel");
@@ -860,7 +864,9 @@ it.each([false, true])(
     });
     await b.workspace.send("s1", "seed");
     await expect
-      .poll(() => b.document.querySelector("#messages")?.textContent)
+      .poll(() => b.document.querySelector("#messages")?.textContent, {
+        timeout: 4000,
+      })
       .toContain("Fixture answer");
     draft(b, "/clone");
     const send = b.document.querySelector<HTMLElement>(

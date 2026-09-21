@@ -270,7 +270,10 @@ it("keeps ordinary saved sessions writable in the rendered page", async () => {
     })
   ).text();
   expect(html).toContain("composer-surface");
-  expect(html).toContain('hx-sse:connect="/sessions/ordinary/events');
+  expect(html).toContain('data-saved-session="/sessions/ordinary/saved"');
+  expect(html).toContain('data-live-events="/sessions/ordinary/events"');
+  expect(html).not.toContain('hx-sse:connect="/sessions/ordinary/events');
+  expect(html).toContain('hx-post="/sessions/ordinary/prompt"');
   expect(html).toContain("answer-star-toggle");
   expect(html).not.toContain("inspection only");
 });

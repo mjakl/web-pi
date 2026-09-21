@@ -12,6 +12,21 @@ HTMX responses, and SSE updates. History pages backwards, while the desktop rail
 covers all prompts and starred answers. Stars use `web-pi:star` custom entries;
 old `pi-web:star` entries are not recognized or migrated.
 
+Open persisted conversations managed outside web-pi, including inspection-only
+subagents, check for saved updates every two seconds while the page is visible.
+Checks pause in the background and run immediately on return. Only changed files
+are read; no runtime is attached and no source file is modified. Completed saved
+messages and tool results appear without a reload, not token by token. The
+observed branch follows its continuation, not externally written siblings. When
+competing continuations appear between checks, updates advance along their
+shared path and hold at the ambiguous fork rather than guessing which child to
+follow. Missing files, incomplete appends and rewrites that remove displayed
+content keep the displayed history. Reload or navigation can select the current
+saved branch. Readers at the bottom follow new content. Readers scrolled up keep
+their place and can use “New messages” to jump to the latest content. Loaded
+older history and expanded details remain in place. Unopened transcripts are not
+observed.
+
 Session actions include rename, delete with child reparenting, export, fork,
 clone, rewind, and branch navigation. Fork and rewind restore the selected
 request's text and images into the composer. Rewind is destructive: it removes

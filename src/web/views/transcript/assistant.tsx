@@ -15,6 +15,12 @@ import { ToolCard } from "./tools.tsx";
 // estimate, the blocks (text, thinking, images, tool cards), errors, the
 // files the turn wrote, and the usage line.
 
+function assistantKey(item: AssistantItem): string {
+  return item.entryId === "partial"
+    ? `partial-${String(Date.parse(item.timestamp))}`
+    : item.entryId;
+}
+
 function ThinkingBlock({
   item,
   block,
@@ -36,7 +42,10 @@ function ThinkingBlock({
       ? `/sessions/${actions.sessionId}/entries/${item.entryId}/thinking/${String(block.index)}`
       : undefined;
   return (
-    <details class="transcript-details thinking-card">
+    <details
+      id={`thinking-${assistantKey(item)}-${String(block.index)}`}
+      class="transcript-details thinking-card"
+    >
       <summary class="thinking-heading">
         <span class="thinking-label">Thinking</span>
         {block.seconds === undefined ? null : (
@@ -46,7 +55,18 @@ function ThinkingBlock({
           <CardChevronIcon />
         </span>
       </summary>
-      <div class="thinking-body">
+      <div
+        id={`thinking-body-${assistantKey(item)}-${String(block.index)}`}
+        class="thinking-body"
+        hx-morph-skip={item.entryId !== "partial" ? "" : undefined}
+        hx-get={fetchUrl}
+        hx-trigger={
+          fetchUrl
+            ? "toggle[this.closest('details').open] once from:<closest details/>"
+            : undefined
+        }
+        hx-swap={fetchUrl ? "innerHTML" : undefined}
+      >
         {fetchUrl === undefined ? (
           <Markdown
             source={block.text}
@@ -54,13 +74,7 @@ function ThinkingBlock({
             variant="markdown-assistant-message"
           />
         ) : (
-          <div
-            hx-get={fetchUrl}
-            hx-trigger="toggle once from:closest details"
-            hx-swap="outerHTML"
-          >
-            Loading thinking...
-          </div>
+          "Loading thinking..."
         )}
       </div>
     </details>
@@ -169,16 +183,7 @@ export function AssistantMessage({
     >
       <div
         class="message-row assistant-message"
-        {...(item.processHalf
-          ? {}
-          : {
-              // Pi assigns the persisted entry ID at message_end. Until then the
-              // message's own timestamp distinguishes successive partial messages.
-              id:
-                item.entryId === "partial"
-                  ? `entry-partial-${String(Date.parse(item.timestamp))}`
-                  : `entry-${item.entryId}`,
-            })}
+        id={`entry-${assistantKey(item)}${item.processHalf ? "-process" : ""}`}
         data-role="assistant"
       >
         <div

@@ -193,6 +193,105 @@ describe("transcript items", () => {
     await expect(html).toMatchFileSnapshot("./fixtures/transcript-items.html");
   });
 
+  it("keeps turn and disclosure keys stable when a saved turn gains an answer", () => {
+    const boundary = settledItems[0];
+    if (!boundary) throw new Error("Missing fixture boundary");
+    const thinking: AssistantItem = {
+      ...answerItem,
+      entryId: "reasoning",
+      blocks: [{ kind: "thinking", text: "", index: 2, deferred: true }],
+    };
+    const before = html(
+      <Items items={[boundary, thinking]} actions={actions} />,
+    );
+    const after = html(
+      <Items
+        items={[
+          boundary,
+          {
+            ...thinking,
+            blocks: [...thinking.blocks, { kind: "text", text: "Done" }],
+          },
+        ]}
+        actions={actions}
+      />,
+    );
+    for (const rendered of [before, after]) {
+      expect(rendered).toContain('<section id="turn-u1"');
+      expect(rendered).toContain('id="process-u1"');
+      expect(rendered).toContain('id="thinking-reasoning-2"');
+      expect(rendered).toContain('id="entry-reasoning-process"');
+      expect(rendered).toContain(
+        'id="thinking-body-reasoning-2" class="thinking-body" hx-morph-skip=""',
+      );
+      expect(rendered).toContain(
+        'hx-trigger="toggle[this.closest(&#39;details&#39;).open] once from:&lt;closest details/&gt;" hx-swap="innerHTML"',
+      );
+      const ids = [...rendered.matchAll(/\bid="([^"]+)"/g)].map(
+        (match) => match[1],
+      );
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+    expect(after).toContain('id="entry-reasoning"');
+    expect(html(<Items items={[thinking]} actions={actions} />)).toContain(
+      '<section id="turn-reasoning"',
+    );
+  });
+
+  it.each([false, true])(
+    "preserves persisted thinking bodies across refresh with deferred=%s",
+    (deferred) => {
+      const rendered = html(
+        <Item
+          item={{
+            ...answerItem,
+            blocks: [
+              {
+                kind: "thinking",
+                text: deferred ? "" : "Loaded reasoning",
+                index: 0,
+                deferred,
+              },
+            ],
+          }}
+          actions={actions}
+        />,
+      );
+      expect(rendered).toContain(
+        'id="thinking-body-a2-0" class="thinking-body" hx-morph-skip=""',
+      );
+      expect(rendered).toContain(
+        deferred ? "Loading thinking..." : "Loaded reasoning",
+      );
+    },
+  );
+
+  it("keys thinking by block and partial timestamp without freezing streamed bodies", () => {
+    const renderThinking = (timestamp: string) =>
+      html(
+        <Item
+          item={{
+            ...answerItem,
+            entryId: "partial",
+            timestamp,
+            blocks: [0, 1].map((index) => ({
+              kind: "thinking",
+              text: "Working",
+              index,
+              deferred: false,
+            })),
+          }}
+          actions={actions}
+        />,
+      );
+    const first = renderThinking("2026-01-05T00:00:00.000Z");
+    const second = renderThinking("2026-01-05T00:00:01.000Z");
+    expect(first).toContain('id="thinking-partial-1767571200000-0"');
+    expect(first).toContain('id="thinking-partial-1767571200000-1"');
+    expect(second).toContain('id="thinking-partial-1767571201000-0"');
+    expect(first).not.toContain("hx-morph-skip");
+  });
+
   it("uses concise labels and a light plus for history actions", () => {
     const buttons = html(
       <HistoryActionButtons entryId="a1" actions={actions} />,

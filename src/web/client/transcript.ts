@@ -5,6 +5,7 @@ import { setUpMermaid } from "./mermaid.ts";
 import { setUpMarkdownLinks } from "./markdown-links.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpRail } from "./rail.ts";
+import { setUpSavedSession } from "./saved-session.ts";
 
 // Everything the transcript needs from the browser: staying at the tail while
 // a turn streams, keeping the reading position when an older page is
@@ -115,12 +116,14 @@ export function setUpTranscript(): void {
       event.preventDefault();
   });
   setUpRegion("#log", mountTranscript);
+  setUpSavedSession();
 }
 
 function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   const jump = document.getElementById("jump-to-latest");
   let follow = true;
   let previousTop = 0;
+  let newMessages = false;
   const sync = () => {
     const top = view.scrollTop;
     follow = followsTail(
@@ -131,18 +134,65 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       view.scrollHeight,
     );
     previousTop = top;
-    if (jump) jump.hidden = atTail(view);
+    if (atTail(view)) newMessages = false;
+    if (jump) {
+      jump.hidden = atTail(view);
+      jump.classList.toggle("has-new-messages", newMessages);
+      jump.setAttribute(
+        "aria-label",
+        newMessages ? "New messages — jump to latest" : "Jump to latest",
+      );
+      jump.title = newMessages
+        ? "New messages — jump to latest"
+        : "Jump to latest";
+      const label = jump.querySelector<HTMLElement>("[data-new-messages]");
+      if (label) label.hidden = !newMessages;
+    }
   };
   view.addEventListener("scroll", sync, { passive: true, signal });
   jump?.addEventListener(
     "click",
     () => {
+      newMessages = false;
+      follow = true;
       view.scrollTo({
         top: view.scrollHeight,
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
           ? "auto"
           : "smooth",
       });
+    },
+    { signal },
+  );
+
+  // A saved tool result can resize an existing card above the viewport. Keep
+  // the first visible entry at the same offset, rather than anchoring the tail.
+  let savedAnchor: { entry: Element; top: number } | undefined;
+  view.addEventListener(
+    "web-pi:saved-before",
+    () => {
+      if (follow) return;
+      const top = view.getBoundingClientRect().top;
+      const entry = [...view.querySelectorAll('[id^="entry-"]')].find(
+        (item) => item.getBoundingClientRect().bottom > top,
+      );
+      savedAnchor = entry
+        ? { entry, top: entry.getBoundingClientRect().top }
+        : undefined;
+    },
+    { signal },
+  );
+  view.addEventListener(
+    "web-pi:saved-after",
+    () => {
+      if (!follow) {
+        if (savedAnchor?.entry.isConnected)
+          view.scrollTop +=
+            savedAnchor.entry.getBoundingClientRect().top - savedAnchor.top;
+        newMessages = true;
+      } else view.scrollTop = view.scrollHeight;
+      savedAnchor = undefined;
+      sync();
     },
     { signal },
   );

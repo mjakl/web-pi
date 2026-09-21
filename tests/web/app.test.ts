@@ -6,7 +6,21 @@ import {
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
+import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
+
+async function renderedHtml(html: string): Promise<string> {
+  const window = new Window();
+  try {
+    window.document.body.innerHTML = html;
+    for (const template of window.document.querySelectorAll("template")) {
+      template.remove();
+    }
+    return window.document.body.innerHTML;
+  } finally {
+    await window.happyDOM.close();
+  }
+}
 
 function testApp(options: Parameters<typeof createFakeWorld>[0] = {}) {
   const world = createFakeWorld({
@@ -286,14 +300,16 @@ describe("web app", () => {
     expect(received).toContain(
       '<hx-partial hx-target="#status" hx-swap="innerHTML">',
     );
-    expect(received).toContain(
-      'data: <hx-partial hx-target="#messages" hx-swap="beforeend"><section class="turn"',
+    expect(received).toMatch(
+      /data: <hx-partial hx-target="#messages" hx-swap="beforeend"><section id="turn-[^"]+" class="turn"/,
     );
     const clear =
       '<hx-partial hx-target="#turn" hx-swap="innerMorph"></hx-partial>';
-    expect(received).toContain(clear);
-    expect(received.indexOf(clear)).toBeLessThan(
-      received.indexOf("event: settled\n"),
+    // Rejoin multiline HTML before parsing; recovery templates are inert.
+    const rendered = await renderedHtml(received.replaceAll(/^data: /gm, ""));
+    expect(rendered).toContain(clear);
+    expect(rendered.indexOf(clear)).toBeLessThan(
+      rendered.indexOf("event: settled\n"),
     );
     expect(received).toContain("event: settled\ndata: s1");
     expect(received).not.toMatch(
@@ -1698,7 +1714,9 @@ describe("conversation rail, shelf, and written files", () => {
     }
     // The page is asked for while the stream is still open: web-pi lets go of
     // a live session once its last reader does.
-    const page = await (await app.request("/sessions/s1")).text();
+    const page = await renderedHtml(
+      await (await app.request("/sessions/s1")).text(),
+    );
     await reader.cancel();
     const surface = page.indexOf('class="composer-surface"');
     // The composer's own "more" popover carries a second copy for phones, so
@@ -2214,12 +2232,16 @@ describe("phase 8 fixes", () => {
         }
         return html;
       };
-      function compactButton(html: string) {
-        return (
-          /<button[^>]*id="context-compact"[\s\S]*?<\/button>/.exec(
-            html,
-          )?.[0] ?? ""
-        );
+      async function compactButton(html: string) {
+        const window = new Window();
+        try {
+          window.document.body.innerHTML = html;
+          return (
+            window.document.querySelector("#context-compact")?.outerHTML ?? ""
+          );
+        } finally {
+          await window.happyDOM.close();
+        }
       }
       try {
         await readUntil('id="context-compact"');
@@ -2232,7 +2254,7 @@ describe("phase 8 fixes", () => {
           { method: "POST", ...(outcome === "failure" ? { body: form } : {}) },
         );
         expect(response.status).toBe(204);
-        const running = compactButton(
+        const running = await compactButton(
           await readUntil('data-compacting="true"'),
         );
         expect(running).toContain('hx-swap-oob="true"');
@@ -2241,7 +2263,7 @@ describe("phase 8 fixes", () => {
         expect(running).toContain('aria-label="Compacting context…"');
         expect(running).toContain("<svg");
         expect(running).not.toContain("<animateTransform");
-        const revisited = compactButton(
+        const revisited = await compactButton(
           await (await app.request("/sessions/s1")).text(),
         );
         expect(revisited).toContain("disabled");
@@ -2251,7 +2273,7 @@ describe("phase 8 fixes", () => {
             ? 'aria-label="Compact context"'
             : "Compaction failed:",
         );
-        const restored = compactButton(settled);
+        const restored = await compactButton(settled);
         expect(restored).toContain('aria-label="Compact context"');
         expect(restored).not.toContain("disabled");
         expect(restored).not.toContain('aria-busy="true"');

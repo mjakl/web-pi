@@ -48,7 +48,14 @@ export type SessionRead = {
   /** Every entry in the file, all branches, for stars, stats, and leaves. */
   entries: SessionEntry[];
   leafId: string | null;
+  /** Stamp of this saved read; absent on runtime-owned snapshots. */
+  revision?: string;
 };
+
+export type SavedSessionRead =
+  | { kind: "unchanged" }
+  | { kind: "unavailable"; revision?: string }
+  | { kind: "changed"; revision: string; snapshot: SessionRead };
 
 /** Pi's session files: read without starting an agent, and edited in place. */
 export type SessionCatalog = {
@@ -58,6 +65,8 @@ export type SessionCatalog = {
   folder(id: string): Promise<string | undefined>;
   /** Undefined when the id is unknown. */
   read(id: string, leafId?: string): Promise<SessionRead | undefined>;
+  /** Stat first; parse only changed, stable, complete saved files. Never writes. */
+  readSaved(id: string, revision?: string): Promise<SavedSessionRead>;
   /** Resolve a saved snapshot ID against current entries, without file access. */
   resolveEntryId(entries: readonly SessionEntry[], entryId: string): string;
   /**

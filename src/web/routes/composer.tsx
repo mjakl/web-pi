@@ -6,7 +6,11 @@ import { bashCommand } from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
 import { isSessionId } from "@core/sessions";
-import { ForbiddenPath, InspectionOnlySession } from "@core/workspace";
+import {
+  ForbiddenPath,
+  InspectionOnlySession,
+  type SessionView,
+} from "@core/workspace";
 import {
   CommandMenu,
   ComposerText,
@@ -27,7 +31,7 @@ import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
 import { Status, turnBusy } from "@web/views/Status";
-import { Transcript } from "@web/views/Transcript";
+import { LiveRecovery, SavedMessages, Transcript } from "@web/views/Transcript";
 import { type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
@@ -39,7 +43,6 @@ import {
   html,
   readSubmission,
   sessionLocation,
-  sleep,
   toastHeader,
 } from "./shared.ts";
 
@@ -437,13 +440,43 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       let cursor = lastEventId?.startsWith("settled=")
         ? decodeURIComponent(lastEventId.slice("settled=".length))
         : (c.req.query("after") ?? "");
+      // A saved page has already morphed its completed cards and loaded window.
+      // Reconcile that window once when ownership changes; an append-only cursor
+      // cannot account for a tool result added to an existing assistant card.
+      let savedHandoff = c.req.query("saved") === "1" && !lastEventId;
+      const through = c.req.query("through");
       const render = async (kind: "activity" | "turn_done") => {
         if (aborted) return;
-        const view = await deps.workspace.viewSession(id, {
-          consumePending: true,
-          ...warnTokens(c),
-          after: cursor,
-        });
+        let view: SessionView | undefined;
+        let resetHandoff = false;
+        try {
+          view = await deps.workspace.viewSession(id, {
+            // A missing saved window must not consume notices before its
+            // fallback can render them. The next frame consumes a valid handoff.
+            consumePending: !savedHandoff,
+            ...warnTokens(c),
+            ...(savedHandoff
+              ? through === undefined
+                ? {}
+                : { through }
+              : { after: cursor }),
+          });
+        } catch (error) {
+          if (
+            !savedHandoff ||
+            through === undefined ||
+            !(error instanceof RangeError) ||
+            error.message !== "Unknown entry for this branch"
+          )
+            throw error;
+          // The runtime may own a different branch. Replace it canonically,
+          // just as the ordinary cursor path does after a rewind or navigation.
+          resetHandoff = true;
+          view = await deps.workspace.viewSession(id, {
+            consumePending: true,
+            ...warnTokens(c),
+          });
+        }
         if (aborted) return;
         if (!view) return;
         const actions: ItemActions = {
@@ -470,18 +503,23 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           id: `settled=${encodeURIComponent(view.settledCursor)}`,
           data: await html(
             <>
-              {view.resetTranscript ? (
+              {resetHandoff || (view.resetTranscript && !savedHandoff) ? (
                 <Partial target=".chat-body" swap="outerHTML">
                   <Transcript view={view} />
                 </Partial>
               ) : (
                 <>
-                  {view.items.length > 0 ? (
+                  {savedHandoff ? (
+                    <Partial target="#messages" swap="innerMorph">
+                      <SavedMessages view={view} />
+                    </Partial>
+                  ) : view.items.length > 0 ? (
                     <Partial target="#messages" swap="beforeend">
                       <Items items={view.items} actions={actions} />
                     </Partial>
                   ) : null}
                   <Partial target="#turn" swap="innerMorph">
+                    <LiveRecovery view={view} />
                     <TurnFragment
                       items={view.turn}
                       actions={actions}
@@ -490,18 +528,26 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
                   </Partial>
                 </>
               )}
-              {railChanged && !view.resetTranscript ? (
+              {railChanged &&
+              !resetHandoff &&
+              (!view.resetTranscript || savedHandoff) ? (
                 <Rail view={view} oob />
               ) : null}
               <Status view={view} model={modelChanged} oob partial />
             </>,
           ),
         });
+        const finishHandoff = savedHandoff && !resetHandoff;
+        savedHandoff = false;
         rail = nextRail;
         cursor = view.settledCursor;
         // Native SSE awaits the complete HTML frame before semantic events.
         if (reconciled || kind === "turn_done")
           await stream.writeSSE({ event: "settled", data: id });
+        if (finishHandoff) {
+          enqueue("activity");
+          return;
+        }
         const signature = shelfSignature(view.status);
         if (signature !== shelf) {
           shelf = signature;
@@ -574,6 +620,11 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
             ),
           });
         }
+        if (view.savedObservation)
+          await stream.writeSSE({
+            event: "web-pi:saved",
+            data: JSON.stringify(view.savedObservation),
+          });
       };
 
       let aborted = false;
@@ -648,15 +699,14 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           });
         }
       };
-      // A page for a stored session opens its stream before any runtime
-      // exists; reconcile it, then wait for the first prompt to create one.
-      let unsubscribe = await deps.workspace.subscribe(id, listener);
-      if (!unsubscribe) enqueue("activity");
-      while (!unsubscribe && !aborted) {
-        await sleep(500);
-        unsubscribe = await deps.workspace.subscribe(id, listener);
+      const unsubscribe = await deps.workspace.subscribe(id, listener);
+      if (!unsubscribe) {
+        // A stop can precede the first connection or happen while disconnected.
+        // The browser retains its rendered branch cursor; the saved file's
+        // current branch and Last-Event-ID cannot identify that whole window.
+        await stream.writeSSE({ event: "web-pi:saved", data: "{}" });
+        return;
       }
-      if (!unsubscribe) return;
       // The client may have missed activity between page render and connect.
       enqueue("activity");
       const heartbeat = setInterval(() => {

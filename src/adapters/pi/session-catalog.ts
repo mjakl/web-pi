@@ -33,9 +33,11 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { exportSessionHtml } from "./session-export.ts";
 import {
+  fileStamp,
   readSessionSnapshot,
   resolveSnapshotEntryId,
   sessionHeader,
+  snapshotRevision,
 } from "./session-snapshot.ts";
 import {
   branchToNewFile,
@@ -62,16 +64,6 @@ type Header = {
   fileSize: number;
   stamp: string;
 };
-
-function fileStamp(info: {
-  size: number;
-  mtimeMs: number;
-  ctimeMs: number;
-  dev: number;
-  ino: number;
-}): string {
-  return [info.size, info.mtimeMs, info.ctimeMs, info.dev, info.ino].join("\0");
-}
 
 function cacheFile<T>(cache: Map<string, T>, filePath: string, value: T): void {
   if (!cache.has(filePath) && cache.size >= METADATA_CACHE_MAX) {
@@ -354,6 +346,31 @@ export function createPiSessionCatalog(options: {
     return { filePath, manager, selectedId };
   }
 
+  function savedRead(
+    filePath: string,
+    snapshot: NonNullable<Awaited<ReturnType<typeof readSessionSnapshot>>>,
+  ): SessionRead {
+    const { header, name, entries } = snapshot;
+    const delegation = delegationFold(header.id);
+    for (const entry of entries) delegation.add(entry);
+    return {
+      summary: {
+        id: header.id,
+        cwd: header.cwd,
+        ...(name ? { name } : {}),
+        createdAt: header.timestamp,
+        modifiedAt: snapshot.modifiedAt,
+        fileSize: snapshot.fileSize,
+        filePath,
+        ...delegation.finish(),
+      },
+      branch: snapshot.branch,
+      entries,
+      leafId: snapshot.leafId,
+      revision: snapshot.revision,
+    };
+  }
+
   return {
     list: scan,
     pathOf,
@@ -380,23 +397,32 @@ export function createPiSessionCatalog(options: {
         },
       );
       if (!snapshot || snapshot.header.id !== id) return undefined;
-      const { header, name, entries } = snapshot;
-      const delegation = delegationFold(id);
-      for (const entry of entries) delegation.add(entry);
+      return savedRead(filePath, snapshot);
+    },
+
+    async readSaved(id, revision) {
+      const filePath = await pathOf(id);
+      if (!filePath) return { kind: "unavailable" };
+      const info = await stat(filePath).catch((error: unknown) => {
+        if (isFileReadError(error)) return undefined;
+        throw error;
+      });
+      if (!info) return { kind: "unavailable" };
+      const checked = snapshotRevision(info);
+      if (checked === revision) return { kind: "unchanged" };
+      // The observation path rejects malformed files rather than repairing or
+      // publishing the tolerant reader's potentially truncated transcript.
+      const snapshot = await readSessionSnapshot(
+        filePath,
+        undefined,
+        true,
+      ).catch(() => undefined);
+      if (!snapshot || snapshot.header.id !== id)
+        return { kind: "unavailable", revision: checked };
       return {
-        summary: {
-          id: header.id,
-          cwd: header.cwd,
-          ...(name ? { name } : {}),
-          createdAt: header.timestamp,
-          modifiedAt: snapshot.modifiedAt,
-          fileSize: snapshot.fileSize,
-          filePath,
-          ...delegation.finish(),
-        },
-        branch: snapshot.branch,
-        entries,
-        leafId: snapshot.leafId,
+        kind: "changed",
+        revision: snapshot.revision,
+        snapshot: savedRead(filePath, snapshot),
       };
     },
 

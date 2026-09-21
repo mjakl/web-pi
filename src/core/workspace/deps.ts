@@ -70,6 +70,7 @@ export function createShared(deps: WorkspaceDeps) {
   async function decorate(
     sessions: readonly SessionSummary[],
     snapshots?: ReadonlyMap<string, LiveSnapshot>,
+    savedOnly = false,
   ): Promise<SessionSummary[]> {
     const roots = new Map<string, ProjectInfo>();
     const present = new Map<string, boolean>();
@@ -85,7 +86,8 @@ export function createShared(deps: WorkspaceDeps) {
     );
     return sessions.map((session) => {
       const inspectionOnly = isSubagentSession(session);
-      const live = inspectionOnly ? undefined : deps.runtime.get(session.id);
+      const live =
+        inspectionOnly || savedOnly ? undefined : deps.runtime.get(session.id);
       const project = roots.get(session.cwd);
       return {
         ...session,

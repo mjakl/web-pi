@@ -11,6 +11,22 @@ import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 
+export function fileStamp(info: {
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  dev: number;
+  ino: number;
+}): string {
+  return [info.size, info.mtimeMs, info.ctimeMs, info.dev, info.ino].join("\0");
+}
+
+export function snapshotRevision(
+  info: Parameters<typeof fileStamp>[0],
+): string {
+  return createHash("sha256").update(fileStamp(info)).digest("hex");
+}
+
 export function sessionHeader(value: unknown): SessionHeader | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const header = value as Partial<SessionHeader>;
@@ -75,12 +91,65 @@ function migrateSnapshot(entries: FileEntry[], header: SessionHeader): void {
   }
 }
 
+/** Observation must not publish a partial append or a broken parent chain. */
+function strictEntries(content: string): FileEntry[] | undefined {
+  try {
+    const entries: FileEntry[] = content
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line: string) => JSON.parse(line) as FileEntry);
+    if (!sessionHeader(entries[0])) return undefined;
+    if (
+      entries
+        .slice(1)
+        .some(
+          (entry) =>
+            !entry ||
+            typeof entry !== "object" ||
+            typeof entry.type !== "string" ||
+            entry.type === "session",
+        )
+    )
+      return undefined;
+    return entries;
+  } catch {
+    return undefined;
+  }
+}
+
+function validSavedTree(entries: readonly FileEntry[]): boolean {
+  const seen = new Set<string>();
+  for (const entry of entries.slice(1)) {
+    if (
+      entry.type === "session" ||
+      typeof entry.id !== "string" ||
+      entry.id === "" ||
+      seen.has(entry.id) ||
+      (entry.parentId !== null && !seen.has(entry.parentId))
+    )
+      return false;
+    seen.add(entry.id);
+  }
+  return true;
+}
+
 /** Raw reads never invoke Pi's file repair, migration writes, or initialization. */
-export async function readSessionSnapshot(filePath: string, leafId?: string) {
+export async function readSessionSnapshot(
+  filePath: string,
+  leafId?: string,
+  strict = false,
+) {
   const file = await open(filePath, "r");
   try {
     const info = await file.stat();
-    const parsed = parseSessionEntries(await file.readFile("utf8"));
+    const content = await file.readFile("utf8");
+    const after = await file.stat();
+    const stable = fileStamp(info) === fileStamp(after);
+    if (strict && !stable) return undefined;
+    const parsed = strict
+      ? strictEntries(content)
+      : parseSessionEntries(content);
+    if (!parsed) return undefined;
     const header = sessionHeader(parsed[0]);
     if (!header) return undefined;
     const entries = parsed.filter(
@@ -88,6 +157,7 @@ export async function readSessionSnapshot(filePath: string, leafId?: string) {
         entry && typeof entry === "object" && typeof entry.type === "string",
     );
     migrateSnapshot(entries, header);
+    if (strict && !validSavedTree(entries)) return undefined;
     // inMemory(cwd, options, entries) loads and indexes the saved entries with
     // persist=false and no sessionFile; it cannot repair or rewrite the source.
     const manager = SessionManager.inMemory(header.cwd, undefined, entries);
@@ -103,6 +173,8 @@ export async function readSessionSnapshot(filePath: string, leafId?: string) {
       leafId: manager.getLeafId(),
       modifiedAt: info.mtime.toISOString(),
       fileSize: info.size,
+      // An unstable initial read stays tolerant, but must be checked next time.
+      revision: stable ? snapshotRevision(info) : "unstable",
     };
   } finally {
     await file.close();

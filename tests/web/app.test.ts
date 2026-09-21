@@ -286,8 +286,8 @@ describe("web app", () => {
     expect(received).toContain(
       '<hx-partial hx-target="#status" hx-swap="innerHTML">',
     );
-    expect(received).toContain(
-      'data: <hx-partial hx-target="#messages" hx-swap="beforeend"><section class="turn"',
+    expect(received).toMatch(
+      /data: <hx-partial hx-target="#messages" hx-swap="beforeend"><section id="turn-[^"]+" class="turn"/,
     );
     const clear =
       '<hx-partial hx-target="#turn" hx-swap="innerMorph"></hx-partial>';

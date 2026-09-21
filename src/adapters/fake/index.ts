@@ -63,6 +63,7 @@ import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 
 // In-memory implementations of every outbound port. Tests and the
 // `WEB_PI_RUNTIME=fake` demo mode use them; no Pi installation is needed.
@@ -1012,23 +1013,35 @@ export function createFakeWorld(
     return newId;
   }
 
+  function savedRead(id: string, leafId?: string) {
+    const stored = store.get(id);
+    if (!stored) return undefined;
+    return {
+      summary: stored.summary,
+      branch: branchOf(stored, leafId),
+      entries: [...stored.entries],
+      leafId: leafOf(stored),
+      revision: createHash("sha256")
+        .update(JSON.stringify(stored))
+        .digest("hex"),
+    };
+  }
+
   return {
     store,
     sessions: {
       list: () => Promise.resolve([...store.values()].map((s) => s.summary)),
       folder: (id) => Promise.resolve(store.get(id)?.summary.cwd),
       resolveEntryId: (_entries, entryId) => entryId,
-      read: (id, leafId) => {
-        const stored = store.get(id);
+      read: (id, leafId) => Promise.resolve(savedRead(id, leafId)),
+      readSaved: (id, revision) => {
+        const snapshot = savedRead(id);
         return Promise.resolve(
-          stored
-            ? {
-                summary: stored.summary,
-                branch: branchOf(stored, leafId),
-                entries: [...stored.entries],
-                leafId: leafOf(stored),
-              }
-            : undefined,
+          !snapshot
+            ? { kind: "unavailable" }
+            : snapshot.revision === revision
+              ? { kind: "unchanged" }
+              : { kind: "changed", revision: snapshot.revision, snapshot },
         );
       },
       rowMetadata: (id) => {

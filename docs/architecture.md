@@ -48,6 +48,38 @@ Pi's base prompt. New and stopped-and-reactivated sessions read the saved
 setting; active runtimes retain their captured addition through `/reload` and
 browser refresh. Saving does not interrupt a turn or restart a session.
 
+Saved external conversations use a separate read-only observation path. A
+mounted page checks `GET /sessions/:id/saved` every two seconds while visible,
+pauses when hidden, and checks immediately on return. Each page owns at most one
+request; navigation, pagination and disposal cancel or suspend it. Nothing
+observes unopened transcripts. The catalog stats the known path first and parses
+only a changed file, using size, mtime, ctime, device and inode for its
+revision. Saved reads never open a runtime, call a model, or repair, migrate or
+write the source. Incomplete or unstable snapshots and missing observed entries
+retain the last displayed history.
+
+The observation cursor carries the last checked revision, observed branch tip
+and last content entry separately. Parent links advance that branch even when
+later file entries belong to a sibling; the file's current leaf cannot switch
+the mounted view. If competing continuations arrive between checks, observation
+advances along their shared path and holds at the ambiguous fork rather than
+choosing a child. Reload or navigation may select the current saved branch. The
+content entry must remain on that branch: rewinds can preserve and reparent
+metadata tips while deleting the messages before them. The oldest loaded entry
+bounds a full-window projection, so saved tool results can update an existing
+assistant card without discarding earlier loaded pages. The browser morphs
+canonical message and rail HTML, not a second transcript model. Keyed
+disclosures and fetched bodies survive these updates. Readers at the tail
+follow; readers above it keep their anchor and get a “New messages” label on the
+existing jump control.
+
+Ordinary saved pages start session SSE only when web-pi acquires runtime
+ownership. The first ownership frame reconciles their loaded window before
+resuming the existing cursor protocol. A stopped runtime sends `web-pi:saved`
+with observation metadata and closes its stream; the mounted page resumes
+saved-only checks. Inspection-only children never make that handoff. These saved
+updates make no claim about external process activity or token streaming.
+
 `LiveSession` is the deep module: SDK event choreography (partial messages,
 compaction, retries, queue, extension notices) stays inside; callers only read a
 snapshot and receive `activity`, `turn_done`, and `stopped`.
@@ -415,9 +447,10 @@ composition root and the only importer of Pi adapters.
   listing, but avoids hiding children on another page or in another working
   folder. Initial pages, refreshes, pagination and SSE list replacements use the
   same projection. Unreadable files are omitted; untitled and empty sessions
-  keep fallback labels. Page offsets count unreadable rows. External appends and
-  new sessions are discovered on refresh or local rescan; there is no
-  external-session watcher or live-status promise.
+  keep fallback labels. Page offsets count unreadable rows. New sessions and
+  sidebar changes are discovered on refresh or local rescan. Only an opened
+  saved transcript checks its known file for updates; there is no background
+  transcript watcher or external live-status promise.
 - **Delegation origin is separate from Pi fork ancestry.** The
   `pi-subagent:delegation` custom entry has data
   `{version:1, childSessionId, parentSessionId, agent, handle}`. An origin

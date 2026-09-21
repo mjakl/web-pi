@@ -21,12 +21,10 @@ function pageTitle(view: SessionView): string {
   return opening === undefined || opening === "" ? view.summary.id : opening;
 }
 
-/** Initial pages and canonical rewrites share the transcript and rail owner. */
-export function Transcript({ view }: { view: SessionView }) {
+function itemActions(view: SessionView): ItemActions {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
-  const leafId = view.leaves.find((leaf) => leaf.current)?.id;
-  const actions: ItemActions = {
+  return {
     sessionId: summary.id,
     cwd: summary.cwd,
     starred: view.starred,
@@ -36,6 +34,31 @@ export function Transcript({ view }: { view: SessionView }) {
       : {}),
     ...(turnBusy(view.status) ? { busy: true } : {}),
   };
+}
+
+/** The full loaded saved window, shared with observation and ownership handoff. */
+export function SavedMessages({ view }: { view: SessionView }) {
+  const leaf = view.savedObservation?.leaf ?? view.leaf;
+  return (
+    <>
+      {view.hasMore && view.oldestId !== undefined ? (
+        <LoadEarlier
+          sessionId={view.summary.id}
+          before={view.oldestId}
+          {...(leaf === undefined ? {} : { leaf })}
+        />
+      ) : null}
+      <Items items={view.items} actions={itemActions(view)} />
+    </>
+  );
+}
+
+/** Initial pages and canonical rewrites share the transcript and rail owner. */
+export function Transcript({ view }: { view: SessionView }) {
+  const { summary } = view;
+  const inspectionOnly = isSubagentSession(summary);
+  const leafId = view.leaves.find((leaf) => leaf.current)?.id;
+  const actions = itemActions(view);
   return (
     <div class="chat-body">
       <div id="log" class="chat-scroll">
@@ -60,14 +83,7 @@ export function Transcript({ view }: { view: SessionView }) {
               </div>
             ) : null}
             <div id="messages">
-              {view.hasMore && view.oldestId !== undefined ? (
-                <LoadEarlier
-                  sessionId={summary.id}
-                  before={view.oldestId}
-                  {...(view.leaf === undefined ? {} : { leaf: view.leaf })}
-                />
-              ) : null}
-              <Items items={view.items} actions={actions} />
+              <SavedMessages view={view} />
             </div>
             <div id="turn">
               <TurnFragment
@@ -87,6 +103,9 @@ export function Transcript({ view }: { view: SessionView }) {
         title="Jump to latest"
         hidden
       >
+        <span data-new-messages hidden>
+          New messages
+        </span>
         <JumpToLatestIcon />
       </button>
       <div

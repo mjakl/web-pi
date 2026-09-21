@@ -37,7 +37,13 @@ import {
 import { pageItems } from "@core/turns";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Shared } from "./deps.ts";
-import type { SessionView, SidebarView, ViewOptions } from "./views.ts";
+import type {
+  SavedObservationOptions,
+  SavedSessionUpdate,
+  SessionView,
+  SidebarView,
+  ViewOptions,
+} from "./views.ts";
 
 // Persisted sessions: the sidebar, one session's page, and the edits Pi's
 // SessionManager writes for us (rename, star, fork, clone, rewind).
@@ -148,6 +154,7 @@ export function sessionUseCases({
     stored: SessionRead,
     summary: SessionSummary,
     options: ViewOptions,
+    enrichModels = true,
   ): Promise<SessionView> {
     const transcript = projectTranscript(stored.branch);
     const starred = readStars(stored.entries);
@@ -158,7 +165,7 @@ export function sessionUseCases({
     });
     deferThinking(page.items);
     fillCompactions(stored.summary.id, stored.entries, page.items);
-    const readOnly = isSubagentSession(summary);
+    const readOnly = isSubagentSession(summary) || !enrichModels;
     const listing = readOnly
       ? { models: [], warnings: [] }
       : await modelsFor(stored.summary.cwd);
@@ -176,6 +183,15 @@ export function sessionUseCases({
         : undefined;
     return {
       summary,
+      ...(stored.revision === undefined || summary.live
+        ? {}
+        : {
+            savedObservation: {
+              revision: stored.revision,
+              leaf: leafId,
+              contentLeaf: transcript.contentLeaf,
+            },
+          }),
       items: page.items,
       hasMore: page.hasMore,
       ...(page.oldestId === undefined ? {} : { oldestId: page.oldestId }),
@@ -283,6 +299,84 @@ export function sessionUseCases({
     );
   }
 
+  async function savedOwned(id: string): Promise<boolean> {
+    // Only a potential handoff needs the persisted authority check. On the
+    // ordinary unchanged polling path, readSaved must be the first file read.
+    return (
+      !id.startsWith("subagent.") &&
+      deps.runtime.get(id) !== undefined &&
+      !(await inspectionOnly(id))
+    );
+  }
+
+  async function observeSavedSession(
+    id: string,
+    observation: SavedObservationOptions,
+  ): Promise<SavedSessionUpdate> {
+    if (await savedOwned(id)) return { kind: "owned" };
+    const read = await deps.sessions.readSaved(id, observation.revision);
+    if (read.kind !== "changed") return read;
+    const stored = read.snapshot;
+    let leaf =
+      observation.leaf === null
+        ? null
+        : deps.sessions.resolveEntryId(stored.entries, observation.leaf);
+    if (leaf !== null && !stored.entries.some((entry) => entry.id === leaf))
+      return { kind: "unavailable", revision: read.revision };
+    const children = new Map<string | null, string[]>();
+    for (const entry of stored.entries) {
+      const siblings = children.get(entry.parentId) ?? [];
+      siblings.push(entry.id);
+      children.set(entry.parentId, siblings);
+    }
+    const visited = new Set<string>();
+    for (;;) {
+      const next = children.get(leaf) ?? [];
+      // File order cannot identify the intended continuation at a fork.
+      // Publish the shared path, but never guess between competing children.
+      if (next.length !== 1) break;
+      const child = next[0];
+      if (child === undefined || visited.has(child))
+        return { kind: "unavailable", revision: read.revision };
+      visited.add(child);
+      leaf = child;
+    }
+    const branch = branchTo(stored.entries, leaf);
+    if (observation.contentLeaf !== null) {
+      const contentLeaf = deps.sessions.resolveEntryId(
+        stored.entries,
+        observation.contentLeaf,
+      );
+      // Rewind preserves and reparents preferences, so a surviving metadata tip
+      // does not prove that the content already displayed is still on this path.
+      if (!branch.some((entry) => entry.id === contentLeaf))
+        return { kind: "unavailable", revision: read.revision };
+    }
+    const options = resolveViewOptions(stored.entries, {
+      ...(leaf === null ? {} : { leaf }),
+      ...(observation.through === undefined
+        ? {}
+        : { through: observation.through }),
+    });
+    const [summary] = await decorate([stored.summary], undefined, true);
+    if (!summary) return { kind: "unavailable", revision: read.revision };
+    if (!isSubagentSession(summary) && (await savedOwned(id)))
+      return { kind: "owned" };
+    try {
+      const view = await storedView(
+        { ...stored, branch },
+        summary,
+        options,
+        false,
+      );
+      return { kind: "changed", view };
+    } catch {
+      // A transient rewrite must not replace the reader's loaded history with
+      // a partial projection, including when its oldest loaded item vanished.
+      return { kind: "unavailable", revision: read.revision };
+    }
+  }
+
   async function stop(id: string): Promise<void> {
     await requireWritableSession(id);
     await deps.runtime.get(id)?.stop();
@@ -341,6 +435,7 @@ export function sessionUseCases({
 
   return {
     viewSession,
+    observeSavedSession,
     row,
     stop,
     setStar,

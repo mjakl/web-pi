@@ -327,6 +327,7 @@ export function Shell({
   fragment,
   activeId,
   settledCursor,
+  savedObservation,
   cwd,
   cwdAvailable,
   usage,
@@ -343,6 +344,7 @@ export function Shell({
   fragment?: boolean | undefined;
   activeId?: string;
   settledCursor?: string;
+  savedObservation?: SessionView["savedObservation"];
   /** The folder on screen: the document title is built from it. */
   cwd?: string;
   cwdAvailable?: boolean | undefined;
@@ -382,8 +384,22 @@ export function Shell({
         data-session-id={activeId}
         data-cwd={cwd}
         data-cwd-available={cwdAvailable === false ? "false" : undefined}
-        hx-sse:connect={
+        data-saved-session={
+          activeId ? `/sessions/${activeId}/saved` : undefined
+        }
+        data-saved-revision={savedObservation?.revision}
+        data-saved-leaf={savedObservation?.leaf ?? settledCursor}
+        data-saved-content-leaf={
+          savedObservation ? (savedObservation.contentLeaf ?? "") : undefined
+        }
+        data-live-events={
           activeId && !inspectionOnly
+            ? `/sessions/${activeId}/events`
+            : undefined
+        }
+        hx-sse:close="web-pi:saved"
+        hx-sse:connect={
+          activeId && !inspectionOnly && !savedObservation
             ? `/sessions/${activeId}/events?after=${encodeURIComponent(settledCursor ?? "")}`
             : undefined
         }
@@ -579,6 +595,7 @@ export function SessionPage({
       inspectionOnly={inspectionOnly}
       cwdAvailable={summary.cwdAvailable}
       settledCursor={view.settledCursor}
+      savedObservation={view.savedObservation}
       cwd={summary.cwd}
       usage={view.usage}
       {...(home === undefined ? {} : { home })}
@@ -601,8 +618,8 @@ export function SessionPage({
         <Transcript view={view} />
         {inspectionOnly && (
           <div class="branch-sync-notice" role="status">
-            Delegated session — saved transcript, inspection only. Refresh to
-            see saved updates.
+            Delegated session — saved transcript, inspection only. Saved updates
+            appear automatically while this page is visible.
           </div>
         )}
         {!inspectionOnly && (

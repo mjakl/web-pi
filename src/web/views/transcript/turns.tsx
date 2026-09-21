@@ -63,6 +63,12 @@ export function Item({
 }
 
 function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
+  const first =
+    turn.boundary ?? turn.process[0] ?? turn.answer ?? turn.trailing[0];
+  const key =
+    first?.entryId === "partial"
+      ? `partial-${String(Date.parse(first.timestamp))}`
+      : first?.entryId;
   const count = (value: number, noun: string) =>
     `${String(value)} ${noun}${value === 1 ? "" : "s"}`;
   const label = [
@@ -73,10 +79,11 @@ function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
     .filter(Boolean)
     .join(" · ");
   return (
-    <section class="turn">
+    <section id={key === undefined ? undefined : `turn-${key}`} class="turn">
       {turn.boundary ? <Item item={turn.boundary} actions={actions} /> : null}
       {turn.process.length > 0 ? (
         <details
+          id={key === undefined ? undefined : `process-${key}`}
           class="transcript-details process-details"
           open={turn.expanded}
         >

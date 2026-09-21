@@ -6,6 +6,9 @@ import { InspectionOnlySession } from "@core/workspace";
 import { renderMarkdown } from "@web/markdown";
 import { EarlierPage, StarButton, ToolBody } from "@web/views/Items";
 import { SessionRow } from "@web/views/Sidebar";
+import { Partial } from "@web/views/Partial";
+import { Rail } from "@web/views/Rail";
+import { SavedMessages } from "@web/views/Transcript";
 import { turnBusy } from "@web/views/Status";
 import type { Context } from "hono";
 import { raw } from "hono/html";
@@ -57,6 +60,49 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
         return c.text(error.message, 403);
       return c.text(errorText(error), 500);
     }
+  });
+
+  /** Observe only the opened saved file; never attach a runtime or enrich models. */
+  app.get("/sessions/:id/saved", async (c) => {
+    const id = c.req.param("id");
+    if (!isSessionId(id)) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    const revision = c.req.query("revision");
+    if (revision === undefined) return c.text("revision is required", 400);
+    const contentLeaf = c.req.query("contentLeaf");
+    if (contentLeaf === undefined)
+      return c.text("contentLeaf is required", 400);
+    const through = c.req.query("through");
+    const leaf = c.req.query("leaf");
+    const update = await deps.workspace.observeSavedSession(id, {
+      revision,
+      leaf: leaf === undefined || leaf === "" ? null : leaf,
+      contentLeaf: contentLeaf === "" ? null : contentLeaf,
+      ...(through === undefined ? {} : { through }),
+    });
+    c.header("X-Web-Pi-Saved", update.kind);
+    if (update.kind !== "changed") {
+      if (update.kind === "unavailable" && update.revision !== undefined)
+        c.header("X-Web-Pi-Revision", encodeURIComponent(update.revision));
+      return c.body(null, 204);
+    }
+    const observation = update.view.savedObservation;
+    if (observation) {
+      c.header("X-Web-Pi-Revision", encodeURIComponent(observation.revision));
+      c.header("X-Web-Pi-Leaf", encodeURIComponent(observation.leaf ?? ""));
+      c.header(
+        "X-Web-Pi-Content-Leaf",
+        encodeURIComponent(observation.contentLeaf ?? ""),
+      );
+    }
+    return c.html(
+      <>
+        <Partial target="#messages" swap="innerMorph">
+          <SavedMessages view={update.view} />
+        </Partial>
+        <Rail view={update.view} oob />
+      </>,
+    );
   });
 
   /** The previous page of a long transcript, with its own sentinel on top. */

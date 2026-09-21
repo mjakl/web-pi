@@ -230,9 +230,15 @@ it("keeps controls, stream following, and teardown correct through repeated hist
       .poll(() => browser.document.querySelector("#composer") !== before)
       .toBe(true);
     expect(browser.document.body).toBe(body);
+    const main = required(browser.document.querySelector("main"));
+    const expectedStreams = main.hasAttribute("hx-sse:connect") ? 2 : 1;
+    if (expectedStreams === 1) {
+      expect(main.hasAttribute("data-saved-session")).toBe(true);
+      expect(main.hasAttribute("data-live-events")).toBe(true);
+    }
     await expect
       .poll(() => streams.filter((request) => !request.signal.aborted).length)
-      .toBe(2);
+      .toBe(expectedStreams);
     expect(
       browser.document.querySelectorAll(".message-preview-popover"),
     ).toHaveLength(1);
@@ -312,6 +318,9 @@ it("keeps controls, stream following, and teardown correct through repeated hist
     )
     .toBe(1);
   await expect.poll(() => send.dataset["action"]).toBe("stop");
+  await expect
+    .poll(() => streams.filter((request) => !request.signal.aborted).length)
+    .toBe(2);
   const live = required(world.runtime.get(id));
   const abort = vi.spyOn(live, "abort");
   await expect.poll(() => log.scrollTop).toBe(1600);

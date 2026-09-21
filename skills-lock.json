@@ -6,7 +6,7 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/code-review/SKILL.md",
-      "computedHash": "47d8cb41e82f31047a12a52296b8a6591825d3beacb4d35bd801efaf80338241"
+      "computedHash": "abb83d0bc3dd81657881b9b0748db2a65b8fd53a6e0c7cc49d989cb1bebcb90c"
     },
     "commit-changes": {
       "source": "git@github.com:mjakl/skills.git",
@@ -76,7 +76,7 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/testing/SKILL.md",
-      "computedHash": "851566c4951ba40b1b657abb2ecc158745c59cacd2fa2610310b38543426f8bc"
+      "computedHash": "5d5a4604a22fbfa38e2c528469cd0b4d600983e004be5c48102b54b9d9a07ec5"
     }
   }
 }

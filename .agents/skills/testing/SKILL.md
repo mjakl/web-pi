@@ -16,6 +16,10 @@ Test observable behavior through the smallest stable seam used by a real caller.
 
 Project rules override generic taxonomy. Do not create a new test layer when an existing layer already owns the behavior.
 
+Preserve existing observable behavior and contracts unless a change is explicitly requested or necessary to achieve the stated outcome. Implementation convenience or incidental side effects do not authorize behavior changes. Explain necessary implied changes; ask before proceeding when their necessity or intended outcome is materially ambiguous.
+
+Make tests reflect the authorized contract, not merely the implementation. When changing or removing a behavioral assertion, identify the authorized behavior change, evidence that the assertion is incorrect or obsolete under that contract, or the equivalent protection that remains.
+
 ## Stable seams
 
 A useful seam may be:

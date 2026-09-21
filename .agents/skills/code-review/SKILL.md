@@ -27,7 +27,9 @@ For a complete primary review, review the proposed change as one system and deci
 2. Use the user's explicit base when provided. Otherwise, determine the default branch from project instructions or the remote default ref. Ask when the base is ambiguous.
 3. Compute the merge base. Inventory every commit and changed file from that point through `HEAD`.
 4. Include relevant pending worktree changes. State that a branch with pending changes is not reproducible or PR-ready until the intended state is committed.
-5. Identify intent from the current conversation and direct issue, ticket, specification, PR, or commit references. Do not scan unrelated tracker stores. Ask once when required intent is unavailable.
+5. Before analyzing the diff, confirm the intended outcome, established acceptance criteria, latest scope, and non-goals from the current conversation and direct issue, ticket, specification, PR, or commit references. Read authoritative sources as needed; do not scan unrelated tracker stores or infer requirements solely from the diff. If essential intent is missing, ask once before concluding readiness.
+   - When delegating this review, provide a self-contained brief with that context and authoritative issue, ticket, or specification references, if any. Keep implementation claims and validation results separate from requirements. Pass the same brief to independently delegated specialists.
+   - Conversation or direct briefing is sufficient; do not require a new artifact or tracker.
 6. Read relevant composition points, representative callers, tests, schemas, configuration, migrations, documentation, and delivery paths for every materially affected workflow.
 7. Identify changed trust, performance, architecture, data, and lifecycle surfaces before choosing deeper lenses.
 

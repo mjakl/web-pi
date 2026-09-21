@@ -10,6 +10,7 @@ import {
   toolProgress,
   transcriptTitle,
 } from "@core/transcript";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
@@ -50,7 +51,7 @@ function toolResult(
   options: {
     toolCallId?: string;
     text?: string;
-    details?: unknown;
+    details?: JsonValue;
     isError?: boolean;
     timestamp?: number;
   } = {},
@@ -226,7 +227,7 @@ describe("projectTranscript", () => {
         ],
       },
     };
-    const details = {
+    const details: JsonValue = {
       kind: "pi-subagent",
       results: [
         {

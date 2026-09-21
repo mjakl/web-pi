@@ -161,7 +161,7 @@ export function Subagent({
   actions?: ItemActions;
 }) {
   const { calls, runs } = view;
-  const running = call.result === undefined;
+  const running = call.result === undefined && actions?.inspectionOnly !== true;
   // What the tool last reported, while it is still reporting.
   const progress = actions?.progress?.[call.id];
   const single = calls.length === 1 ? calls[0] : undefined;

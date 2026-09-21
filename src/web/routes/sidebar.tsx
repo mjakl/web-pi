@@ -37,9 +37,11 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       sessionLocation(c, path);
       return c.body(null, 200);
     }
-    return c.html(
-      <SessionNav view={await sidebarOf()} activeId={currentSessionId(c)} />,
+    const activeId = currentSessionId(c);
+    const view = await deps.workspace.sidebar(
+      activeId === undefined ? {} : { selectedId: activeId },
     );
+    return c.html(<SessionNav view={view} activeId={activeId} />);
   });
 
   /** Session-derived options, without reading any transcript metadata. */
@@ -56,8 +58,22 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/sidebar/rows", async (c) => {
     const offset = Number(c.req.query("after") ?? "0");
     if (!Number.isInteger(offset) || offset < 0) return c.notFound();
-    const view = await deps.workspace.sidebar({ offset });
-    const activeId = currentSessionId(c);
+    const parentId = c.req.query("parent");
+    if (parentId !== undefined && !isSessionId(parentId)) return c.notFound();
+    const selected = c.req.query("selected");
+    const activeId =
+      c.req.header("X-Web-Pi-Session") !== undefined
+        ? currentSessionId(c)
+        : selected !== undefined
+          ? isSessionId(selected)
+            ? selected
+            : undefined
+          : currentSessionId(c);
+    const view = await deps.workspace.sidebar({
+      offset,
+      ...(parentId === undefined ? {} : { parentId }),
+      ...(activeId === undefined ? {} : { selectedId: activeId }),
+    });
     return c.html(
       <SessionRows
         view={view}
@@ -89,8 +105,11 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const found = await deps.workspace.row(id);
-    return found ? c.html(<RenameRow {...found} />) : c.notFound();
+    return guard(c, async () => {
+      await deps.workspace.requireWritableSession(id);
+      const found = await deps.workspace.row(id);
+      return found ? c.html(<RenameRow {...found} />) : c.notFound();
+    });
   });
 
   app.post("/sessions/:id/rename", async (c) => {
@@ -108,12 +127,28 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.remove(id);
-      if (currentSessionId(c) === id) {
-        if (c.req.header("HX-Request") === "true")
+      const activeId = currentSessionId(c);
+      if (activeId === id) {
+        if (c.req.header("HX-Request") === "true") {
           sessionLocation(c, `/new?cwd=${encodeURIComponent(newCwd(c))}`);
-        else c.header("HX-Redirect", "/new");
+          // HX-Location skips the response body. Refresh the surviving tree too.
+          c.header(
+            "HX-Trigger",
+            JSON.stringify({ "web-pi:sidebar-refresh": {} }),
+          );
+        } else c.header("HX-Redirect", "/new");
+        return c.body(null, 200);
       }
-      return c.body(null, 200);
+      const view = await deps.workspace.sidebar(
+        activeId === undefined ? {} : { selectedId: activeId },
+      );
+      return c.html(
+        <SessionList
+          view={view}
+          {...(activeId === undefined ? {} : { activeId })}
+          partial
+        />,
+      );
     });
   });
 

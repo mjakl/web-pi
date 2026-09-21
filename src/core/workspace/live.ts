@@ -23,6 +23,7 @@ import {
 } from "@core/transcript";
 import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
+import { isSubagentSession } from "@core/sessions";
 import type { Shared } from "./deps.ts";
 import { ForbiddenPath } from "./views.ts";
 
@@ -41,6 +42,7 @@ export function liveUseCases({
   entriesOf,
   folderAvailable,
   requireFolder,
+  requireWritableSession,
   summaryOf,
 }: Shared) {
   /**
@@ -52,12 +54,14 @@ export function liveUseCases({
     if (event.type !== "completed") return;
     void summaryOf(event.sessionId)
       .then((summary) =>
-        deps.push.send({
-          title: nonEmpty(summary?.name) ?? "Session complete",
-          body: "Task finished.",
-          url: `/sessions/${event.sessionId}`,
-          tag: `web-pi:session-complete:${event.sessionId}`,
-        }),
+        summary && isSubagentSession(summary)
+          ? undefined
+          : deps.push.send({
+              title: nonEmpty(summary?.name) ?? "Session complete",
+              body: "Task finished.",
+              url: `/sessions/${event.sessionId}`,
+              tag: `web-pi:session-complete:${event.sessionId}`,
+            }),
       )
       .catch(() => {
         // Push is best effort: a failing subscription must not break a turn.
@@ -74,7 +78,9 @@ export function liveUseCases({
     entryId: string,
   ): Promise<ContentPart[]> {
     const stored = await entriesOf(id);
-    const entry = stored?.entries.find((item) => item.id === entryId);
+    if (!stored) return [];
+    const targetId = deps.sessions.resolveEntryId(stored.entries, entryId);
+    const entry = stored.entries.find((item) => item.id === targetId);
     if (entry?.type === "message") {
       const { message } = entry;
       return "content" in message ? contentParts(message.content) : [];
@@ -110,6 +116,7 @@ export function liveUseCases({
 
     /** Stops the turn, or the shell command when that is what runs. */
     async abort(id: string): Promise<void> {
+      await requireWritableSession(id);
       const live = deps.runtime.get(id);
       if (!live) return;
       if (live.snapshot().status.bashRunning) live.abortBash();
@@ -122,6 +129,7 @@ export function liveUseCases({
      * starting an agent just to fill a menu.
      */
     async commands(id: string, query: string): Promise<SlashCommand[]> {
+      await requireWritableSession(id);
       const live = deps.runtime.get(id);
       let listed: SlashCommand[] = [];
       if (live) listed = live.commands();
@@ -144,7 +152,8 @@ export function liveUseCases({
       await live.compact(instructions);
     },
 
-    abortCompaction(id: string): void {
+    async abortCompaction(id: string): Promise<void> {
+      await requireWritableSession(id);
       deps.runtime.get(id)?.abortCompaction();
     },
 
@@ -157,12 +166,22 @@ export function liveUseCases({
      * Answers an extension dialog. Only the tab that gets here resolves it;
      * the others see the dialog disappear on the next render.
      */
-    answerDialog(id: string, requestId: string, answer: DialogAnswer): boolean {
+    async answerDialog(
+      id: string,
+      requestId: string,
+      answer: DialogAnswer,
+    ): Promise<boolean> {
+      await requireWritableSession(id);
       return deps.runtime.get(id)?.answerDialog(requestId, answer) ?? false;
     },
 
     /** One keystroke or paste for an extension's open custom UI. */
-    customInput(id: string, requestId: string, data: string): void {
+    async customInput(
+      id: string,
+      requestId: string,
+      data: string,
+    ): Promise<void> {
+      await requireWritableSession(id);
       deps.runtime.get(id)?.customInput(requestId, data);
     },
 
@@ -184,7 +203,10 @@ export function liveUseCases({
      * draft, and the images of every queued message, so recalling a message
      * that carried a screenshot does not silently drop it.
      */
-    recallQueue(id: string): { text: string; images: ImageAttachment[] } {
+    async recallQueue(
+      id: string,
+    ): Promise<{ text: string; images: ImageAttachment[] }> {
+      await requireWritableSession(id);
       const queued = deps.runtime.get(id)?.clearQueue() ?? [];
       return {
         text: queued
@@ -262,11 +284,12 @@ export function liveUseCases({
     ): Promise<ToolCallView | undefined> {
       const stored = await entriesOf(id);
       if (!stored) return undefined;
+      const targetId = deps.sessions.resolveEntryId(stored.entries, entryId);
       // A deferred card can belong to a read-only alternate leaf. Its result
       // entry pins that branch without trusting a branch supplied by the client.
-      const branch = stored.branch.some((entry) => entry.id === entryId)
+      const branch = stored.branch.some((entry) => entry.id === targetId)
         ? stored.branch
-        : branchTo(stored.entries, entryId);
+        : branchTo(stored.entries, targetId);
       for (const item of projectTranscript(branch).items) {
         if (item.kind !== "assistant") continue;
         for (const block of item.blocks) {
@@ -274,8 +297,8 @@ export function liveUseCases({
           // The link carries whichever entry the truncated body came from:
           // the call's own, or the one the result was written into.
           if (
-            item.entryId === entryId ||
-            block.call.result?.entryId === entryId
+            item.entryId === targetId ||
+            block.call.result?.entryId === targetId
           ) {
             return block.call;
           }
@@ -295,6 +318,7 @@ export function liveUseCases({
      * cannot be resumed, and says so through the panel's empty state.
      */
     async toolDefinitions(id: string): Promise<ToolView[] | undefined> {
+      await requireWritableSession(id);
       const live = deps.runtime.get(id);
       if (live) return live.toolDefinitions();
       await requireFolder(id);
@@ -302,6 +326,7 @@ export function liveUseCases({
     },
 
     async systemPrompt(id: string): Promise<string | undefined> {
+      await requireWritableSession(id);
       const live = deps.runtime.get(id);
       if (live) return live.systemPrompt();
       await requireFolder(id);
@@ -329,10 +354,11 @@ export function liveUseCases({
     },
 
     /** Undefined when the session has no runtime; the page then has nothing to stream. */
-    subscribe(
+    async subscribe(
       id: string,
       listener: (event: LiveEvent) => void,
-    ): (() => void) | undefined {
+    ): Promise<(() => void) | undefined> {
+      await requireWritableSession(id);
       return deps.runtime.get(id)?.subscribe(listener);
     },
   };

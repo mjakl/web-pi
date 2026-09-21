@@ -1,5 +1,6 @@
 import { pathKey } from "@core/path-access";
 import type { EditableMessage } from "@core/ports";
+import { delegationFold } from "@core/session-delegation";
 import {
   editableUserMessage,
   readStars,
@@ -84,8 +85,21 @@ export function reparentChildren(filePath: string): void {
       if (!header?.parentSession) continue;
       if (pathKey(header.parentSession) !== target) continue;
       const contents = readFileSync(child, "utf8");
-      // Marked subagent transcripts keep their original parent relationship.
-      if (contents.includes('"customType":"web-pi:subagent"')) continue;
+      // A parent-seeded child also has a Pi fork header. Deleting its parent
+      // must not rewrite that externally owned transcript, even just its header.
+      const delegation = delegationFold(header.id);
+      for (const line of contents.split("\n")) {
+        try {
+          delegation.add(JSON.parse(line));
+        } catch {
+          // An external producer may still be appending its final line.
+        }
+      }
+      if (
+        delegation.finish().inspectionOnly ||
+        contents.includes('"customType":"web-pi:subagent"')
+      )
+        continue;
       const end = contents.indexOf("\n");
       if (end < 0) continue;
       const rewritten: SessionHeader = { ...header };

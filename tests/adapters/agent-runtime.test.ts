@@ -2,6 +2,7 @@ import { createFakeWorld } from "@adapters/fake/index";
 import type { RuntimeEvent } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { STAR_TYPE } from "@core/session-entries";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -66,8 +67,8 @@ describe("opening", () => {
     const done = next(custom, "turn_done");
     await custom.prompt("question");
     await done;
-    expect(h.calls[0]?.context.systemPrompt).toContain(
-      "Custom web instruction.",
+    expect(getCurrentSystemPrompt(h.calls[0]?.context.messages ?? [])).toBe(
+      custom.systemPrompt(),
     );
     h.webSettings.update({ systemPromptAddition: "" });
     expect(await h.open({ sessionId: custom.id })).toBe(custom);

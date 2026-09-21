@@ -43,6 +43,7 @@ describe("a turn", () => {
       turn.text(" world");
       turn.done({ input: 120, output: 5 });
     });
+    const before = session.snapshot();
     await session.prompt("hi");
     const streaming = await until(session, (s) =>
       (s.partial?.content ?? []).some(
@@ -53,11 +54,15 @@ describe("a turn", () => {
     expect(streaming.status.streaming?.tokens).toBeGreaterThan(0);
     // Not half a second in yet: no rate.
     expect(streaming.status.streaming?.tokensPerSecond).toBeNull();
-    expect(streaming.turnStart).toBe(
-      streaming.branch.findIndex(
-        (entry) => entry.type === "message" && entry.message.role === "user",
-      ),
+    // Pi may prepend a system snapshot; the raw boundary still follows the
+    // prior settled entries, and the live tail must include the prompt.
+    expect(streaming.turnStart).toBe(before.branch.length);
+    expect(streaming.branch.slice(0, streaming.turnStart)).toEqual(
+      before.branch,
     );
+    expect(
+      projectTranscript(streaming.branch.slice(streaming.turnStart)).items,
+    ).toMatchObject([{ kind: "user", text: "hi" }]);
     expect(events).not.toContain("turn_done");
 
     const done = next(session, "turn_done");

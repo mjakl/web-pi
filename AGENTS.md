@@ -9,8 +9,21 @@ the browser keeps drafts and presentation preferences, not a second transcript.
 
 - Use `pnpm` and the tool pins in `mise.toml`. Automation lives in the
   `justfile`; do not add `package.json` scripts.
-- `just qa` must pass before handoff. Rerun it after any later edit. `just ci`
-  is the non-mutating variant.
+- Run one complete final local gate before handoff: `just qa` (fix, lint, test),
+  or `just ci` (build, lint, test, package smoke) when non-mutating validation
+  is needed. Do not routinely run both on unchanged inputs. Keep focused
+  development checks and the distinct package checks required below. After
+  executable changes, rerun the gate; after prose-only corrections, recheck
+  content, links, and the diff, reusing still-relevant runtime evidence.
+- Non-executable documentation-only changes may use content, link/path, and diff
+  checks instead of an application gate. Run
+  `node scripts/check-doc-path-references.ts` (Node 24) and `git diff --check`,
+  and inspect changed guidance and links. This exception does not cover runtime
+  content, fixtures, configuration, dependencies, tests, executable skills,
+  validation scripts, or workflows. CI uses an explicit documentation allowlist
+  in `.github/workflows/validation.yml`; unknown or mixed changes run full CI.
+  Packaged documentation changes ship on the next release; these lightweight
+  checks do not validate a new tarball.
 - Never start the dev server on port 30141 or write into `~/.pi/agent` from
   tests. Experiments that run a model use `PI_CODING_AGENT_DIR` pointing at a
   temporary directory with copied `auth.json`, `models.json`, and a minimal
@@ -167,8 +180,10 @@ before changing folder selection or worktree discovery.
   test. happy-dom has no layout, so a test that needs geometry sets it.
 - Add or update the nearest test for changed behaviour; assert on rendered
   output or port behaviour, never on source text.
-- `just build` writes `dist/` and the built assets; `just smoke` packs the
-  package, installs the tarball into a throwaway project, and serves a fixture
-  session from it. Run it after touching `bin/`, `files`, dependencies, the
-  build, or startup. `just ci` includes it.
+- `just build` writes `dist/` and the built assets; `just smoke` builds, packs
+  the package, installs the tarball into a throwaway project, and serves a
+  fixture session from it. Run it after touching `bin/`, `files`, dependencies,
+  the build, or startup. With `just qa`, run this distinct package check once;
+  `just ci` already includes it. Do not add a separate build when smoke covers
+  the same inputs.
 - Inspect `git status` and the diff before handoff.

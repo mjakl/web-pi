@@ -1,8 +1,13 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// Every `path/like/this.ext` mentioned in the docs must exist, so guidance
-// cannot silently point at files that moved.
+// Source references must exist even in a checkout that has not been built.
+// Only these known justfile outputs may legitimately be absent.
+const generatedOutputs = new Set([
+  "static/app.css",
+  "static/client.js",
+  "static/mermaid.js",
+]);
 const roots = ["AGENTS.md", "README.md", "docs"];
 const pattern = /`((?:src|tests|scripts|docs|static)\/[\w./-]+)`/g;
 
@@ -22,7 +27,8 @@ for (const root of roots) {
     const text = readFileSync(file, "utf8");
     for (const match of text.matchAll(pattern)) {
       const target = match[1];
-      if (target && !existsSync(target)) missing.push(`${file}: ${target}`);
+      if (target && !generatedOutputs.has(target) && !existsSync(target))
+        missing.push(`${file}: ${target}`);
     }
   }
 }

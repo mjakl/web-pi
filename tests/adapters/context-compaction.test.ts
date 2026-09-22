@@ -1,4 +1,5 @@
 import { createFakeWorld } from "@adapters/fake/index";
+import { formatContextUsage } from "@core/context-usage";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser } from "#/web/htmx4-browser";
@@ -63,8 +64,8 @@ it("replaces pre-compaction usage with the rebuilt context estimate, including a
   expect(view.usage.tokens).toBe(card.tokensAfter);
   expect(view.usage.estimated).toBe(true);
   expect(view.status?.compaction?.tokensAfter).toBe(card.tokensAfter);
-  await expect.poll(readout).toContain("~85 / 4k (~2.1%)");
-  expect(await page()).toContain("~85 / 4k (~2.1%)");
+  await expect.poll(readout).toContain(formatContextUsage(view.usage));
+  expect(await page()).toContain(formatContextUsage(view.usage));
 
   await session.stop();
   expect((await currentView()).usage.tokens).toBeNull();

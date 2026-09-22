@@ -8,19 +8,74 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: validation-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   # A CI host fixture, not a pinned product SDK dependency.
   PI_FIXTURE_VERSION: 0.86.1
 
 jobs:
-  source:
-    name: Source validation
+  classify:
+    name: Classify change and validate docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify the complete change
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Unknown events, missing history and empty diffs use full validation.
+          echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          case "$EVENT" in
+            pull_request|push) ;;
+            *) exit 0 ;;
+          esac
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || exit 0
+          git cat-file -e "$HEAD^{commit}" 2>/dev/null || exit 0
+          if [[ "$EVENT" == pull_request ]]; then
+            BASE=$(git merge-base "$BASE" "$HEAD") || exit 0
+          fi
+          # Disabling rename detection checks both sides of every move.
+          paths="$RUNNER_TEMP/validation-paths"
+          git diff --no-renames --name-only -z "$BASE" "$HEAD" > "$paths" || exit 0
+          [[ -s "$paths" ]] || exit 0
+          while IFS= read -r -d '' path; do
+            # Audited prose, not runtime inputs. New docs require classification
+            # review; instructions, skills, images and unknown paths stay full.
+            case "$path" in
+              README.md|docs/architecture.md|docs/behavior.md|docs/deployment.md|\
+              docs/screenshots.md|docs/style-scale.md|docs/worktrees.md|\
+              docs/adr/0001-project-command-environment.md) ;;
+              *) exit 0 ;;
+            esac
+          done < "$paths"
+          git diff --check "$BASE" "$HEAD"
+          echo "docs_only=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v6
+        if: steps.changes.outputs.docs_only == 'true'
+        with:
+          node-version: 24
+      - name: Validate documentation paths without building the app
+        if: steps.changes.outputs.docs_only == 'true'
+        run: node scripts/check-doc-path-references.ts
+
+  application:
+    name: Application validation
+    needs: classify
+    if: needs.classify.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Only build-worthy changes can cancel obsolete application work.
+    concurrency:
+      group: validation-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v6
       - uses: jdx/mise-action@v4
@@ -36,3 +91,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build, validate sources, and smoke-test the installed tarball on Node 24
         run: HOME="$RUNNER_TEMP/validation-home" just ci
+
+  source:
+    name: Source validation
+    needs: [classify, application]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful validation for the selected lane
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+          APPLICATION_RESULT: ${{ needs.application.result }}
+        run: |
+          case "$CLASSIFY_RESULT:$DOCS_ONLY:$APPLICATION_RESULT" in
+            success:true:skipped|success:false:success) exit 0 ;;
+            *)
+              echo "Validation did not succeed: classify=$CLASSIFY_RESULT docs_only=$DOCS_ONLY application=$APPLICATION_RESULT"
+              exit 1
+              ;;
+          esac

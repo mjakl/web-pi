@@ -486,7 +486,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
   ])("establishes %s after an initial %s failure", async (url, failure) => {
     const stream = controlledStream();
     let connections = 0;
-    const { document, window } = await open(
+    const { document, window, advanceTime } = await open(
       page(
         `<div id="live" hx-sse:connect="${url}" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="messages"></div><div id="toasts"></div>`,
       ),
@@ -499,18 +499,20 @@ describe("shipped HTMX 4 with the real browser client", () => {
         }
         return stream.response;
       },
+      { clock: true },
     );
     // Reprocessing while the initial connection is pending must not queue a
     // second connection when the extension installs its trigger again.
     window.eval("htmx.process(document.body)");
-    await expect.poll(() => connections, { timeout: 2000 }).toBe(2);
+    await advanceTime(500);
+    expect(connections).toBe(2);
     stream.send(
       '<hx-partial hx-target="#messages" hx-swap="beforeend"><p>Future update</p></hx-partial>',
     );
     await eventually(() => {
       expect(document.querySelectorAll("#messages p")).toHaveLength(1);
     });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advanceTime(600);
     expect(connections).toBe(2);
     expect(document.querySelectorAll("#messages p")).toHaveLength(1);
   });
@@ -518,7 +520,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
   it("starts once when the client bundle loads after HTMX processing", async () => {
     const stream = controlledStream();
     let connections = 0;
-    const { window } = await open(
+    const { window, advanceTime, htmxProcessedBeforeClient } = await open(
       page(
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>',
       ),
@@ -526,13 +528,14 @@ describe("shipped HTMX 4 with the real browser client", () => {
         connections += 1;
         return stream.response;
       },
-      true,
+      { clientAfterHtmx: true, clock: true },
     );
+    expect(htmxProcessedBeforeClient).toBe(true);
     await eventually(() => {
       expect(connections).toBe(1);
     });
     window.eval("htmx.process(document.body)");
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advanceTime(600);
     expect(connections).toBe(1);
   });
 
@@ -543,7 +546,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
       const owner =
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>';
       let connections = 0;
-      const { document } = await open(
+      const { document, advanceTime } = await open(
         page(
           `${owner}<div id="messages"></div><div id="toasts"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
         ),
@@ -555,6 +558,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
             ? new Response("Unavailable", { status: 503 })
             : stream.response;
         },
+        { clock: true },
       );
       const oldOwner = required(document.getElementById("live"));
       required(document.querySelector<HTMLButtonElement>("#remove")).click();
@@ -572,7 +576,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
           expect(document.querySelectorAll("#messages p")).toHaveLength(1);
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await advanceTime(700);
       expect(connections).toBe(replace ? 2 : 1);
       expect(required(document.getElementById("toasts")).textContent).toBe("");
     },
@@ -581,7 +585,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
   it("aborts an initial fetch when its owner is removed", async () => {
     let signal: AbortSignal | undefined;
     let connections = 0;
-    const { document } = await open(
+    const { document, advanceTime } = await open(
       page(
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>',
       ),
@@ -600,12 +604,13 @@ describe("shipped HTMX 4 with the real browser client", () => {
           );
         });
       },
+      { clock: true },
     );
     required(document.querySelector<HTMLButtonElement>("#remove")).click();
     await eventually(() => {
       expect(signal?.aborted).toBe(true);
     });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advanceTime(600);
     expect(connections).toBe(1);
     expect(required(document.getElementById("toasts")).textContent).toBe("");
   });
@@ -614,7 +619,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
     "reports a non-SSE HTTP %s response without retrying",
     async (status) => {
       let connections = 0;
-      const { document, window } = await open(
+      const { document, window, advanceTime } = await open(
         page(
           '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div>',
         ),
@@ -622,6 +627,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
           connections += 1;
           return new Response("Not an event stream", { status });
         },
+        { clock: true },
       );
       await eventually(() => {
         expect(
@@ -629,14 +635,14 @@ describe("shipped HTMX 4 with the real browser client", () => {
         ).toContain("Reload this page to reconnect.");
       });
       window.eval("htmx.process(document.body)");
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await advanceTime(700);
       expect(connections).toBe(1);
     },
   );
 
   it("stops after six startup attempts and reports how to reconnect", async () => {
     let connections = 0;
-    const { document, window } = await open(
+    const { document, window, advanceTime } = await open(
       page(
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div>',
       ),
@@ -644,15 +650,22 @@ describe("shipped HTMX 4 with the real browser client", () => {
         connections += 1;
         return new Response("Unavailable", { status: 503 });
       },
+      { clock: true },
     );
-    await expect
-      .poll(() => required(document.getElementById("toasts")).textContent, {
-        timeout: 18000,
-      })
-      .toContain("Reload this page to reconnect.");
+    expect(connections).toBe(1);
+    for (const delay of [500, 1000, 2000, 4000, 8000]) {
+      const previous = connections;
+      await advanceTime(delay - 1);
+      expect(connections).toBe(previous);
+      await advanceTime(1);
+      expect(connections).toBe(previous + 1);
+    }
+    expect(required(document.getElementById("toasts")).textContent).toContain(
+      "Reload this page to reconnect.",
+    );
     expect(connections).toBe(6);
     window.eval("htmx.process(document.body)");
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advanceTime(600);
     expect(connections).toBe(6);
   });
 

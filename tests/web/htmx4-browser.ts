@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildSync } from "esbuild";
 import { Window } from "happy-dom";
+import { vi } from "vitest";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 
 const client = buildSync({
@@ -19,12 +20,16 @@ const client = buildSync({
 
 export type Transport = (request: Request) => Promise<Response> | Response;
 
+const realSetTimeout = globalThis.setTimeout;
+
 /** Separate JS realm: no tests/client/setup.ts and no fake HTMX object. */
 export async function htmxBrowser(
   markup: string,
   transport: Transport,
-  clientAfterHtmx = false,
+  options: { clientAfterHtmx?: boolean; clock?: boolean } = {},
 ) {
+  if (options.clock && vi.isFakeTimers())
+    throw new Error("A browser clock is already active");
   const window = new Window({
     url: "http://htmx.test/sessions/s1",
     settings: {
@@ -32,6 +37,15 @@ export async function htmxBrowser(
       disableJavaScriptFileLoading: true,
     },
   });
+  if (options.clock) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // Own the worker's timeout clock until close(), and bridge the browser
+    // realm: happy-dom captured native timers before Vitest installed it.
+    Object.assign(window, {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    });
+  }
   window.console = console;
   const requests: Request[] = [];
   const controllers: AbortController[] = [];
@@ -76,11 +90,31 @@ export async function htmxBrowser(
       ReturnType<typeof window.fetch>
     >;
   };
-  // Fetch streams are native Node streams, so their decoder must be available in the realm.
-  Object.assign(window, { TextDecoder, TextEncoder });
-  // happy-dom has no XPath. HTMX only uses it to find hx-on attributes;
-  // provide that DOM query, not a replacement for processing or event dispatch.
-  window.eval(`window.XPathEvaluator = class {
+  const close = async () => {
+    try {
+      await window.eval(
+        `globalThis.htmx?.swap({target:document.body,sourceElement:document.body,text:'',swap:'innerHTML'})`,
+      );
+    } finally {
+      controllers.forEach((controller) => {
+        controller.abort();
+      });
+      try {
+        await window.happyDOM.close();
+      } finally {
+        if (options.clock) {
+          vi.clearAllTimers();
+          vi.useRealTimers();
+        }
+      }
+    }
+  };
+  try {
+    // Fetch streams are native Node streams, so their decoder must be available in the realm.
+    Object.assign(window, { TextDecoder, TextEncoder });
+    // happy-dom has no XPath. HTMX only uses it to find hx-on attributes;
+    // provide that DOM query, not a replacement for processing or event dispatch.
+    window.eval(`window.XPathEvaluator = class {
     createExpression() {
       return { evaluate(root) {
         const matches = [...root.querySelectorAll('*')].filter(element =>
@@ -90,38 +124,51 @@ export async function htmxBrowser(
       } };
     }
   };`);
-  window.document.write(markup);
-  // happy-dom's ID cache uses insertion order for duplicate IDs. Native
-  // hx-preserve temporarily puts the old ID in a pantry after body; browsers
-  // return the replacement in body first, as querySelector does here.
-  window.eval(
-    `document.getElementById = id => id ? document.querySelector('#' + CSS.escape(id)) : null`,
-  );
-  for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
-    window.eval(readFileSync(resolve(process.cwd(), path.slice(1)), "utf8"));
+    window.document.write(markup);
+    // happy-dom's ID cache uses insertion order for duplicate IDs. Native
+    // hx-preserve temporarily puts the old ID in a pantry after body; browsers
+    // return the replacement in body first, as querySelector does here.
+    window.eval(
+      `document.getElementById = id => id ? document.querySelector('#' + CSS.escape(id)) : null`,
+    );
+    let htmxProcessed = false;
+    window.document.addEventListener(
+      "htmx:after:process",
+      () => {
+        htmxProcessed = true;
+      },
+      { once: true },
+    );
+    for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
+      window.eval(readFileSync(resolve(process.cwd(), path.slice(1)), "utf8"));
+    }
+    if (options.clientAfterHtmx) {
+      window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
+      await new Promise((resolve) => realSetTimeout(resolve, 10));
+      // HTMX may defer initialization with setTimeout instead of waiting for DCL.
+      if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    }
+    const htmxProcessedBeforeClient = htmxProcessed;
+    window.eval(client);
+    if (!options.clientAfterHtmx)
+      window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
+    await new Promise((resolve) => realSetTimeout(resolve, 10));
+    if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    return {
+      window,
+      document: window.document,
+      requests,
+      htmxProcessedBeforeClient,
+      advanceTime: async (milliseconds: number) => {
+        if (!options.clock) throw new Error("Browser clock is not enabled");
+        await vi.advanceTimersByTimeAsync(milliseconds);
+      },
+      close,
+    };
+  } catch (error) {
+    await close();
+    throw error;
   }
-  if (clientAfterHtmx) {
-    window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  window.eval(client);
-  if (!clientAfterHtmx)
-    window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  return {
-    window,
-    document: window.document,
-    requests,
-    close: async () => {
-      await window.eval(
-        `htmx.swap({target:document.body,sourceElement:document.body,text:'',swap:'innerHTML'})`,
-      );
-      controllers.forEach((controller) => {
-        controller.abort();
-      });
-      await window.happyDOM.close();
-    },
-  };
 }
 
 export function page(body: string): string {

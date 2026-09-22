@@ -149,6 +149,14 @@ before changing folder selection or worktree discovery.
 - `just test` runs vitest. Web tests call `app.request()` against the fake world
   in `src/adapters/fake/index.ts`; no Pi installation is needed. A new port
   method lands there in the same change, or every web test stops running.
+- During development, use `just test-one <file-or-directory>` for focused
+  feedback; append `-t "test name"` to select a scenario or use
+  `just test-one --project client` for client tests. These do not replace the
+  full-suite `just qa` handoff gate.
+- Vitest detects supported agents and uses its concise reporter. If detection
+  fails, append `--reporter=agent` to `just test-one`, or run
+  `AI_AGENT=pi just qa`. Preserve failure diagnostics; do not silence or
+  truncate test output.
 - Tests that write session files build them with `SessionManager` in a `mkdtemp`
   directory and pass that as the agent directory. A test that loads skills or
   starts a session goes through `tests/adapters/temp-agent.ts`, which also

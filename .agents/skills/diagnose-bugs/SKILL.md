@@ -132,20 +132,20 @@ At that point, present the narrow baseline fix and the expanded redesign as sepa
 
 When evidence identifies the cause and the user has authorized fixes:
 
-1. add a failing regression test at the smallest stable seam that reproduces the causal pattern when such a seam exists;
-2. verify that the test fails for the expected reason;
+1. reuse the diagnostic loop or choose an existing test, direct reproduction, or temporary harness that exercises the causal pattern;
+2. before the fix, verify the actual expected failure where feasible, and state any reproduction limitation;
 3. apply the smallest complete cause-level fix to every confirmed in-scope manifestation;
-4. run the focused loop and regression test;
+4. rerun the focused evidence and inspect the corrected result;
 5. rerun the original, unreduced scenario and representative additional manifestations;
 6. run relevant project checks.
 
-If no honest regression-test seam exists, report that limitation. Do not add a shallow test that cannot catch the original bug.
+Do not add a shallow test that cannot catch the original bug. Decide permanent retention separately: reuse or extend existing protection, or retain a reproducer when its recurring value justifies its maintenance cost and project policy permits it. A new permanent regression test is not mandatory unless project rules require one. Preserve existing protection unless an authorized contract or scope change or equivalent protection justifies its removal; report any loss.
 
 ### 9. Clean up
 
-- Remove temporary instrumentation, scripts, logs, and captures that are not approved project artifacts.
+- Remove only this task's disposable instrumentation, scripts, logs, and captures after verifying ownership and exact paths. Preserve unrelated work and required project artifacts.
 - Verify removal by searching for the diagnostic marker.
-- Preserve a useful reproducer only when the user or project wants it.
+- Preserve a reproducer selected for retention above or required by the user or project.
 - Report the proven cause, search scope, confirmed and rejected candidate instances, fix, tests, and unresolved uncertainty.
 
 Do not broaden a successful bug fix into an architecture project. Record separate follow-up work only when the user requests it.

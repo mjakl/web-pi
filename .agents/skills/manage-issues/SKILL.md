@@ -38,7 +38,18 @@ Report:
 - settled decisions and unresolved questions;
 - dependencies or related work that materially affect the request.
 
-Do not turn an issue summary into an implementation plan unless the user asks.
+Flag missing context that prevents understanding the request; reading alone does not authorize repairing the body. Do not turn an issue summary into an implementation plan unless the user asks.
+
+## Check cold-reader context
+
+Before presenting a draft or an authorized body edit, check whether a contributor with only the issue and repository can understand the problem or need, why it matters, intended outcome, scope, and observable completion—without agent chat or private review context.
+
+- Keep the essential explanation in the body. Use repository documentation and durable links for supporting detail, not as substitutes for that explanation; do not duplicate established repository contracts.
+- Replace unexplained finding IDs, session names, or workstream shorthand with meaningful names and relevant facts, including for excluded work. Omit unrelated process history.
+- Explain dependencies and ordering: name the prerequisite, what it provides, and why it must come first. State this issue's own problem and scope without copying sibling issues.
+- Recover missing context from repository evidence and relevant linked issues, commits, or discussion. Distinguish established facts from hypotheses. If essential context remains unresolved, ask a focused question rather than inventing a mapping, rationale, or requirement.
+
+Keep the result concise; this check does not require extra sections.
 
 ## Draft an issue
 

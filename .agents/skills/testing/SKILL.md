@@ -1,132 +1,155 @@
 ---
 name: testing
-description: Use automatically when adding, changing, or organizing tests; choosing a concrete test boundary; creating regression coverage; or working through red-green-refactor. Do not use merely to name high-level test needs in an implementation plan. During general review, use only when test-focused analysis is requested or a correction requires concrete test design.
+description: Use when implementing or fixing behavior, refactoring code, or choosing verification for configuration, tooling, and eval changes. Apply behavior-first TDD where it provides fast feedback; select proportionate checks and decide which new tests merit permanent retention.
 ---
 
-# Testing
+# Testing for fast feedback
 
-Test observable behavior through the smallest stable seam used by a real caller. Keep tests stable while implementation details change.
+Use tests to catch mistakes while they are cheap to fix and preserve confidence
+in future changes. Optimize for trustworthy feedback, not coverage, test counts,
+or apparent thoroughness.
 
-## Start with project context
+Follow explicit project requirements. If a blanket gate forces unrelated work,
+name the exact rule and propose a narrower alternative; do not silently skip it.
+This skill does not authorize changing CI.
 
-1. Read project testing instructions, commands, configuration, and representative nearby tests.
-2. Identify the behavior, caller, and boundary being verified.
-3. Use project terminology and native test support before adding new helpers or conventions.
-4. Choose the narrowest test that can exercise the real behavior and failure mode.
+## Choose the feedback before writing code
 
-Project rules override generic taxonomy. Do not create a new test layer when an existing layer already owns the behavior.
+Identify the promised outcome, a plausible mistake, and the cheapest distinguishing
+check. Read nearby implementation and tests; reuse useful coverage rather than
+adding a layer for the same risk. Keep this a brief working decision, not a
+separate plan or per-test report.
 
-Preserve existing observable behavior and contracts unless a change is explicitly requested or necessary to achieve the stated outcome. Implementation convenience or incidental side effects do not authorize behavior changes. Explain necessary implied changes; ask before proceeding when their necessity or intended outcome is materially ambiguous.
+For low-consequence supporting conveniences, use the one-off-check default below
+even for deterministic logic. A temporary check may drive red-green; that alone
+does not justify retention.
 
-Make tests reflect the authorized contract, not merely the implementation. When changing or removing a behavioral assertion, identify the authorized behavior change, evidence that the assertion is incorrect or obsolete under that contract, or the equivalent protection that remains.
+- For new rules, state transitions, meaningful transformations, and reproducible
+  bugs, default to the TDD loop below.
+- For behavior-preserving refactoring with adequate tests, run them before and
+  after; do not invent changed expectations. Add characterization only for
+  otherwise unprotected consequential uncertainty; establish the intended
+  contract rather than freezing a known bug.
+- For declarative configuration and standard tooling, first use the actual
+  consumer's validator, build, dry run, or focused smoke check. Test custom logic
+  with concrete failure consequences; file names do not determine risk.
+- When expected behavior or API is unclear, run a bounded exploratory probe first.
+  Settle expectations before turning it into a regression test; do not call
+  test-after work TDD.
+- For visual judgment or probabilistic model quality, use representative rendering
+  or empirical evaluation. Deterministic assertions cannot establish subjective
+  quality; surrounding deterministic logic can still benefit from TDD.
 
-## Stable seams
+## Test outcomes at a useful boundary
 
-A useful seam may be:
+Treat a unit as coherent behavior, possibly spanning cooperating functions or
+classes. The boundary need not be an exported API, HTTP endpoint, or outermost
+application boundary.
 
-- an application use case;
-- a module's public interface;
-- an HTTP endpoint;
-- a CLI command;
-- a message or event contract;
-- an adapter contract;
-- an important end-to-end workflow.
+Choose the behavior and meaningful failure before choosing the test seam. Prefer
+an existing caller-facing boundary that exercises that behavior. Move inward when
+doing so materially reduces setup, runtime, or nondeterminism, but never bypass
+the logic or interaction responsible for the failure being tested. Stop when the
+boundary provides useful feedback at reasonable cost. Do not seek the smallest
+function or isolate every collaborator.
 
-Outside-in testing does not mean every test uses the complete deployed system. Begin from behavior visible to a caller and drive inward only as needed.
+Prefer returned results, observable state, persisted data, rendered output, and
+required external effects. Avoid private-helper assertions, source-string
+matching, arbitrary structure counts, and internal call scripts. Exact text,
+counts, or ordering are appropriate when contractual, such as machine-readable
+output or preventing duplicate payment.
 
-Use the smallest stable seam that:
+Use cheap real deterministic collaborators. Substitute dependencies when needed
+to control time, randomness, costly resources, unavailable services, or failure
+conditions. Fakes do not prove real database, protocol, or provider compatibility;
+retain focused real-boundary evidence for those risks. Do not mock away the
+mechanism under test, such as transaction rollback.
 
-- can reproduce the behavior;
-- includes the important ownership or integration boundary;
-- survives internal refactoring;
-- fails when the behavior is wrong.
+Give each behavioral rule one primary testing home. Add layers only for distinct
+risks such as wiring, authorization, serialization, or persistence. Broad tests
+need not repeat every lower-level input variation.
 
-## Test ownership
+## Use a small red-green-refactor loop
 
-- Give each behavior one primary test owner.
-- Use focused module tests for stable pure policies and algorithms.
-- Use contract tests when several adapters or implementations must follow one boundary.
-- Use slice or integration tests when real composition, storage, transactions, or process behavior matters.
-- Keep a small number of end-to-end tests for critical wiring and user workflows.
-- Avoid repeating the same assertions at every layer.
+1. Briefly list relevant behavioral examples: ordinary results, meaningful
+   boundaries, and consequential failures. Do not enumerate every imaginable
+   input or write the whole suite in advance.
+2. Choose one example and write one runnable test through a stable caller-facing
+   interface. Derive expectations from the requirement, a known example, or
+   independent reasoning, never by copying implementation output.
+3. Run it before implementing the behavior. Confirm it fails because behavior is
+   missing or wrong, not because of a broken fixture, missing dependency, or
+   unrelated import error. If the test unexpectedly passes, check whether the
+   behavior already exists, existing tests protect it, and the new test
+   distinguishes it from a plausible mistake. Correct ineffective tests and
+   rerun. If the behavior is already correct, make no production change for this
+   example; decide retention below rather than manufacture a failure.
+4. Implement the smallest coherent passing change, without speculative options,
+   abstractions, or behavior for future examples. Once the test correctly
+   expresses the requirement, keep its expected result fixed during Green;
+   revise it only to correct a mistaken requirement or interpretation.
+5. Run the new test and affected existing tests. On green, simplify concrete
+   duplication or complexity while keeping behavioral assertions stable.
+   Refactoring is available, not mandatory ceremony.
+6. Repeat for the next distinct unresolved behavior. Stop when relevant outcomes
+   and risks have adequate evidence, not at a quota.
 
-A narrow test is not automatically better. A broad test is not automatically more realistic. Choose the boundary that owns the behavior.
+For regressions, observe the intended failure without the fix when safe and
+practical; do not disturb unrelated work to manufacture red-green evidence.
 
-## Test design
+## Decide what to retain
 
-Good tests:
+Separate development feedback from permanent regression protection. Useful tests
+of enduring application behavior normally stay; finishing today's implementation
+does not justify removing a good regression.
 
-- state behavior in caller or domain language;
-- arrange data explicitly;
-- use expected values from a specification, worked example, or independent source;
-- assert the important output or external effect;
-- cover realistic failure and lifecycle paths;
-- make failures easy to interpret.
+For low-consequence supporting conveniences, such as one-off scripts,
+documentation formatting, or exploratory eval bookkeeping, default to a focused
+one-off check, not a new permanent test. Retain protection only when actual
+recurring use with meaningful consequences, an observed recurring mistake, or a
+consequential downstream decision warrants its ongoing cost. A possible regression,
+exported function, or cheap test alone is insufficient.
 
-Avoid:
+Do not apply this default to tooling controlling secrets, permissions,
+authoritative or otherwise consequential stored data, destructive operations, or
+material expense. A release-gating scorer or shared verifier can deserve durable
+tests even under `evals/`. Routine reuse alone does not make cosmetic output
+consequential.
 
-- direct tests of private methods;
-- exporting internal helpers only for tests;
-- mocks of the system's own collaborators when the real behavior depends on their interaction;
-- call-count or call-order assertions without contractual meaning;
-- tautological expected values computed like the implementation;
-- broad snapshots without a clear behavioral claim;
-- shared implicit fixtures that hide the state under test;
-- tests that break during harmless refactoring.
+Before keeping new tests, ask: does each detect a distinct important mistake, and
+can the implementation be reorganized without rewriting it? Remove disposable
+probes introduced for this task when finished. Preserve existing protection unless
+removal or replacement is within the assignment; never weaken assertions simply
+to get green.
 
-Use test doubles for external, slow, expensive, destructive, or non-deterministic boundaries. Before replacing a collaborator, identify its observable side effects and whether the test depends on them. If it does, keep a real or lightweight implementation, or replace only the lower external operation. Keep doubles and builders in test support code.
+## Keep the feedback loop cheap
 
-## Repeated and interrupted operations
+Run the focused check during development; broaden validation for affected
+boundaries and required delivery gates, not every small edit. Inspect composed
+commands so `qa`, `test`, and `ci` do not duplicate suite runs. Reuse evidence while
+relevant code, inputs, and environment remain unchanged; rerun affected checks
+after corrections.
 
-When work can run more than once or stop partway, test the repeated or resumed operation and verify its final observable state.
+When tests become slow, flaky, or hard to maintain, inspect setup and boundaries
+before adding timeouts, retries, wrappers, or parallelism. Await actual completion,
+not arbitrary sleeps. A real database test may be cheaper and more faithful than
+elaborate mocks. Do not delete valuable slow tests just to improve runtime.
 
-- Establish the required result first: converge, resume, roll back, or reject safely.
-- Exercise only the applicable repeated-invocation, retry, duplicate operation or delivery, interruption, crash, restart, startup, or shutdown behavior.
-- Assert the final caller-visible result and important side effects, including effects that must not happen twice.
-- When interruption or partial execution applies, cover representative boundaries and resulting partial state. Do not require idempotence universally or test every instruction boundary.
-- When a test owns a local process, use the project's existing helper to start it, wait for observable readiness, exercise the caller, propagate its result, and guarantee cleanup.
+Briefly report checked behavior, its actual results, and material gaps. Zero new
+permanent tests is valid when the chosen evidence suffices.
 
-State the limitation when the realistic lifecycle cannot be exercised safely or economically.
+## Calibrate judgment with contrasting cases
 
-## Characterization mode
-
-For behavior-preserving refactoring with weak coverage, first add the smallest characterization test that records current observable behavior at the stable seam. Refactor in small green steps. If a step fails, reverse only that step to the last known green state and take a smaller step. Use regression mode instead for known defects; do not encode a defect as desired behavior.
-
-## TDD mode
-
-Use this mode when the user requests test-first work, project policy requires it, or an existing red-green-refactor loop is underway.
-
-1. Select one behavior and its stable seam.
-2. Write one test that describes the desired behavior.
-3. Run it and verify that it fails for the expected reason.
-4. Add only enough implementation to make it pass.
-5. Run the focused test and relevant nearby tests.
-6. Refactor hidden implementation while tests remain green.
-7. Repeat with the next vertical slice.
-
-Do not write all tests and then all implementation. Let each cycle refine the next behavior and boundary.
-
-Ask the user about a seam only when the choice changes public design, cost, or confidence materially. Do not require approval for every routine test placement.
-
-## Regression mode
-
-For an existing defect:
-
-1. Reproduce the observed failure.
-2. Choose the seam that can catch the real pattern.
-3. Add a test and verify that it fails for that reason.
-4. Apply the fix.
-5. Verify the focused test and original scenario.
-6. Run the relevant wider project checks.
-
-Do not add a regression test at a seam too shallow to reproduce the defect. State the coverage limitation when no suitable seam exists.
-
-## Finish
-
-Report:
-
-- behavior and seam tested;
-- test command and result;
-- why the chosen boundary is appropriate;
-- broader checks run;
-- important behavior or environment not verified.
+- Formatter option: run the formatter on representative input and check the
+  intended output. Do not retain a test that the configuration contains the
+  option. Wrong-database environment guard: verify refusal through the real
+  command boundary and retain it.
+- Generated-guide rewording: regenerate and inspect it. Do not add a default suite
+  snapshot solely to freeze presentation. Escaping published untrusted content:
+  retain a focused behavioral regression for the exposure.
+- Exploratory-only eval threshold matcher: run affected existing tests and a small
+  known-input check; normally retain no new test. If its result gates release or
+  another consequential decision, retain focused protection.
+- Splitting an adequately tested module: preserve existing outcomes without new
+  tests per helper. Partial database writes: induce a real later write failure
+  and assert the persisted operation is all-or-nothing.

@@ -2,19 +2,21 @@
 
 Use this lens to decide whether the complete reviewed scope and its affected contract are verified across the states and events they can encounter. The default scope is the complete branch; an explicitly narrow review remains limited as defined by the main workflow.
 
-## Test ownership and seams
+## Behavioral evidence and retained tests
 
 Check whether:
 
-- changed behavior is tested through the smallest stable seam used by a real caller;
-- each behavior has one primary test owner;
-- contract, integration, or slice coverage exists where a narrow module test cannot exercise the real boundary;
-- tests avoid private helpers and internal call sequences;
-- expected values come from the specification, a worked example, or another independent source;
-- test doubles replace external or uncontrollable boundaries rather than the system's own logic;
-- assertions can fail for the reported behavior instead of only proving that code ran.
+- existing checks, focused tests, direct invocations, or temporary probes provide credible evidence for the changed behavior;
+- evidence includes the real integration boundary when a narrow check cannot exercise the plausible mistake;
+- expected values come from the specification, a worked example, or another independent source, not the new implementation;
+- checks distinguish plausible wrong outcomes and important forbidden effects instead of only proving that code ran;
+- doubles preserve collaborator behavior needed by the check rather than assume the disputed interaction works;
+- execution claims include actual results and distinguish them from source inspection or reasoning;
+- retained tests provide stable, worthwhile recurring protection without duplicating existing checks or actual compiler, type, and lint guarantees.
 
-Do not judge coverage by test count or line percentage alone.
+Assess current verification and permanent retention separately. A safely removed temporary probe can be sufficient evidence; missing new test files is not itself a defect. Follow explicit project retention policy, and prefer stable caller-visible seams for lasting tests. Checks of shared helpers or custom verifiers can be valuable when their failure would make other evidence falsely green; do not exclude them by category.
+
+Require justification for weakening existing protection: an authorized contract or scope change, an assertion incorrect or obsolete under that contract, or equivalent protection that remains. Report any loss. Rare but reachable severe security, data-integrity, destructive-operation, or lifecycle consequences still need credible evidence; report a material gap rather than accept unrelated green checks. Do not judge verification by test count or line percentage.
 
 ## Data states
 
@@ -38,7 +40,7 @@ For every expected file or artifact, check behavior when it is:
 - concurrently written;
 - inaccessible or malformed.
 
-Require tests only for states the system can realistically produce.
+Require evidence for consequential states the system can realistically produce, not a new permanent test for every state.
 
 ## Process and resource lifecycle
 

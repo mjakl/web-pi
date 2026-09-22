@@ -6,7 +6,7 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/code-review/SKILL.md",
-      "computedHash": "abb83d0bc3dd81657881b9b0748db2a65b8fd53a6e0c7cc49d989cb1bebcb90c"
+      "computedHash": "c5080ea6d38f52a7960808d11aa93f8b7b5e3cbfef3e1ef7e9a2673ef40cccb1"
     },
     "commit-changes": {
       "source": "git@github.com:mjakl/skills.git",
@@ -20,7 +20,7 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/create-github-pr/SKILL.md",
-      "computedHash": "e2ffa65738bd3d85096caac7f29c9d4ba4f29e85403cd9cca263a501f7f3499e"
+      "computedHash": "35d29f94230e177ffb30c91053022e4938897449dd9cca07832d55b485c231db"
     },
     "design-hexagonal-deep-modules": {
       "source": "git@github.com:mjakl/skills.git",
@@ -34,14 +34,14 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/diagnose-bugs/SKILL.md",
-      "computedHash": "a34b1644d61e36928a7356896523328891fdd6d648ef4493bed486c26e8c94c5"
+      "computedHash": "55a9563675cc66b28044d844279705f00f2ed83118730ef135f9c70d05f717ec"
     },
     "manage-issues": {
       "source": "git@github.com:mjakl/skills.git",
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/manage-issues/SKILL.md",
-      "computedHash": "0cb5555af88c88c96da4036d3bad9a6cd8b4250cdd2ba43cbce27909f6d1e7a4"
+      "computedHash": "6364102c28131d5815ae4a7e603110837e8f911acce006dcc710590ead069725"
     },
     "merge-github-pr": {
       "source": "git@github.com:mjakl/skills.git",
@@ -69,14 +69,14 @@
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/simplify-code/SKILL.md",
-      "computedHash": "40f4293b40eeb536a205aa1111de2c9d16fc714c2fe9de064aaa0a874df186c6"
+      "computedHash": "189d3c6fa4337553f753030478172b54493d0083f88ec801efb826cad042fef6"
     },
     "testing": {
       "source": "git@github.com:mjakl/skills.git",
       "sourceUrl": "git@github.com:mjakl/skills.git",
       "sourceType": "git",
       "skillPath": "skills/testing/SKILL.md",
-      "computedHash": "5d5a4604a22fbfa38e2c528469cd0b4d600983e004be5c48102b54b9d9a07ec5"
+      "computedHash": "7897c505d55eb65028b36489f95dede76a5254f6b723d7762cb68130299844c6"
     }
   }
 }

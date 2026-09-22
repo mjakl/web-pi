@@ -1,12 +1,12 @@
 ---
 name: create-github-pr
-description: Use when the user asks to open, draft, or submit a GitHub pull request from the current branch. Do not use for reviewing or monitoring an existing pull request.
+description: Use when the user asks to open, draft, or submit a GitHub pull request from the current branch, or to write or revise an existing pull request description. Do not use for reviewing or monitoring a pull request.
 compatibility: Requires Git and GitHub CLI (gh), authenticated for the target GitHub host.
 ---
 
 # Create GitHub Pull Request
 
-Create one pull request and stop. Do not start an automated review workflow.
+Create one pull request, or draft or update an existing pull request description, and stop. Do not start an automated review workflow.
 
 ## Workflow
 
@@ -16,7 +16,11 @@ Read repository instructions, the contribution guide, and pull request templates
 
 ### 2. Resolve the pull request target
 
-Determine and verify:
+For an existing-description request, resolve the explicit target repository and pull request; ask if ambiguous. Read its published body, diff, and referenced issue with `gh`, along with the applicable project rules and template. Apply section 5 to the published change, not unpushed local work. Preserve relevant existing content and distinguish previously reported validation from checks run now; never imply earlier checks were rerun.
+
+Skip new-PR preparation and pushing. For a draft-only request, return the proposed body without editing GitHub. When an update is authorized, change only the description with `gh pr edit <number> --repo <owner/repository> --body-file <file>`, read back the body to verify its content and formatting, report the URL and result, and stop.
+
+For a new pull request, determine and verify:
 
 - target repository;
 - target base branch;
@@ -35,7 +39,7 @@ git status --short --branch
 
 Do not create a pull request from the default branch. Ask the user if the target repository or base branch is unclear, especially when the local repository is a fork.
 
-Check whether an open pull request already exists for the head branch. If it exists, return its URL instead of creating a duplicate.
+Check whether an open pull request already exists for the head branch. If it exists, return its URL instead of creating a duplicate unless the user requested a description revision; in that case, use the existing-description route above.
 
 ### 3. Inspect the committed change
 
@@ -74,33 +78,39 @@ Use this order of precedence:
 
 If several templates exist, choose the one that matches the change. Ask when the choice is unclear. Preserve required headings and checkbox structure. Use `N/A` only for a required field that is genuinely inapplicable.
 
-Write a cover note for a reviewer who has not followed the task. In the opening, explain the problem or need, why it matters, and the intended outcome before implementation details or constraints. Ground this context in the request, conversation, linked issue, or verified evidence, and keep it consistent with the committed change.
+Write for a reviewer who has the pull request, code changes, and referenced issue, but has not followed the task conversation. Together, these should explain why the change is needed, what it achieves, and what the reviewer needs to assess it. Keep the essential explanation in the body; use the issue and other links for supporting detail rather than repeating them in full.
 
-Use recent pull requests for tone and format, not as a reason to copy mechanics-first openings. Preserve required template headings and order; put the context first in the appropriate description field rather than adding a mandatory section. Lead that field with the need and outcome, not an edit followed by its reason.
+Start with the problem or need and the outcome this change provides. Then explain the approach where it helps the reviewer understand an important decision, trade-off, or part of the diff. Describe the resulting change, not the sequence of implementation attempts.
 
-Keep simple changes brief. A maintenance reason or technical guarantee can be the point; do not invent user benefits, urgency, root causes, or measurements to make it sound bigger.
+Use plain English and concrete facts. Keep simple changes brief. A maintenance reason or technical guarantee can be the point; do not invent user benefits, urgency, root causes, or measurements to make the change sound bigger. Keep claims consistent with the actual pull request diff.
 
-For example, with a verified stale-export bug:
+For example, assuming a verified stale-export bug:
 
 - Before: “Invalidate the report cache after edits.”
-- After: “Exported reports still show old values after an edit, so users cannot rely on them to reflect their corrections. This change makes subsequent exports include saved edits by invalidating the report cache.”
+- After: “Exported reports still show old values after an edit. This change invalidates the report cache so subsequent exports include saved edits.”
 
-Read only the opening: can an unfamiliar reviewer tell why the change exists and what it achieves? If not, revise it before listing the mechanics.
+Include important behavior changes and scope boundaries. Explain non-obvious choices instead of listing files or repeating the diff. Report validation actually run: the check or command, observed result, and environment needed to interpret or reproduce it. Distinguish completed from planned checks and preserve material gaps. Explain risks, unresolved behavior, and follow-up affecting review, use, or rollout.
+
+Summarize useful evidence in the body. Link supporting reports, screenshots, or documentation when helpful and accessible to intended reviewers. A temporary path such as `/tmp/remy-video-hero-qa/` is not usable evidence: describe the observations instead. Local checks can be accurately reported without publishing raw artifacts; do not commit or upload artifacts merely to make a reference usable.
+
+Translate task history into facts the reviewer needs. Review counts and internal budgets do not explain the state of the change; report the remaining concern or verification gap instead. Omit session cleanup, internal handoffs, and coordination unless they affect reproduction, evaluation, or action. Preserve meaningful limitations when removing history.
+
+Follow repository instructions and the selected template. Preserve required headings, checkboxes, and order, placing the explanation in the appropriate field. Recent PRs guide tone and format, not unclear writing.
 
 Fallback body:
 
 ```markdown
 ## Summary
 
-<problem or need, why it matters, and intended outcome; then key implementation details if useful>
+<problem or need and resulting outcome; important approach, behavior changes, and scope boundaries>
 
 ## Validation
 
-<checks run and results>
+<checks actually run, observed results, and relevant environment; distinguish planned checks and material gaps>
 
 ## Reviewer notes
 
-<important context, risks, or follow-up work; omit when empty>
+<non-obvious choices, risks, unresolved behavior, or follow-up affecting review, use, or rollout; omit when empty>
 ```
 
 Use a clear title that follows the repository's style. Do not apply or reject Conventional Commit prefixes unless repository policy requires that choice.
@@ -111,6 +121,15 @@ Link a known issue when appropriate:
 - `Refs #<number>` when it is related but does not resolve it.
 
 Do not guess issue numbers. Do not repeat the full diff in the body.
+
+Check the complete body alongside the diff and referenced issue before publication:
+
+- Can an unfamiliar reviewer understand the need, outcome, and important approach without the task conversation?
+- Does every section help explain, verify, or review the change rather than manage the task?
+- Are claims and results supported, with uncertainty and limitations preserved?
+- Are essential observations in the body rather than hidden behind inaccessible paths or private shorthand?
+
+Revise unclear or unnecessary passages. This is a writing check, not an added code-review cycle.
 
 ### 6. Create and verify the pull request
 
@@ -129,4 +148,4 @@ EOF
 
 Add `--draft` only when the user asks for a draft.
 
-Query the created pull request. Verify its URL, repository, base, head, and draft state. Report the URL, a short summary, validation results, and any remaining staged, unstaged, or untracked work. Confirm that remaining work was not included in the pull request.
+Query the created pull request. Verify its URL, repository, base, head, and draft state, and read back the body to check its content and formatting. Report the URL, a short summary, validation results, and any remaining staged, unstaged, or untracked work. Confirm that remaining work was not included in the pull request.

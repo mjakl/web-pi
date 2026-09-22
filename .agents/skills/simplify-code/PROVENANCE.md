@@ -2,7 +2,7 @@
 
 ## Intent
 
-Provide a focused mutation workflow for making already-working code easier to understand while preserving observable behavior. Keep it distinct from read-only review, defect diagnosis, architecture design, testing strategy, and commit creation.
+Provide a focused mutation workflow for making already-working code easier to understand while preserving observable behavior, including explicitly scoped test-suite cleanup that reduces maintenance or runtime cost. Keep it distinct from read-only review, defect diagnosis, architecture design, testing strategy, and commit creation.
 
 ## Source
 
@@ -24,7 +24,9 @@ The 2026 catalog review also consulted `cursor/plugins` pstack `principle-minimi
 - Judge simplification by reduced concepts, branches, duplication, indirection, navigation cost, or hidden mutable state a reader must track. Reject fixed line-count, layer-count, time, and nesting thresholds as automatic refactoring rules.
 - Treat a large file as an inspection signal rather than a defect. Permit extraction of cohesive private modules when one file combines separable responsibilities and the split reduces reader load without changing public contracts or dependency direction.
 - Prefer small, reversible edits with focused checks. Revert attempts that fail validation, require compensating behavior changes, or merely relocate complexity.
-- Preserve behavioral test expectations. Permit structural test updates only when they assert private implementation details changed by the authorized refactor.
+- Preserve valid behavioral protection across the suite rather than every test or assertion. Permit test updates for private structure changed by the authorized refactor or explicitly scoped test-suite cleanup. Require specific authorization for deliberate loss of valid protection, without asking again for an already authorized loss.
+- Judge test redundancy by the relevant failures retained checks detect across exercised paths and boundaries, not similar assertions. Remove obsolete expectations only on evidence from the current contract; internal-code coverage, tooling coverage, and slow execution are not grounds for removal on their own.
+- Prioritize scoped suite cleanup by maintenance and setup cost. Require comparable before-and-after runtime evidence only when speed is a goal, reuse suitable measurements, and report limits. Ordinary simplification does not require a suite audit or benchmark.
 - Omit upstream's automatic commit step, rigid size rules, broad smell-to-refactor mappings, and language-specific recipes whose semantics depend on context.
 - Keep the skill independently installable and require deliberate invocation in supported harnesses. It does not invoke or require review, testing, architecture, or Git skills.
 

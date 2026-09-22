@@ -210,8 +210,10 @@ it.each([false, true])(
     const initialIds = entries.map((entry) => entry.id);
     const f = fixture(child, entries);
     const markup = await (await f.app.request(`/sessions/${f.id}`)).text();
-    const browser = await htmxBrowser(markup, (request) =>
-      f.app.request(request),
+    const browser = await htmxBrowser(
+      markup,
+      (request) => f.app.request(request),
+      { clock: true },
     );
     browsers.push(browser);
     const { document, window, requests } = browser;
@@ -269,6 +271,7 @@ it.each([false, true])(
         "Newly completed tool output",
       ),
     );
+    await browser.advanceTime(2000);
     await expect
       .poll(() => document.querySelector("#tool-pending-call")?.textContent, {
         timeout: 4000,
@@ -285,6 +288,7 @@ it.each([false, true])(
         100,
       ),
     );
+    await browser.advanceTime(2000);
     await expect
       .poll(() => document.querySelector("#entry-completed")?.textContent, {
         timeout: 4000,
@@ -340,6 +344,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   const browser = await htmxBrowser(
     await (await f.app.request(`/sessions/${f.id}`)).text(),
     (request) => f.app.request(request),
+    { clock: true },
   );
   browsers.push(browser);
   browser.window.eval(
@@ -352,6 +357,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   expect(sessionStreams()).toHaveLength(0);
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
+  await browser.advanceTime(2000);
   await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(1);
   expect(
     new URL(required(sessionStreams()[0]).url).searchParams.get("saved"),
@@ -381,6 +387,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
       100,
     ),
   );
+  await browser.advanceTime(2000);
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-one")?.textContent,
@@ -389,6 +396,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
     .toContain("External answer one");
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
+  await browser.advanceTime(2000);
   await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(2);
   const secondStream = required(
     browser.document.querySelector("main [hx-sse\\:connect]"),
@@ -416,6 +424,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
       "External question two",
     ),
   );
+  await browser.advanceTime(2000);
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-two")?.textContent,
@@ -436,6 +445,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   const browser = await htmxBrowser(
     await (await f.app.request(`/sessions/${f.id}?leaf=old-answer`)).text(),
     (request) => f.app.request(request),
+    { clock: true },
   );
   browsers.push(browser);
   const oldLog = required(browser.document.querySelector("#log"));
@@ -443,6 +453,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   expect(browser.document.querySelector("#entry-active-answer")).toBeNull();
   await f.workspace.activate(f.id);
   await f.workspace.reload(f.id);
+  await browser.advanceTime(2000);
   await expect
     .poll(() => browser.document.querySelector("#entry-active-answer"), {
       timeout: 4000,
@@ -470,9 +481,11 @@ it("returns to saved observation when ownership ends before the stream connects"
       }
       return f.app.request(request);
     },
+    { clock: true },
   );
   browsers.push(browser);
   await f.workspace.activate(f.id);
+  await browser.advanceTime(2000);
   await expect.poll(() => stoppedBeforeConnect, { timeout: 4000 }).toBe(true);
   await expect
     .poll(() => browser.document.querySelector("main [hx-sse\\:connect]"))
@@ -487,6 +500,7 @@ it("returns to saved observation when ownership ends before the stream connects"
       100,
     ),
   );
+  await browser.advanceTime(2000);
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-race")?.textContent,
@@ -621,6 +635,7 @@ it.each(["initial", "reconnect"])(
         new URL(request.url).pathname === "/events"
           ? new Response("")
           : transport.request(request),
+      { clock: true },
     );
     browsers.push(browser);
     const { document, window } = browser;
@@ -633,6 +648,7 @@ it.each(["initial", "reconnect"])(
     if (connection === "reconnect") {
       await expect.poll(() => subscribers).toBe(1);
       await advance();
+      await browser.advanceTime(100);
       await expect
         .poll(
           () =>
@@ -730,6 +746,7 @@ it.each(["initial", "reconnect"])(
         return update;
       },
     );
+    await browser.advanceTime(4000);
     await expect
       .poll(() => observations, { timeout: 5000 })
       .toContain("unavailable");
@@ -765,6 +782,7 @@ it.each(["initial", "reconnect"])(
       userEntry("sibling", "a34", "Do not select this sibling"),
     );
     f.stored.leafId = "sibling";
+    await browser.advanceTime(2000);
     await expect
       .poll(
         () => document.querySelector("#entry-external-recovered")?.textContent,
@@ -802,6 +820,7 @@ it("observes an empty saved session and keeps its last good content when the fil
       }
       return response;
     },
+    { clock: true },
   );
   browsers.push(browser);
   const { document } = browser;
@@ -810,6 +829,13 @@ it("observes an empty saved session and keeps its last good content when the fil
   ).toBe("");
   f.models.mockClear();
   f.stored.entries.push(userEntry("first", null, "First saved message"));
+  await browser.advanceTime(1999);
+  expect(
+    browser.requests.some(
+      (request) => new URL(request.url).pathname === `/sessions/${f.id}/saved`,
+    ),
+  ).toBe(false);
+  await browser.advanceTime(1);
   await expect
     .poll(() => document.querySelector("#entry-first")?.textContent, {
       timeout: 4000,
@@ -825,6 +851,7 @@ it("observes an empty saved session and keeps its last good content when the fil
   );
   expect(response.status).toBe(204);
   expect(response.headers.get("X-Web-Pi-Saved")).toBe("unavailable");
+  await browser.advanceTime(2000);
   await expect.poll(() => unavailable, { timeout: 4000 }).toBe(true);
   expect(document.querySelector("#entry-first")?.textContent).toContain(
     "First saved message",

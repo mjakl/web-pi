@@ -283,6 +283,84 @@ describe("unread sessions", () => {
     });
   });
 
+  it("dismisses the previous completion on restart and marks the next completion", async () => {
+    page({ current: "s1", rows: ["s1", "s2", "s3"] });
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    finished("s2", "/repo/one");
+    finished("s3", "/repo/one");
+
+    byId("row-s2").outerHTML = row("s2", { running: true, live: true });
+    htmxEvent(byId("row-s2"), "htmx:after:settle");
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      false,
+    );
+    expect(indicator("s2").classList.contains("is-running")).toBe(true);
+    expect(indicator("s2").title).toBe("Agent running…");
+    expect(indicator("s2").getAttribute("aria-label")).toBe("Agent running…");
+    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual({
+      s3: "",
+    });
+    expect(indicator("s3").classList.contains("session-indicator-unread")).toBe(
+      true,
+    );
+
+    byId("row-s2").outerHTML = row("s2", { live: true });
+    htmxEvent(byId("row-s2"), "htmx:after:settle");
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      false,
+    );
+    finished("s2", "/repo/one");
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      true,
+    );
+    expect(indicator("s2").classList.contains("is-active")).toBe(true);
+    expect(indicator("s2").title).toBe("Session active · New activity");
+    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual({
+      s3: "",
+      s2: "",
+    });
+  });
+
+  it.each(["initial", "later", "restored"])(
+    "clears stored unread state for a running row on %s load",
+    async (arrival) => {
+      localStorage.setItem("web-pi:unread", JSON.stringify(["s2", "s3"]));
+      page({ current: "s1", rows: ["s1", "s3"] });
+      if (arrival === "initial")
+        byId("session-list").insertAdjacentHTML(
+          "beforeend",
+          row("s2", { running: true }),
+        );
+      const { setUpSidebar } = await load();
+      setUpSidebar();
+      if (arrival === "later") {
+        byId("session-list").insertAdjacentHTML(
+          "beforeend",
+          row("s2", { running: true }),
+        );
+        htmxEvent(byId("row-s2"), "htmx:after:settle");
+      } else if (arrival === "restored") {
+        const replacement = document.createElement("body");
+        replacement.innerHTML = document.body.innerHTML;
+        replacement
+          .querySelector("#session-list")
+          ?.insertAdjacentHTML("beforeend", row("s2", { running: true }));
+        document.body.replaceWith(replacement);
+        htmxEvent(document.body, "htmx:after:process");
+      }
+      expect(
+        indicator("s2").classList.contains("session-indicator-unread"),
+      ).toBe(false);
+      expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual(
+        { s3: "" },
+      );
+      expect(
+        indicator("s3").classList.contains("session-indicator-unread"),
+      ).toBe(true);
+    },
+  );
+
   it("never marks the session on screen", async () => {
     page({ current: "s1" });
     const { setUpSidebar } = await load();

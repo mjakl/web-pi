@@ -52,18 +52,24 @@ function paintSelection(): void {
 function paintUnread(): void {
   paintSelection();
   const ids = unreadIds();
+  let changed = false;
   for (const row of document.querySelectorAll<HTMLElement>(
     ".session-row[data-session-id]",
   )) {
-    const unread = ids.has(row.dataset["sessionId"] ?? "");
+    const id = row.dataset["sessionId"] ?? "";
     const indicator = row.querySelector<HTMLElement>(".session-indicator");
     if (!indicator) continue;
+    // Restarting dismisses the previous completion, including stored marks on loaded rows.
+    if (indicator.classList.contains("is-running") && ids.delete(id))
+      changed = true;
+    const unread = ids.has(id);
     indicator.classList.toggle("session-indicator-unread", unread);
     const status = indicator.dataset["status"] ?? "";
     const label = unread ? `${status} · New activity` : status;
     indicator.title = label;
     indicator.setAttribute("aria-label", label);
   }
+  if (changed) storeUnread(ids);
 }
 
 function setUpUnread(): void {

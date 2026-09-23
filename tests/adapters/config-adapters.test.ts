@@ -3,6 +3,7 @@ import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
 import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiSkills } from "@adapters/pi/skills";
+import { SkillFrontmatterError } from "@core/skill-toggle";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -165,6 +166,32 @@ describe("skills", () => {
     expect(await readFile(file, "utf8")).not.toContain(
       "disable-model-invocation",
     );
+  });
+
+  it("refuses a flow-mapping toggle without changing the skill's bytes or loadability", async () => {
+    const dir = join(agentDir, "skills", "testing");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, "SKILL.md");
+    const original = Buffer.from(
+      '---\r\n# Keep this formatting.\r\n{ name: testing, description: how we test, "disable-model-invocation": false }\r\n---\r\n\r\nBody — unchanged.\r\n',
+    );
+    await writeFile(file, original);
+    const skills = createPiSkills({ agentDir });
+    const listed = await skills.list(project);
+    expect(listed.diagnostics).toEqual([]);
+    expect(listed.skills).toContainEqual(
+      expect.objectContaining({
+        filePath: file,
+        disableModelInvocation: false,
+      }),
+    );
+
+    await expect(skills.setDisabled(file, true)).rejects.toThrow(
+      SkillFrontmatterError,
+    );
+
+    expect(await readFile(file)).toEqual(original);
+    expect(await skills.list(project)).toEqual(listed);
   });
 
   it("annotates a skill with what its lock file recorded", async () => {

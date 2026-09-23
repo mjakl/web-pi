@@ -72,12 +72,27 @@ describe("the disable-model-invocation toggle", () => {
     );
   });
 
-  it("leaves a shape it cannot edit alone rather than guessing", () => {
-    // A flow mapping is valid YAML the line edit cannot reach; rewriting it
-    // by hand would risk a duplicate key, so the file is left as it is.
-    const source = `---\n{ name: x, "${KEY}": false }\n---\nBody\n`;
-    expect(hasDisableModelInvocation(source)).toBe(false);
-    expect(setDisableModelInvocation(source, false)).toBe(source);
-    expect(SkillFrontmatterError.name).toBe("SkillFrontmatterError");
+  it("refuses to switch a flow-mapping skill to Manual", () => {
+    const source = `---\n{ name: testing, description: how we test, "${KEY}": false }\n---\nBody\n`;
+    expect(() => setDisableModelInvocation(source, true)).toThrow(
+      SkillFrontmatterError,
+    );
+  });
+
+  it.each([true, false])(
+    "refuses a multiline flow mapping with comments when disable=%s",
+    (disable) => {
+      const source = `---\r\n# Skill metadata\r\n\r\n{\r\n  name: testing,\r\n  description: how we test,\r\n  "${KEY}": true\r\n}\r\n---\r\nBody\r\n`;
+      expect(() => setDisableModelInvocation(source, disable)).toThrow(
+        SkillFrontmatterError,
+      );
+    },
+  );
+
+  it("refuses insertion into a flow mapping without the key", () => {
+    const source = `---\n{ name: testing, description: how we test }\n---\nBody\n`;
+    expect(() => setDisableModelInvocation(source, true)).toThrow(
+      SkillFrontmatterError,
+    );
   });
 });

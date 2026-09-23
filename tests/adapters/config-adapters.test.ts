@@ -3,13 +3,8 @@ import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
 import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiSkills } from "@adapters/pi/skills";
-import {
-  mkdir,
-  readFile,
-  realpath,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTempAgent, type TempAgent } from "./temp-agent.ts";
@@ -65,7 +60,7 @@ describe("the directory browser", () => {
 
   it("defaults to the isolated home folder", async () => {
     const listing = await createDirectoryBrowser().browse();
-    expect(listing.path).toBe(await realpath(temp.root));
+    expect(listing.path).toBe(realpathSync(temp.root));
   });
 });
 

@@ -444,7 +444,7 @@ describe("custom terminal UI", () => {
     expect(session.snapshot().status.custom).toBeNull();
   });
 
-  it("closes a component that throws on input and reports it", async () => {
+  it("settles a component that throws on input without stopping the session", async () => {
     let result: unknown = "unset";
     const { session } = await withCommands({
       count: async (_args, ctx) => {
@@ -461,10 +461,9 @@ describe("custom terminal UI", () => {
     expect(session.snapshot().status.notices).toEqual([
       { level: "error", message: "Extension UI: bad key" },
     ]);
-    // The extension is still waiting; stopping settles it.
-    await session.stop();
     await counting;
     expect(result).toBeUndefined();
+    expect(h.runtime.get(session.id)).toBeDefined();
   });
 
   it("resolves with nothing when the factory fails or returns no component", async () => {

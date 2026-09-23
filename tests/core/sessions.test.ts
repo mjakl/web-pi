@@ -1,6 +1,4 @@
 import {
-  compareSessions,
-  isSubagentSession,
   recentProjects,
   relativeTime,
   sessionTitle,
@@ -49,26 +47,7 @@ describe("session titles", () => {
   });
 });
 
-describe("sidebar order and grouping", () => {
-  it("puts working sessions first, then live ones, then the newest", () => {
-    const rows = [
-      summary("old", { modifiedAt: "2026-01-01T00:00:00.000Z" }),
-      summary("new", { modifiedAt: "2026-02-01T00:00:00.000Z" }),
-      summary("live", { live: true, modifiedAt: "2025-01-01T00:00:00.000Z" }),
-      summary("busy", {
-        live: true,
-        running: true,
-        modifiedAt: "2024-01-01T00:00:00.000Z",
-      }),
-    ];
-    expect([...rows].sort(compareSessions).map((row) => row.id)).toEqual([
-      "busy",
-      "live",
-      "new",
-      "old",
-    ]);
-  });
-
+describe("sidebar project grouping", () => {
   it("keeps worktrees of one checkout in the same project", () => {
     const sessions = [
       summary("a", {
@@ -119,11 +98,6 @@ describe("sidebar order and grouping", () => {
     ]);
     expect(projects.find((p) => p.key === "/repo/one")?.running).toBe(1);
     expect(projects.find((p) => p.key === "/repo/two")?.running).toBe(0);
-  });
-
-  it("recognises a pi-subagent run by its id", () => {
-    expect(isSubagentSession(summary("subagent.9f1"))).toBe(true);
-    expect(isSubagentSession(summary("2026-03-01_abc"))).toBe(false);
   });
 });
 

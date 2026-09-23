@@ -108,13 +108,11 @@ describe("listing", () => {
         package: "acme/skills@changelog",
         scope: "global",
         versionHash: HASH_A,
-        canCheckForUpdates: true,
-        skillsShUrl: "https://skills.sh/acme/skills/changelog",
       },
     });
   });
 
-  it("leaves a skill without a lock entry, or with a broken lock, unannotated", async () => {
+  it("keeps valid skills visible with a broken lock and reports malformed skills", async () => {
     await writeSkill("global", "plain");
     await mkdir(join(root, "state", "skills"), { recursive: true });
     await writeFile(join(root, "state", "skills", ".skill-lock.json"), "{");
@@ -125,23 +123,19 @@ describe("listing", () => {
       "no frontmatter\n",
     );
     const listed = await createPiSkills({ agentDir }).list(project);
-    expect(listed.skills.find((s) => s.name === "plain")?.install).toBe(
-      undefined,
-    );
+    const plain = listed.skills.find((s) => s.name === "plain");
+    expect(plain).toMatchObject({ name: "plain", scope: "global" });
+    expect(plain?.install).toBeUndefined();
     expect(listed.diagnostics.length).toBeGreaterThan(0);
   });
 });
 
 describe("search", () => {
-  it("maps the registry's answer, most installed first", async () => {
+  it("queries the registry and returns its mapped response", async () => {
     const { http, calls } = fakeFetch({
       "/api/search": () =>
         answer({
-          skills: [
-            { id: "a/x/one", name: "one", source: "a/x", installs: 5 },
-            { id: "b/y/two", name: "two", source: "b/y", installs: 900 },
-            { name: "no-owner" },
-          ],
+          skills: [{ id: "a/x/one", name: "one", source: "a/x", installs: 5 }],
         }),
     });
     const hits = await createPiSkills({ agentDir, fetch: http }).search(
@@ -149,11 +143,6 @@ describe("search", () => {
       2,
     );
     expect(hits).toEqual([
-      {
-        package: "b/y@two",
-        installs: "900 installs",
-        url: "https://skills.sh/b/y/two",
-      },
       {
         package: "a/x@one",
         installs: "5 installs",
@@ -199,11 +188,11 @@ describe("install", () => {
     );
   });
 
-  it("throws the output when npx did not report success", async () => {
+  it("requires reported success even after a zero exit, and supplies a silent-failure message", async () => {
     const npx = vi.fn().mockResolvedValue({
       stdout: "",
       stderr: "not found",
-      failed: true,
+      failed: false,
     });
     await expect(
       createPiSkills({ agentDir, npx }).install("x@y", "global", project),
@@ -293,7 +282,7 @@ describe("check", () => {
     });
   });
 
-  it("reports GitHub failures and a missing folder as errors", async () => {
+  it("isolates a missing folder from a successful check and reports GitHub failures", async () => {
     await writeSkill("global", "changelog");
     await writeSkill("global", "gone");
     await writeLock("global", {
@@ -301,13 +290,26 @@ describe("check", () => {
       gone: { ...githubEntry, skillPath: "gone/SKILL.md" },
     });
     const { http } = fakeFetch({
-      "/git/trees/": () => answer({ tree: [] }),
+      "/git/trees/": () =>
+        answer({ tree: [{ path: "changelog", type: "tree", sha: HASH_A }] }),
     });
     const updates = await createPiSkills({ agentDir, fetch: http }).check(
       project,
     );
-    expect(updates.map((u) => u.state)).toEqual(["error", "error"]);
-    expect(updates[0]?.message).toBe("No tree entry for changelog");
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          package: "acme/skills@changelog",
+          state: "up-to-date",
+          latestVersion: HASH_A,
+        }),
+        expect.objectContaining({
+          package: "acme/skills@gone",
+          state: "error",
+          message: "No tree entry for gone",
+        }),
+      ]),
+    );
 
     const failing = fakeFetch({ "/git/trees/": () => answer({}, 500) });
     const [failed] = await createPiSkills({

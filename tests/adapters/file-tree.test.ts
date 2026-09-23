@@ -17,6 +17,9 @@ beforeAll(async () => {
   await writeFile(join(root, "node_modules", "junk", "index.js"), "x");
   await writeFile(join(root, ".gitignore"), "*.log\nnode_modules/\n");
   execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["add", "src/web/app.tsx"], { cwd: root });
+  // Ignore rules must not hide a file already present in Git's index.
+  await writeFile(join(root, ".gitignore"), "*.log\nnode_modules/\n*.tsx\n");
 });
 
 afterAll(async () => {

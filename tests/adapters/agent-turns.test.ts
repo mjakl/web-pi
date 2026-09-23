@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_WINDOW,
   createHarness,
@@ -26,6 +26,7 @@ import {
 let h: Harness;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await h.dispose();
 });
 
@@ -52,8 +53,6 @@ describe("a turn", () => {
     );
     expect(streaming.status.running).toBe(true);
     expect(streaming.status.streaming?.tokens).toBeGreaterThan(0);
-    // Not half a second in yet: no rate.
-    expect(streaming.status.streaming?.tokensPerSecond).toBeNull();
     // Pi may prepend a system snapshot; the raw boundary still follows the
     // prior settled entries, and the live tail must include the prompt.
     expect(streaming.turnStart).toBe(before.branch.length);
@@ -85,9 +84,11 @@ describe("a turn", () => {
     expect(existsSync(settled.summary.filePath ?? "")).toBe(true);
   });
 
-  it("reports a rate once the message has streamed for half a second", async () => {
+  it("reports a rate only after the message has streamed for half a second", async () => {
     h = await createHarness();
     const session = await h.open();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     const hold = gate();
     h.script(async (turn) => {
       turn.text("Some words to count as tokens");
@@ -96,7 +97,9 @@ describe("a turn", () => {
     });
     await session.prompt("hi");
     await until(session, (s) => s.partial !== undefined);
-    await new Promise((resolve) => setTimeout(resolve, 550));
+    clock.mockReturnValue(now + 500);
+    expect(session.snapshot().status.streaming?.tokensPerSecond).toBeNull();
+    clock.mockReturnValue(now + 501);
     const rate = session.snapshot().status.streaming;
     expect(rate?.tokens).toBeGreaterThan(0);
     expect(rate?.tokensPerSecond).toBeGreaterThan(0);
@@ -189,7 +192,7 @@ describe("a turn", () => {
     expect(events).toContain("completed");
     expect(lastAssistant(session).stopReason).toBe("aborted");
     // The file exists, so this was no draft: the session stays open.
-    expect(h.runtime.get(session.id)).toBe(session);
+    expect(h.runtime.get(session.id)).toBeDefined();
   });
 
   it("runs a shell command as its own turn, without a completion", async () => {
@@ -341,7 +344,7 @@ describe("tools", () => {
 });
 
 describe("failures", () => {
-  it("persists a provider error as the answer and still settles the turn", async () => {
+  it("persists a streamed provider error as the answer and still settles the turn", async () => {
     h = await createHarness();
     const session = await h.open();
     const events = record(session);
@@ -349,8 +352,9 @@ describe("failures", () => {
       turn.text("partial");
       turn.error("boom");
     });
+    const done = next(session, "turn_done");
     await session.prompt("hi");
-    await next(session, "turn_done");
+    await done;
     expect(lastAssistant(session)).toMatchObject({
       stopReason: "error",
       errorMessage: "boom",
@@ -359,18 +363,21 @@ describe("failures", () => {
     expect(events.filter((type) => type === "turn_done")).toHaveLength(1);
   });
 
-  it("survives a provider that throws before streaming", async () => {
+  it("settles a synchronous provider throw before a stream is returned", async () => {
     h = await createHarness();
     const session = await h.open();
-    h.script(() => {
-      throw new Error("setup failed");
-    });
+    const events = record(session);
+    h.script(new Error("setup failed"));
+    const done = next(session, "turn_done");
     await session.prompt("hi");
-    await next(session, "turn_done");
+    await done;
     expect(lastAssistant(session)).toMatchObject({
       stopReason: "error",
-      errorMessage: expect.stringContaining("setup failed") as string,
+      errorMessage: "setup failed",
     });
+    expect(session.snapshot().status.running).toBe(false);
+    expect(session.snapshot().partial).toBeUndefined();
+    expect(events.filter((type) => type === "turn_done")).toHaveLength(1);
   });
 
   it("shows Pi's own retry of a transient error, then the answer", async () => {

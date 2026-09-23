@@ -7,7 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_WINDOW,
   createHarness,
@@ -29,6 +29,7 @@ import {
 let h: Harness;
 
 afterEach(async () => {
+  vi.useRealTimers();
   await h.dispose();
 });
 
@@ -70,8 +71,11 @@ describe("opening", () => {
     expect(getCurrentSystemPrompt(h.calls[0]?.context.messages ?? [])).toBe(
       custom.systemPrompt(),
     );
+    const capturedPrompt = custom.systemPrompt();
     h.webSettings.update({ systemPromptAddition: "" });
-    expect(await h.open({ sessionId: custom.id })).toBe(custom);
+    expect((await h.open({ sessionId: custom.id })).systemPrompt()).toBe(
+      capturedPrompt,
+    );
     await custom.stop();
     const reopened = await h.open({ sessionId: custom.id });
     expect(reopened.systemPrompt()).not.toContain("Custom web instruction.");
@@ -107,7 +111,7 @@ describe("opening", () => {
     ]);
     expect(snapshot.summary.cwd).toBe(h.cwd);
     expect(snapshot.summary.live).toBe(true);
-    expect(h.runtime.get(session.id)).toBe(session);
+    expect(h.runtime.get(session.id)?.id).toBe(session.id);
     expect(announced).toEqual([{ type: "opened", sessionId: session.id }]);
     // The file belongs to the agent directory the runtime was given, not to
     // whatever PI_CODING_AGENT_DIR or ~/.pi/agent says.
@@ -167,19 +171,31 @@ describe("opening", () => {
     await first.stop();
     expect(h.runtime.get(first.id)).toBeUndefined();
 
+    const announced: RuntimeEvent[] = [];
+    h.runtime.subscribeAll((event) => announced.push(event));
     const [a, b] = await Promise.all([
       h.open({ sessionId: first.id }),
       h.open({ sessionId: first.id }),
     ]);
-    expect(a).toBe(b);
     expect(a.id).toBe(first.id);
     expect(messages(a)).toEqual(["user:question", "assistant:answer"]);
     expect(a.snapshot().turnStart).toBe(a.snapshot().branch.length);
-    // Already live: the same instance again, no second start.
-    expect(await h.open({ sessionId: first.id })).toBe(a);
+    a.setName("Shared runtime");
+    expect(b.snapshot().summary.name).toBe("Shared runtime");
+    const again = await h.open({ sessionId: first.id });
+    expect(again.snapshot().summary.name).toBe("Shared runtime");
+    expect(announced).toEqual([{ type: "opened", sessionId: first.id }]);
     await expect(h.open({ sessionId: "nope" })).rejects.toThrow(
       "Unknown session nope",
     );
+    const stopped = next(a, "stopped");
+    await b.stop();
+    await stopped;
+    expect(h.runtime.get(first.id)).toBeUndefined();
+    expect(announced).toEqual([
+      { type: "opened", sessionId: first.id },
+      { type: "stopped", sessionId: first.id },
+    ]);
   });
 });
 
@@ -203,7 +219,6 @@ describe("session commands", () => {
       .branch.filter(
         (entry) => entry.type === "message" && entry.message.role === "user",
       );
-    let previous = first;
     for (const index of [1, 0]) {
       const target = users[index];
       if (!target) throw new Error("Missing fixture prompt");
@@ -211,13 +226,11 @@ describe("session commands", () => {
       expect(draft.text).toBe(index === 1 ? "second" : "first");
       const resumed = h.runtime.get(first.id);
       if (!resumed) throw new Error("Rewind left the session inactive");
-      expect(resumed).not.toBe(previous);
       expect(resumed.snapshot().status.running).toBe(false);
       expect(messages(resumed)).toEqual(
         index === 1 ? ["user:first", "assistant:first answer"] : [],
       );
       expect(h.calls).toHaveLength(2);
-      previous = resumed;
     }
   });
 
@@ -349,7 +362,7 @@ describe("stopping", () => {
   it("shuts an idle draft down, and at once when the reader stops it", async () => {
     h = await createHarness({ draftIdleMs: 30 });
     const idle = await h.open();
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await next(idle, "stopped");
     expect(h.runtime.get(idle.id)).toBeUndefined();
 
     const stopped = await h.open();
@@ -358,11 +371,20 @@ describe("stopping", () => {
 
     // A session with a transcript on disk is never shut down for idling.
     const kept = await h.open();
+    // SDK loading uses real time. Turn activity resets the idle timeout onto
+    // this clock; clearTimeout also clears the timer scheduled during opening.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout"],
+      shouldClearNativeTimers: true,
+    });
+    const events = record(kept);
     h.script(reply("answer"));
     const done = next(kept, "turn_done");
     await kept.prompt("q");
     await done;
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(h.runtime.get(kept.id)).toBe(kept);
+    expect(existsSync(kept.snapshot().summary.filePath ?? "")).toBe(true);
+    await vi.advanceTimersByTimeAsync(120);
+    expect(h.runtime.get(kept.id)?.snapshot().status.running).toBe(false);
+    expect(events).not.toContain("stopped");
   });
 });

@@ -79,7 +79,7 @@ describe("enabling and disabling", () => {
   it("leaves other entries exactly as they were", () => {
     const other = { source: "git:https://example.com/r", skills: ["a"] };
     const next = setPackageDisabled(["npm:x", other], "npm:x", true);
-    expect(next?.[1]).toBe(other);
+    expect(next?.[1]).toEqual(other);
   });
 });
 

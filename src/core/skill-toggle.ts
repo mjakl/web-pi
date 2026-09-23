@@ -42,9 +42,20 @@ export function setDisableModelInvocation(
   content: string,
   disable: boolean,
 ): string {
+  const block = splitBlock(content);
+  const firstField = block?.[0]
+    .split("\n")
+    .slice(1)
+    .find((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
+  // A root flow mapping cannot be edited as block-key lines, even when the
+  // target key happens to occupy its own line inside the braces.
+  if (firstField?.trimStart().startsWith("{")) {
+    throw new SkillFrontmatterError(
+      `Cannot edit ${KEY}: unsupported frontmatter formatting`,
+    );
+  }
   const present = hasDisableModelInvocation(content);
   if (!disable && !present) return content;
-  const block = splitBlock(content);
   if (!disable) {
     if (!block) return content;
     const [head, tail] = block;

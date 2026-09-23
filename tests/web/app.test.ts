@@ -1403,7 +1403,7 @@ describe("conversation rail, shelf, and written files", () => {
 
   it("keeps a huge tool result off the page and cuts it when opened", async () => {
     const output = "x".repeat(40_000);
-    const { app } = testApp({
+    const { app, world } = testApp({
       script: () => [
         { tool: "grep", arguments: { pattern: "x" }, result: output },
         { text: "found them" },
@@ -1413,7 +1413,9 @@ describe("conversation rail, shelf, and written files", () => {
     const form = new FormData();
     form.set("text", "go");
     await app.request("/sessions/s1/prompt", { method: "POST", body: form });
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await vi.waitFor(() => {
+      expect(world.runtime.get("s1")?.snapshot().status.running).toBe(false);
+    });
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).not.toContain("xxxxx");
     // Compare the turn's added markup, not the unrelated shell overhead.
@@ -1434,7 +1436,7 @@ describe("conversation rail, shelf, and written files", () => {
       (_, index) => `-old ${String(index)}\n+new ${String(index)}`,
     ).join("\n");
     const patch = `--- a/x.ts\n+++ b/x.ts\n@@ -1,600 +1,600 @@\n${hunk}\n`;
-    const { app } = testApp({
+    const { app, world } = testApp({
       script: () => [
         {
           tool: "edit",
@@ -1448,7 +1450,9 @@ describe("conversation rail, shelf, and written files", () => {
     const form = new FormData();
     form.set("text", "go");
     await app.request("/sessions/s1/prompt", { method: "POST", body: form });
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await vi.waitFor(() => {
+      expect(world.runtime.get("s1")?.snapshot().status.running).toBe(false);
+    });
     const url = deferredUrl(await (await app.request("/sessions/s1")).text());
     const opened = await (await app.request(url)).text();
     expect(opened).toContain("view full output");
@@ -1562,7 +1566,7 @@ describe("transcript rendering", () => {
   });
 
   it("serves a reported patch when its card opens", async () => {
-    const { app } = testApp({
+    const { app, world } = testApp({
       script: (): ScriptedStep[] => [
         {
           tool: "edit",
@@ -1578,7 +1582,9 @@ describe("transcript rendering", () => {
     const form = new FormData();
     form.set("text", "edit it");
     await app.request("/sessions/s1/prompt", { method: "POST", body: form });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await vi.waitFor(() => {
+      expect(world.runtime.get("s1")?.snapshot().status.running).toBe(false);
+    });
 
     // A settled card ships a placeholder; the diff arrives when it opens.
     const page = await (await app.request("/sessions/s1")).text();

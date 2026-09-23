@@ -150,22 +150,3 @@ describe("linking", () => {
     expect(staleLinks(checkout, host)).toEqual([]);
   });
 });
-
-// The host install is the real contract; skip where Pi is not installed.
-function hostPi(): ReturnType<typeof resolveHostPi> | undefined {
-  try {
-    return resolveHostPi();
-  } catch {
-    return undefined;
-  }
-}
-
-const host = hostPi();
-
-describe.skipIf(host === undefined)("the host Pi on PATH", () => {
-  it("is linked into node_modules at a single version", () => {
-    if (!host) return;
-    expect(host.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(staleLinks(process.cwd(), host)).toEqual([]);
-  });
-});

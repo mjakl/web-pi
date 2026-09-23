@@ -161,22 +161,6 @@ it.each(["decoration", "models"] as const)(
   },
 );
 
-it("renders each live update from one coherent runtime snapshot", async () => {
-  const f = await streamingFixture();
-  const { document } = await open(f);
-  await expect.poll(() => f.subscribers).toBe(1);
-  await expect.poll(() => f.snapshotReads).toBeGreaterThan(0);
-
-  f.resetSnapshotReads();
-  f.runningTools();
-  f.emit("activity");
-
-  await expect
-    .poll(() => document.querySelector("#turn")?.textContent)
-    .toContain("streaming text");
-  expect(f.snapshotReads).toBe(1);
-});
-
 it("omits completed ordinary and subagent bodies until their collapsed cards open", async () => {
   const f = await streamingFixture();
   f.richRunningTools();

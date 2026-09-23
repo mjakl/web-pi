@@ -2,7 +2,8 @@ import { createFakeWorld, userEntry } from "@adapters/fake/index";
 import type { DialogSpec, FrameComponent } from "@core/extension-ui";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
-import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import { describe, expect, it, vi } from "vitest";
 
 const ARROW_UP = "\u001B[A";
 
@@ -284,15 +285,53 @@ describe("installable app", () => {
     );
   });
 
-  it("serves the worker uncached, scoped to the whole app", async () => {
+  it("serves a root-scoped uncached worker that leaves event streams to the network", async () => {
     const { app } = testApp(() => []);
     const response = await app.request("/sw.js");
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
     expect(response.headers.get("Service-Worker-Allowed")).toBe("/");
-    const script = await response.text();
-    expect(script).toContain("/offline.html");
-    // The streams are what a cached response would break.
-    expect(script).toContain('url.pathname.endsWith("/events")');
+    const handlers = new Map<string, (event: unknown) => void>();
+    const fetch = vi.fn(() => Promise.resolve(new Response("network")));
+    runInNewContext(await response.text(), {
+      URL,
+      fetch,
+      self: {
+        location: new URL("https://web.example/sw.js"),
+        addEventListener: (name: string, handler: (event: unknown) => void) =>
+          handlers.set(name, handler),
+      },
+    });
+    const onFetch = handlers.get("fetch");
+    expect(onFetch).toBeDefined();
+    for (const path of ["/events", "/sessions/s1/events"]) {
+      const respondWith = vi.fn();
+      onFetch?.({
+        request: {
+          url: `https://web.example${path}`,
+          method: "GET",
+          mode: "navigate",
+          headers: new Headers(),
+        },
+        respondWith,
+      });
+      expect(respondWith, path).not.toHaveBeenCalled();
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    // A normal navigation exercises the same registered handler and uses the network.
+    const respondWith = vi.fn();
+    onFetch?.({
+      request: {
+        url: "https://web.example/sessions/s1",
+        method: "GET",
+        mode: "navigate",
+        headers: new Headers(),
+      },
+      respondWith,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(respondWith).toHaveBeenCalledOnce();
+    const network = await (respondWith.mock.calls[0]?.[0] as Promise<Response>);
+    expect(await network.text()).toBe("network");
   });
 
   it("serves an offline page the worker can precache", async () => {

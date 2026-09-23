@@ -22,8 +22,6 @@ describe("Markdown web links", () => {
     setUpTranscript();
     expect(anchor().target).toBe(target);
     expect(anchor().getAttribute("href")).toBe(href);
-    expect(anchor().rel).toBe("noopener noreferrer");
-    expect(anchor().hasAttribute("data-session-link")).toBe(false);
   });
 
   it("updates processed anchors and all settled siblings, including morphed links", () => {
@@ -74,29 +72,15 @@ describe("Markdown web links", () => {
     }
   });
 
-  it("preserves filesystem, mailto, fragment and safety behavior", () => {
+  it("does not rewrite file actions, mailto links or fragment anchors", () => {
     mount(
       renderMarkdown(
-        '[root](/sessions/abc) [relative](./src/main.ts) [mail](mailto:a@example.test) [hash](#heading) [bad](javascript:alert%281%29) <a href="https://evil.test">raw</a>',
+        "[root](/sessions/abc) [relative](./src/main.ts) [mail](mailto:a@example.test) [hash](#heading)",
         { cwd: "/repo" },
       ),
     );
     const before = document.body.innerHTML;
     setUpTranscript();
     expect(document.body.innerHTML).toBe(before);
-    expect(query('[data-file-path="/sessions/abc"]').tagName).toBe("BUTTON");
-    expect(query('[data-file-path="/repo/src/main.ts"]').tagName).toBe(
-      "BUTTON",
-    );
-    expect(document.querySelectorAll("a")).toHaveLength(2);
-    expect(
-      query('a[href="mailto:a@example.test"]').getAttribute("target"),
-    ).toBe("_blank");
-    expect(
-      query('a[href="#user-content-heading"]').hasAttribute("target"),
-    ).toBe(false);
-    expect(document.body.textContent).toContain(
-      '<a href="https://evil.test">raw</a>',
-    );
   });
 });

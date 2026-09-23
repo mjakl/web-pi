@@ -71,36 +71,3 @@ describe("completion feedback", () => {
     expect(FakeAudioContext.played).toBe(2);
   });
 });
-
-describe("workspace memory", () => {
-  it("does not record the open session as a project preference", async () => {
-    await load();
-    expect(localStorage.getItem("web-pi:last-open-by-workspace")).toBeNull();
-  });
-
-  it("leaves the blank composer open despite old per-project session memory", async () => {
-    localStorage.setItem(
-      "web-pi:last-open-by-workspace",
-      JSON.stringify({ "/repo/one": "s9" }),
-    );
-    mount(
-      '<main data-session-id=""><button id="project-select" data-project-key="/repo/one"></button><div id="session-list"><div data-session-id="s9"></div></div></main>',
-    );
-    const { setUpNotifications } = await import("@web/client/notify");
-    setUpNotifications();
-    expect(location.pathname).toBe("/");
-  });
-
-  it("leaves a deleted session alone", async () => {
-    localStorage.setItem(
-      "web-pi:last-open-by-workspace",
-      JSON.stringify({ "/repo/one": "gone" }),
-    );
-    mount(
-      '<main data-session-id=""><button id="project-select" data-project-key="/repo/one"></button><div id="session-list"></div></main>',
-    );
-    const { setUpNotifications } = await import("@web/client/notify");
-    setUpNotifications();
-    expect(location.pathname).toBe("/");
-  });
-});

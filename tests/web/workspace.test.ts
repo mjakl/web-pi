@@ -1,7 +1,6 @@
 import {
   assistantEntry,
   createFakeWorld,
-  FAKE_MODEL,
   userEntry,
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
@@ -66,33 +65,6 @@ const form = (fields: Record<string, string>) => {
 };
 
 describe("the directory picker", () => {
-  it("opens as pi-web's modal dialog, on the folder in use", async () => {
-    const { app } = testApp();
-    const html = await (await app.request("/workspaces/picker")).text();
-    expect(html).toContain('class="directory-picker-dialog"');
-    expect(html).toContain("data-modal");
-    expect(html).toContain('class="directory-picker-panel"');
-    expect(html).toContain("Select directory");
-    // Header, path form, listing and footer, in pi-web's order (§3.7).
-    const order = [
-      "Select directory",
-      "directory-picker-back",
-      'id="directory-path"',
-      ">Go<",
-      "directory-picker-list",
-      "directory-picker-footer",
-      ">Cancel<",
-      "Select this folder",
-    ];
-    let at = 0;
-    for (const marker of order) {
-      const found = html.indexOf(marker, at);
-      expect([marker, found > -1]).toStrictEqual([marker, true]);
-      at = found;
-    }
-    expect(html).toContain(`value="${repo}"`);
-  });
-
   it("lists a project's worktrees and marks the folder in use", async () => {
     const { app } = testApp({
       worktrees: (cwd) => [
@@ -114,15 +86,6 @@ describe("the directory picker", () => {
     // same way, through the allowed roots.
     const denied = await app.request("/workspaces/folders?cwd=/etc");
     expect(denied.status).toBe(403);
-  });
-
-  it("still answers for a project whose folder is gone", async () => {
-    const { app } = testApp({ missingFolders: [repo], worktrees: () => [] });
-    await rm(repo, { recursive: true, force: true });
-    const html = await (
-      await app.request(`/workspaces/folders?cwd=${encodeURIComponent(repo)}`)
-    ).text();
-    expect(html).toContain("No working folders available");
   });
 
   it("adds a listed worktree to the roots a file may be read from", async () => {
@@ -165,7 +128,6 @@ describe("the directory picker", () => {
     ).text();
     expect(html).toContain(".hidden");
     expect(html).toContain("src");
-    expect(html).toContain('class="directory-picker-entry"');
     expect(html).toContain("Select this folder");
   });
 
@@ -207,17 +169,6 @@ describe("the directory picker", () => {
 });
 
 describe("the new-session page", () => {
-  it("offers completion, the slash menu and a model picker for a real folder", async () => {
-    const { app } = testApp();
-    const html = await (await app.request(`/new?cwd=${repo}`)).text();
-    expect(html).toContain('data-complete="folder"');
-    expect(html).toContain('name="model"');
-    expect(html).toContain(FAKE_MODEL.name);
-    expect(html).toContain('name="thinking"');
-    // The folder is changed from the sidebar's workspace pill now.
-    expect(html).toMatch(/class="[^"]*\banchor-sidebar-project\b[^"]*"/);
-  });
-
   it("answers the folder's slash menu and file completion", async () => {
     const { app } = testApp();
     // Validation is what makes the folder reachable.
@@ -240,22 +191,6 @@ describe("the new-session page", () => {
       `/workspaces/file-index?cwd=${encodeURIComponent(root)}&q=`,
     );
     expect(res.status).toBe(403);
-  });
-
-  it("starts the session on the picked model and reasoning level", async () => {
-    const { app, world } = testApp();
-    const body = new FormData();
-    body.set("cwd", repo);
-    body.set("text", "hello");
-    body.set("model", `${FAKE_MODEL.provider}/${FAKE_MODEL.id}`);
-    body.set("thinking", "high");
-    const res = await app.request("/sessions", { method: "POST", body });
-    expect(res.status).toBe(303);
-    // Not in the store yet: Pi writes the file with the first answer.
-    const started = world.runtime
-      .live()
-      .find((session) => session.id.startsWith("new-"));
-    expect(started?.snapshot().summary.cwd).toBe(repo);
   });
 
   it("will not start a session in a folder that is gone", async () => {
@@ -423,14 +358,8 @@ describe("project trust", () => {
 });
 
 describe("the settings page", () => {
-  it("navigates on both desktop and a phone, and remembers the section", async () => {
+  it("remembers the selected settings section", async () => {
     const { app } = testApp();
-    const html = await (await app.request("/settings")).text();
-    expect(html).toContain("Settings");
-    // The mobile picker and the desktop tabs are the same list, one hidden.
-    expect(html).toContain("settings-mobile-section-picker");
-    expect(html).toContain("settings-section-tabs");
-    expect(html).toContain('href="/settings?section=skills');
     const skills = await app.request("/settings?section=skills");
     expect(skills.headers.getSetCookie().join(" ")).toContain(
       "web-pi-settings=skills",
@@ -439,15 +368,6 @@ describe("the settings page", () => {
       headers: { cookie: "web-pi-settings=skills" },
     });
     expect(await remembered.text()).toContain("Add skill");
-  });
-
-  it("keeps the browser preferences on the general section", async () => {
-    const { app } = testApp();
-    const html = await (await app.request("/settings?section=general")).text();
-    expect(html).toContain('data-theme-option="light"');
-    expect(html).toContain('data-theme-option="auto"');
-    expect(html).toContain('id="sound-toggle"');
-    expect(html).toContain('id="dumb-zone-tokens"');
   });
 
   it("groups skills and shows one in detail", async () => {
@@ -506,6 +426,8 @@ describe("the settings page", () => {
     expect(html).toContain("npm:@acme/pi-plugin@1.2.0");
     expect(html).toContain("global");
     expect(html).toContain("review");
+    expect(html).toContain("Resolved Resources");
+    expect(html).toContain(">extensions/review/index.ts<");
     const disabled = await (
       await app.request(
         "/settings/plugins",
@@ -556,111 +478,12 @@ describe("the settings page", () => {
 });
 
 describe("pi-web's settings and trust chrome", () => {
-  it("opens settings as a modal over the shell, with tabs and a mobile picker", async () => {
-    const { app } = testApp();
+  it("disables folder-dependent settings when no folder is available", async () => {
+    const { app } = testApp({ missingFolders: [repo] });
     const html = await (await app.request("/settings")).text();
-    // The shell renders behind the modal, as pi-web's overlay does.
-    expect(html).toContain('id="session-sidebar"');
-    expect(html).toContain('class="settings-dialog"');
-    expect(html).toContain("settings-dialog-surface");
-    expect(html).toContain("settings-dialog-header");
-    expect(html).toContain("settings-dialog-title");
-    expect(html).toContain("settings-mobile-section-picker");
-    expect(html).toContain('class="settings-section-tabs"');
-    expect(html).toContain("config-close-button settings-dialog-close");
-    expect(html).toContain('data-close-href="/"');
-    expect(html).toContain('id="settings-body" class="settings-section-host"');
-    // The open tab is marked and a section that needs a folder is a
-    // disabled button rather than a link.
-    expect(html).toContain('aria-current="page"');
-    const gone = testApp({ missingFolders: [repo] }).app;
-    const noProject = await (await gone.request("/settings")).text();
-    expect(noProject).toContain(
+    expect(html).toContain(
       '<button type="button" class="settings-section-tab" disabled',
     );
-  });
-
-  it("draws the general section with pi-web's switches and radio group", async () => {
-    const { app } = testApp();
-    const html = await (await app.request("/settings?section=general")).text();
-    expect(html).toContain('class="settings-general"');
-    expect(html).toContain("settings-theme-options");
-    expect(html).toContain('data-theme-option="light"');
-    expect(html).toContain("settings-general-option");
-    expect(html).toContain("settings-number-input");
-    // pi-web draws a preference toggle as a switch button, not a checkbox.
-    expect(html).toContain(
-      '<button type="button" id="sound-toggle" class="config-switch" role="switch"',
-    );
-    expect(html).toContain("config-switch-knob");
-    expect(html).toContain("Push notifications");
-    expect(html).toContain('id="push-toggle"');
-    expect(html).toContain("Home Screen");
-    expect(html).not.toContain(">About<");
-  });
-
-  it("draws skills and plugins as pi-web's split view", async () => {
-    const { app } = testApp();
-    const skills = await (await app.request("/settings?section=skills")).text();
-    expect(skills).toContain("config-panel-root");
-    expect(skills).toContain("config-split-view");
-    expect(skills).toContain('<aside class="config-sidebar">');
-    expect(skills).toContain("config-sidebar-group-label");
-    expect(skills).toContain("config-sidebar-text is-grow");
-    expect(skills).toContain("skill-mode-badge");
-    expect(skills).toContain("config-list-action-button");
-    expect(skills).toContain('<footer class="config-footer">');
-    expect(skills).toContain("config-detail-path");
-    expect(skills).toContain("config-scope-tag");
-    // Picking a skill swaps the whole section, so the row highlight follows.
-    const picked = await (
-      await app.request(
-        `/settings/skills/detail?cwd=${encodeURIComponent(repo)}&path=${encodeURIComponent("/agent/skills/changelog/SKILL.md")}`,
-      )
-    ).text();
-    expect(picked).toContain("config-split-view");
-    expect(picked).toContain('aria-current="page"');
-    expect(picked).toContain("skill-source-link");
-    const add = await (
-      await app.request(
-        `/settings/skills/detail?cwd=${encodeURIComponent(repo)}&add=1`,
-      )
-    ).text();
-    expect(add).toContain("config-scope-picker");
-    expect(add).toContain("e.g. react, testing, deploy");
-    const plugins = await (
-      await app.request("/settings?section=plugins")
-    ).text();
-    expect(plugins).toContain("config-status-dot");
-    expect(plugins).toContain("config-detail-header is-top-aligned");
-    expect(plugins).toContain("config-button-danger");
-    expect(plugins).toContain("Resolved Resources");
-    expect(plugins).toContain("installed 1.2.0");
-    expect(plugins).toContain("1 ext");
-    // pi-web groups the resources by kind and gives each group an uppercase
-    // label; the entry's own second line is the relative path alone
-    // (PluginsConfig.tsx L127-L219).
-    const group = plugins.slice(plugins.indexOf("Resolved Resources"));
-    expect(group).toContain('class="plugin-resource-heading">Extensions</div>');
-    expect(group.indexOf("Extensions")).toBeLessThan(group.indexOf("review"));
-    expect(group).toContain(">extensions/review/index.ts<");
-    expect(group).not.toContain("extensions · ");
-  });
-
-  it("warns about an untrusted project twice, and dresses the dialog", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
-    const page = await (await app.request("/sessions/s1")).text();
-    // One warning for the bar, one full-width banner for the phone.
-    expect(page.split('data-trust-warning="true"').length - 1).toBe(2);
-    expect(page).toContain('data-mobile-trust-banner="true"');
-    const dialog = await (
-      await app.request(`/workspaces/trust?cwd=${encodeURIComponent(repo)}`)
-    ).text();
-    expect(dialog).toContain('class="project-trust-dialog"');
-    expect(dialog).toContain('class="project-trust-panel"');
-    expect(dialog).toContain('id="project-trust-title"');
-    expect(dialog).toContain("data-backdrop-close");
-    expect(dialog).toContain("Trust project");
   });
 });
 

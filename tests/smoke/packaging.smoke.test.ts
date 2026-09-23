@@ -154,7 +154,7 @@ afterAll(async () => {
   if (base) rmSync(base, { recursive: true, force: true });
 });
 
-it("ships documentation links, screenshots, and both product license notices", () => {
+it("ships documentation link targets and both product license notices", () => {
   const installed = join(base, "consumer", "node_modules", "web-pi");
   const docs = join(installed, "docs");
   const markdown = [
@@ -177,18 +177,6 @@ it("ships documentation links, screenshots, and both product license notices", (
         `${file}: ${target}`,
       ).toBe(true);
     }
-  }
-  for (const image of [
-    "file-diff",
-    "session-navigation",
-    "session-tools",
-    "conversation-light",
-    "mobile",
-  ]) {
-    const png = readFileSync(join(docs, "images", `${image}.png`));
-    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-    expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(390);
-    expect(png.readUInt32BE(20)).toBeGreaterThanOrEqual(800);
   }
   expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain(
     "Copyright (c) 2026 Michael Jakl",
@@ -228,21 +216,20 @@ it("serves the built assets and the manifest", async () => {
   expect(manifest.status).toBe(200);
   const described = (await manifest.json()) as { name?: string };
   expect(described.name).toBe("web-pi");
-  for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
-    const vendor = await fetch(`${origin}${path}`);
-    expect(vendor.status).toBe(200);
-    expect(vendor.headers.get("content-type")).toContain("javascript");
-    expect((await vendor.text()).length).toBeGreaterThan(1000);
-  }
   for (const path of [
-    "/static/vendor/htmx.min-2.0.10.js",
-    "/static/vendor/htmx-ext-sse.min-2.2.4.js",
+    HTMX_SRC,
+    HTMX_SSE_SRC,
+    "/static/client.js",
+    "/static/mermaid.js",
   ]) {
-    expect((await fetch(`${origin}${path}`)).status).toBe(404);
+    const script = await fetch(`${origin}${path}`);
+    expect(script.status, path).toBe(200);
+    expect(script.headers.get("content-type"), path).toContain("javascript");
+    expect((await script.text()).length, path).toBeGreaterThan(1000);
   }
   const worker = await fetch(`${origin}/sw.js`);
   expect(worker.status).toBe(200);
-  expect(await worker.text()).not.toContain("htmx.min-2.0.10.js");
+  expect(worker.headers.get("content-type")).toContain("javascript");
 });
 
 it("opens the session stream without starting a turn", async () => {

@@ -6,8 +6,10 @@ import {
   flush,
   htmxEvent,
   keydown,
+  mockFetch,
   mount,
   render,
+  text,
   type,
 } from "./helpers.ts";
 
@@ -73,24 +75,25 @@ describe("composer owner lifecycle", () => {
   });
 
   it("does not let a pending clipboard completion clear a replacement draft", async () => {
-    mount(
-      `<div data-role="assistant"><div class="markdown-body">answer</div></div>${markup()}`,
-    );
-    let finish = () => {};
-    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
-        }),
-    );
+    mount(`<div id="toasts"></div>${markup()}`);
+    mockFetch(() => text("answer"));
+    const pending = Promise.withResolvers<undefined>();
+    const write = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockReturnValue(pending.promise);
     const { setUpComposer } = await import("@web/client/composer");
     setUpComposer();
     type(area(), "/copy");
     keydown(area(), "Enter");
+    await flush();
+    expect(write).toHaveBeenCalledExactlyOnceWith("answer");
     replaceComposer(markup("/copy"));
-    finish();
+    pending.resolve(undefined);
+    await pending.promise;
     await flush();
     expect(area().value).toBe("/copy");
+    expect(localStorage.getItem("web-pi:draft:s1")).toBe("/copy");
+    expect(byId("toasts").textContent).toBe("");
   });
 
   it("cancels autocomplete requests and pending debounce work on disposal", async () => {

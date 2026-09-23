@@ -1,26 +1,21 @@
 import type { LiveStatus } from "@core/ports";
-import type { AssistantItem } from "@core/transcript";
+import type { AssistantItem, ToolCallView } from "@core/transcript";
 import {
   EarlierPage,
   Item,
   type ItemActions,
   Items,
-  LoadEarlier,
   StarButton,
   ToolBody,
   TurnFragment,
 } from "@web/views/Items";
-import { HistoryActionButtons } from "@web/views/transcript/shared";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { Window } from "happy-dom";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   answerItem,
   fixtureCalls,
-  liveItems,
   settledItems,
 } from "./fixtures/transcript-items.ts";
-
-// Pin the full rendered item inventory alongside focused behavior tests.
-// Update markup deliberately with `vitest -u`; browser comparisons verify CSS.
 
 const actions: ItemActions = {
   sessionId: "s1",
@@ -59,138 +54,273 @@ const status: LiveStatus = {
 
 const html = (node: unknown) => String(node);
 
-function render(label: string, node: unknown): string {
-  return `<!-- ${label} -->\n${html(node)}\n`;
+const windows: Window[] = [];
+function rendered(node: unknown) {
+  const window = new Window();
+  windows.push(window);
+  window.document.body.innerHTML = html(node);
+  return window.document;
 }
+afterEach(async () => {
+  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
+});
 
 describe("transcript items", () => {
-  beforeAll(() => {
-    // Times render in the reader's zone and say "today" relative to now;
-    // both are pinned so the fixture reads the same on every machine.
-    vi.useFakeTimers({
-      now: new Date("2026-01-05T15:00:00.000Z"),
-      toFake: ["Date"],
+  it.each([
+    { label: "message", command: undefined },
+    { label: "expanded skill", command: "/skill:deploy staging now" },
+  ])("preserves $label source and attachment identities", ({ command }) => {
+    const user = settledItems[0];
+    if (user?.kind !== "user") throw new Error("Missing user fixture");
+    const document = rendered(
+      <Item
+        item={{ ...user, ...(command ? { command } : {}) }}
+        actions={actions}
+      />,
+    );
+    const message = document.querySelector("#entry-u1");
+    expect(message?.querySelector("[data-user-text]")?.textContent).toBe(
+      command ?? user.text,
+    );
+    expect(message?.querySelector("[data-copy-source]")?.textContent).toBe(
+      command ?? user.text,
+    );
+    const previews = [...document.querySelectorAll("[data-image-preview]")];
+    expect(
+      previews.map((button) => button.getAttribute("data-image-preview")),
+    ).toEqual([
+      "/sessions/s1/entries/u1/image/0",
+      "/sessions/s1/entries/u1/image/1",
+    ]);
+    for (const button of previews) {
+      expect(button.getAttribute("aria-haspopup")).toBe("dialog");
+      expect(button.querySelector("img")?.getAttribute("src")).toBe(
+        button.getAttribute("data-image-preview"),
+      );
+    }
+    expect(message?.textContent).toContain("Fix the <b>bug</b>");
+    expect(message?.querySelector("b, script")).toBeNull();
+    if (command) {
+      const disclosure = message?.querySelector("details");
+      expect(disclosure?.open).toBe(false);
+      expect(
+        disclosure?.querySelector("summary [data-user-text]")?.textContent,
+      ).toBe(command);
+    }
+  });
+
+  it("shows provider errors and aborted empty answers without interpreting error text as HTML", () => {
+    const document = rendered(
+      <Items
+        items={[
+          {
+            ...answerItem,
+            entryId: "failed",
+            blocks: [],
+            stopReason: "error",
+            errorMessage: '<img src=x onerror="alert(1)"> & denied',
+          },
+          {
+            ...answerItem,
+            entryId: "aborted",
+            blocks: [],
+            stopReason: "aborted",
+          },
+        ]}
+        actions={actions}
+      />,
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      'Error: <img src=x onerror="alert(1)"> & denied',
+    );
+    expect(document.querySelector("#entry-aborted")?.textContent).toContain(
+      "Stopped",
+    );
+    expect(document.querySelector("img, script")).toBeNull();
+  });
+
+  it("keeps completed tools deferred and offers full output after the text budget", () => {
+    const call = fixtureCalls.longTextCall;
+    const document = rendered(
+      <Item
+        item={{ ...answerItem, blocks: [{ kind: "tool", call }] }}
+        actions={actions}
+      />,
+    );
+    const placeholder = document.querySelector("[hx-get]");
+    expect(placeholder?.getAttribute("hx-get")).toBe(
+      "/sessions/s1/entries/r7/tool-result/call-cat",
+    );
+    expect(placeholder?.getAttribute("hx-swap")).toBe("outerHTML");
+    expect(placeholder?.getAttribute("hx-sync")).toBe("this:drop");
+    expect(placeholder?.hasAttribute("hx-morph-skip")).toBe(true);
+    expect(document.body.textContent).not.toContain("x".repeat(100));
+    const cut = rendered(<ToolBody call={call} actions={actions} />);
+    expect(cut.querySelector(".tool-output-text")?.textContent).toBe(
+      "x".repeat(16 * 1024),
+    );
+    const more = cut.querySelector("button[hx-get]");
+    expect(more?.getAttribute("hx-get")).toBe(
+      "/sessions/s1/entries/r7/tool-result/call-cat?full=1",
+    );
+    expect(more?.getAttribute("hx-target")).toBe("closest .tool-result");
+    expect(more?.getAttribute("hx-swap")).toBe("outerHTML");
+    const full = rendered(<ToolBody call={call} actions={actions} full />);
+    expect(full.querySelector(".tool-output-text")?.textContent).toBe(
+      call.result?.text,
+    );
+    expect(full.querySelector("button[hx-get]")).toBeNull();
+  });
+
+  it("marks failed tools before and after body loading and escapes their input and output", () => {
+    const input = '<img src=x onerror="alert(1)">';
+    const call: ToolCallView = {
+      ...fixtureCalls.longTextCall,
+      arguments: { command: input },
+      result: {
+        entryId: "failed-tool",
+        text: "denied <script>alert(1)</script> & retry",
+        isError: true,
+        images: [],
+      },
+    };
+    const card = rendered(
+      <Item
+        item={{ ...answerItem, blocks: [{ kind: "tool", call }] }}
+        actions={actions}
+      />,
+    );
+    expect(
+      card.querySelector(".tool-card")?.classList.contains("is-error"),
+    ).toBe(true);
+    expect(
+      card
+        .querySelector(".tool-deferred-output")
+        ?.classList.contains("is-error"),
+    ).toBe(true);
+    const document = rendered(<ToolBody call={call} actions={actions} />);
+    expect(
+      document.querySelector(".tool-input")?.classList.contains("is-error"),
+    ).toBe(true);
+    expect(
+      document.querySelector(".tool-output")?.classList.contains("is-error"),
+    ).toBe(true);
+    expect(document.querySelector(".tool-input")?.textContent).toBe(
+      JSON.stringify({ command: input }, null, 2),
+    );
+    expect(document.querySelector(".tool-output-text")?.textContent).toBe(
+      "denied <script>alert(1)</script> & retry",
+    );
+    expect(document.querySelector("script, img")).toBeNull();
+  });
+
+  it("reports mixed subagent outcomes and preserves failure diagnostics and capture warnings in the deferred body", () => {
+    const error = 'boom <img src=x onerror="alert(1)"> & retry';
+    const call: ToolCallView = {
+      id: "mixed-subagents",
+      name: "subagent",
+      arguments: { agents: ["a", "b", "c"] },
+      preview: "3 agents",
+      result: {
+        entryId: "mixed-result",
+        text: "mixed",
+        isError: false,
+        images: [],
+      },
+      subagent: {
+        calls: [
+          { agent: "a", prompt: "one" },
+          { agent: "b", prompt: "two" },
+          { agent: "c", prompt: "three" },
+        ],
+        runs: [
+          {
+            status: "completed",
+            output: "Captured tail",
+            captureTruncated: true,
+            handledWithoutAgent: false,
+          },
+          {
+            status: "failed",
+            output: "",
+            error,
+            captureTruncated: false,
+            handledWithoutAgent: false,
+          },
+          {
+            status: "cancelled",
+            output: "",
+            captureTruncated: false,
+            handledWithoutAgent: false,
+          },
+        ],
+        failed: false,
+      },
+    };
+    const card = rendered(
+      <Item
+        item={{ ...answerItem, blocks: [{ kind: "tool", call }] }}
+        actions={actions}
+      />,
+    );
+    expect(card.querySelector(".subagent-counts")?.textContent).toBe(
+      "1 completed · 1 failed · 1 cancelled",
+    );
+    expect(card.body.textContent).not.toContain(error);
+    const body = rendered(<ToolBody call={call} actions={actions} />);
+    expect(
+      body.querySelector(".subagent-status-failed")?.textContent,
+    ).toContain("Failed");
+    expect(
+      body.querySelector(".subagent-status-cancelled")?.textContent,
+    ).toContain("Cancelled");
+    expect(body.querySelector(".subagent-error")?.textContent).toBe(error);
+    expect(body.querySelector(".subagent-notice")?.textContent).toBe(
+      "Only the end of the output was captured.",
+    );
+    expect(body.querySelector("script, img")).toBeNull();
+  });
+
+  it("marks a nonzero shell exit as failed and preserves its escaped diagnostic", () => {
+    const shell = settledItems.find((item) => item.kind === "bash");
+    if (!shell) throw new Error("Missing shell fixture");
+    const output = "build failed <script>alert(1)</script> & stopped";
+    const document = rendered(
+      <Item
+        item={{
+          ...shell,
+          command: "make",
+          exitCode: 2,
+          output,
+          truncated: false,
+          excluded: true,
+        }}
+        actions={actions}
+      />,
+    );
+    expect(
+      document.querySelector(".tool-card")?.classList.contains("is-error"),
+    ).toBe(true);
+    expect(
+      document.querySelector(".tool-output")?.classList.contains("is-error"),
+    ).toBe(true);
+    expect(document.querySelector(".tool-output-text")?.textContent).toBe(
+      output,
+    );
+    expect(document.querySelector("script")).toBeNull();
+  });
+
+  it("keeps stars targeted at the answer and replaces only that button", () => {
+    const document = rendered(<StarButton entryId="a2" actions={actions} />);
+    const button = document.querySelector("button");
+    expect(button?.getAttribute("hx-post")).toBe("/sessions/s1/star");
+    expect(JSON.parse(button?.getAttribute("hx-vals") ?? "{}")).toEqual({
+      entryId: "a2",
+      starred: false,
     });
-    // Pin the calendar-day comparison as well as the displayed text. A UTC
-    // timestamp near midnight can otherwise be "today" only on this host.
-    vi.spyOn(Date.prototype, "getFullYear").mockImplementation(
-      function (this: Date) {
-        return this.getUTCFullYear();
-      },
-    );
-    vi.spyOn(Date.prototype, "getMonth").mockImplementation(
-      function (this: Date) {
-        return this.getUTCMonth();
-      },
-    );
-    vi.spyOn(Date.prototype, "getDate").mockImplementation(
-      function (this: Date) {
-        return this.getUTCDate();
-      },
-    );
-    // The options the views pass name every component, so Intl's format is
-    // what the locale methods return, minus the reader's zone.
-    const utc = (locale: unknown, options: unknown) =>
-      new Intl.DateTimeFormat(locale as string, {
-        ...(options as Intl.DateTimeFormatOptions),
-        timeZone: "UTC",
-      });
-    vi.spyOn(Date.prototype, "toLocaleTimeString").mockImplementation(
-      function (this: Date, locale, options) {
-        return utc(locale, options).format(this);
-      },
-    );
-    vi.spyOn(Date.prototype, "toLocaleDateString").mockImplementation(
-      function (this: Date, locale, options) {
-        return utc(locale, options).format(this);
-      },
-    );
-  });
-
-  afterAll(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
-
-  it("renders every view of the fixture exactly as pinned", async () => {
-    const html = [
-      render(
-        "settled, grouped",
-        <Items items={settledItems} actions={actions} />,
-      ),
-      render(
-        "settled, read-only",
-        <Items items={settledItems} actions={{ ...actions, readOnly: true }} />,
-      ),
-      render("settled, no actions", <Items items={settledItems} />),
-      render(
-        "running turn",
-        <TurnFragment items={liveItems} actions={actions} status={status} />,
-      ),
-      render(
-        "finished turn",
-        <TurnFragment
-          items={liveItems}
-          actions={actions}
-          status={{ ...status, running: false, tools: [], streaming: null }}
-        />,
-      ),
-      render(
-        "shell running",
-        <TurnFragment
-          items={liveItems}
-          actions={actions}
-          status={{ ...status, running: false, bashRunning: true, tools: [] }}
-        />,
-      ),
-      render(
-        "no status",
-        <TurnFragment items={liveItems} actions={actions} status={null} />,
-      ),
-      render(
-        "earlier page, busy",
-        <EarlierPage
-          items={settledItems.slice(0, 3)}
-          actions={{ ...actions, busy: true }}
-          hasMore
-          oldestId="u1"
-          leaf="a5"
-        />,
-      ),
-      render(
-        "last page",
-        <EarlierPage
-          items={settledItems.slice(0, 1)}
-          actions={actions}
-          hasMore={false}
-        />,
-      ),
-      render("load earlier", <LoadEarlier sessionId="s1" before="u1" />),
-      render("star", <StarButton entryId="a2" actions={actions} />),
-      render("unstarred", <StarButton entryId="a1" actions={actions} />),
-      render(
-        "tool body, budgeted",
-        <ToolBody call={fixtureCalls.longTextCall} actions={actions} />,
-      ),
-      render(
-        "tool body, full",
-        <ToolBody call={fixtureCalls.longTextCall} actions={actions} full />,
-      ),
-      render(
-        "diff body, no actions",
-        <ToolBody call={fixtureCalls.editCall} />,
-      ),
-      render(
-        "lone item, starrable with written files",
-        <Item
-          item={answerItem}
-          actions={actions}
-          starrable
-          written={["/repo/one/src/app.ts"]}
-        />,
-      ),
-    ].join("");
-    await expect(html).toMatchFileSnapshot("./fixtures/transcript-items.html");
+    expect(button?.getAttribute("hx-target")).toBe("this");
+    expect(button?.getAttribute("hx-swap")).toBe("outerHTML");
+    expect(button?.getAttribute("aria-label")).toBe("Unstar answer");
   });
 
   it("keeps turn and disclosure keys stable when a saved turn gains an answer", () => {
@@ -292,17 +422,76 @@ describe("transcript items", () => {
     expect(first).not.toContain("hx-morph-skip");
   });
 
-  it("uses concise labels and a light plus for history actions", () => {
-    const buttons = html(
-      <HistoryActionButtons entryId="a1" actions={actions} />,
-    );
+  it.each([false, true])(
+    "renders source-copy beside assistant history actions (busy: %s)",
+    (busy) => {
+      const document = rendered(
+        <Item
+          item={answerItem}
+          actions={{
+            ...actions,
+            busy,
+            timestamps: new Set([answerItem.entryId]),
+          }}
+        />,
+      );
+      const row = document.querySelector(".history-actions");
+      expect(row?.querySelector("[data-copy]")).not.toBeNull();
+      expect(row?.querySelector("[data-copy-source]")?.textContent).toBe(
+        answerItem.blocks
+          .filter((block) => block.kind === "text")
+          .map((block) => block.text)
+          .join("\n"),
+      );
+      expect(
+        row
+          ?.querySelector('[hx-post="/sessions/s1/navigate"]')
+          ?.hasAttribute("disabled"),
+      ).toBe(busy);
+      expect(
+        row
+          ?.querySelector('[hx-post="/sessions/s1/fork"]')
+          ?.hasAttribute("disabled"),
+      ).toBe(false);
+      const message = document.querySelector(".message-row");
+      expect(message?.textContent).toContain("1,200 in · 34 out · 500 cache R");
+      expect(message?.querySelector(".transcript-time")).not.toBeNull();
+      expect(message?.querySelector("[data-copy]")).toBeNull();
+    },
+  );
 
-    expect(buttons).toMatch(
-      /aria-label="New branch"[\s\S]*?<path d="M6 3v12M18 9a9 9 0 0 1-9 9"><\/path>[\s\S]*?<\/svg>Branch<\/button>/,
-    );
-    expect(buttons).toMatch(
-      /title="New session[^>]*>[\s\S]*?<svg width="11" height="11" viewBox="0 0 12 12"[^>]*stroke-width="1.2"[\s\S]*?<line x1="6" y1="1" x2="6" y2="11"><\/line>[\s\S]*?<\/svg>Clone<\/button>/,
-    );
+  it.each([{ readOnly: true }, { live: true }])(
+    "retains source-copy without mutation controls for %j",
+    (mode) => {
+      const document = rendered(
+        <Item item={answerItem} actions={{ ...actions, ...mode }} />,
+      );
+      expect(document.querySelector(".history-actions")).toBeNull();
+      expect(document.querySelector(".message-row [data-copy]")).not.toBeNull();
+    },
+  );
+
+  it("omits copy controls for streaming and textless answers", () => {
+    for (const item of [
+      { ...answerItem, entryId: "partial" },
+      {
+        ...answerItem,
+        blocks: [
+          { kind: "thinking", text: "private", index: 0, deferred: false },
+        ],
+      },
+    ] satisfies AssistantItem[]) {
+      const document = rendered(
+        <Item
+          item={item}
+          actions={{
+            ...actions,
+            streaming: { tokens: 42, tokensPerSecond: 12 },
+          }}
+        />,
+      );
+      expect(document.querySelector("[data-copy]")).toBeNull();
+    }
   });
 
   it.each([
@@ -412,21 +601,11 @@ describe("transcript items", () => {
     },
   );
 
-  it("hides history actions on user, shell, and metadata entries", () => {
-    for (const item of settledItems.filter(
-      (item) => item.kind !== "assistant",
-    )) {
-      expect(html(<Item item={item} actions={actions} />)).not.toContain(
-        'class="history-action"',
-      );
-    }
-  });
-
   it.each(["history", "earlier", "finished", "running", "read-only", "busy"])(
     "offers actions only on user-facing assistant content in %s rendering",
     (mode) => {
       const items = [
-        ...settledItems.filter((item) => item.kind !== "assistant"),
+        ...settledItems,
         { ...answerItem, entryId: "empty", blocks: [] },
         {
           ...answerItem,

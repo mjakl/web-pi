@@ -239,20 +239,7 @@ function setUpShortcuts(): void {
     if (event.key === "k") {
       event.preventDefault();
       location.assign("/new");
-      return;
     }
-    // Digits pick the nth session, but they are ordinary typing in a field.
-    if (inTextEntry(event.target)) return;
-    // 1..9, and 0 for the tenth, as in a browser's own tab shortcuts.
-    const position = event.key === "0" ? 10 : Number(event.key);
-    if (!Number.isInteger(position) || position < 1 || position > 10) return;
-    const links = document.querySelectorAll<HTMLAnchorElement>(
-      "#session-list a[href^='/sessions/']",
-    );
-    const link = links[position - 1];
-    if (!link) return;
-    event.preventDefault();
-    location.assign(link.href);
   });
 }
 

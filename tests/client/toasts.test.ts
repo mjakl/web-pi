@@ -95,10 +95,18 @@ describe("toasts", () => {
       (_, index) => `<div class="notice-shelf-item">s${String(index)}</div>`,
     ).join("");
     htmxEvent(list, "htmx:after:settle");
-    expect(cards()).toHaveLength(5);
-    expect(cards().every((card) => card.dataset["timed"] === "1")).toBe(true);
+    expect(cards().map((card) => card.textContent)).toEqual([
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+    ]);
+    vi.advanceTimersByTime(2_500);
     htmxEvent(list, "htmx:after:settle");
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(2_499);
+    expect(cards()).toHaveLength(5);
+    vi.advanceTimersByTime(1);
     expect(cards()).toHaveLength(0);
   });
 });

@@ -1378,7 +1378,7 @@ describe("conversation rail, shelf, and written files", () => {
   });
 
   it("chips the files a turn wrote and offers them as mentions", async () => {
-    const { app } = testApp({
+    const { app, world } = testApp({
       script: () => [
         {
           tool: "edit",
@@ -1391,7 +1391,9 @@ describe("conversation rail, shelf, and written files", () => {
     const form = new FormData();
     form.set("text", "go");
     await app.request("/sessions/s1/prompt", { method: "POST", body: form });
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await vi.waitFor(() => {
+      expect(world.runtime.get("s1")?.snapshot().status.running).toBe(false);
+    });
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain('aria-label="Files changed"');
     // The chip opens the file panel rather than typing a mention.

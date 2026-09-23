@@ -13,7 +13,6 @@ import {
   inputHistory,
   isFilePathQuery,
   rankCommands,
-  scoreEntry,
   slashQuery,
   type SlashCommand,
 } from "@core/composer";
@@ -106,13 +105,28 @@ describe("@ file completion", () => {
     ]);
   });
 
-  it("scores the basename unless the query carries a slash", () => {
-    const entry = { path: "src/web/app.tsx", isDir: false };
-    expect(scoreEntry(entry, "app.tsx")).toBe(100);
-    expect(scoreEntry(entry, "app")).toBe(80);
-    expect(scoreEntry(entry, "web/app")).toBe(50);
-    expect(scoreEntry(entry, "zzz")).toBe(0);
-    expect(scoreEntry({ path: "src", isDir: true }, "src")).toBe(110);
+  it("ranks exact, prefix, and substring matches, preferring a matching directory", () => {
+    const entries = [
+      { path: "myapp.tsx", isDir: false },
+      { path: "apple.tsx", isDir: false },
+      { path: "app", isDir: false },
+      { path: "src/app", isDir: true },
+      { path: "other.tsx", isDir: false },
+    ];
+    expect(
+      filterFileEntries(entries, "app").map((entry) => entry.path),
+    ).toEqual(["src/app", "app", "apple.tsx", "myapp.tsx"]);
+  });
+
+  it("matches a query with a slash against paths", () => {
+    const entries = [
+      { path: "src/web/app.tsx", isDir: false },
+      { path: "web/app.tsx", isDir: false },
+      { path: "src/app.tsx", isDir: false },
+    ];
+    expect(
+      filterFileEntries(entries, "web/app").map((entry) => entry.path),
+    ).toEqual(["web/app.tsx", "src/web/app.tsx"]);
   });
 
   it("caps the menu and returns the base order for an empty query", () => {

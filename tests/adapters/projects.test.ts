@@ -1,6 +1,15 @@
 import { createPiProjectResolver } from "@adapters/pi/projects";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -123,13 +132,20 @@ describe("project identity against a real checkout", () => {
     await resolver.worktrees(repo);
     const file = join(agentDir, "web-pi", "worktree-projects.json");
     const written: unknown = JSON.parse(await readFile(file, "utf8"));
-    const roots = Object.values(written as Record<string, string>);
-    expect(roots.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(roots).size).toBe(1);
-    // Unchanged discovery must not rewrite the file.
-    const before = await readFile(file, "utf8");
+    const canonicalRepo = await realpath(repo);
+    expect(written).toMatchObject({
+      [canonicalRepo]: canonicalRepo,
+      [await realpath(wt)]: canonicalRepo,
+    });
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect((await stat(join(agentDir, "web-pi"))).mode & 0o777).toBe(0o700);
+    // A fixed old timestamp detects same-content rewrites without a sleep.
+    await utimes(file, new Date(0), new Date(0));
+    const before = await stat(file);
     await resolver.worktrees(repo);
-    expect(await readFile(file, "utf8")).toBe(before);
+    const after = await stat(file);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(after.ino).toBe(before.ino);
   });
 
   it("keeps a deleted worktree grouped under the repository", async () => {
@@ -139,9 +155,9 @@ describe("project identity against a real checkout", () => {
     await resolver.worktrees(repo);
     await rm(wt, { recursive: true, force: true });
     expect(await resolver.available(wt)).toBe(false);
-    const project = await resolver.resolve(wt);
+    const project = await createPiProjectResolver({ agentDir }).resolve(wt);
     expect(project.isWorktree).toBe(true);
-    expect(project.root.endsWith("/repo")).toBe(true);
+    expect(project.root).toBe(await realpath(repo));
   });
 
   it("still lists the repository's worktrees when the folder is gone", async () => {

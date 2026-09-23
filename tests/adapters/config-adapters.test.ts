@@ -5,13 +5,20 @@ import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiSkills } from "@adapters/pi/skills";
 import { SkillFrontmatterError } from "@core/skill-toggle";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTempAgent, type TempAgent } from "./temp-agent.ts";
 
 // Everything here writes: settings, trust, skill frontmatter. Each test gets
 // its own agent directory and HOME under the system temp folder, so a run can
 // never touch the reader's own `~/.pi/agent` or `~/.agents`.
+
+// Native homedir() ignores per-worker HOME changes in the thread pool.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  return { ...os, homedir: () => process.env["HOME"] ?? os.homedir() };
+});
 
 let temp: TempAgent;
 let agentDir: string;
@@ -52,9 +59,9 @@ describe("the directory browser", () => {
     ).rejects.toThrow("Directory does not exist");
   });
 
-  it("defaults to the home folder", async () => {
+  it("defaults to the isolated home folder", async () => {
     const listing = await createDirectoryBrowser().browse();
-    expect(listing.path).not.toBe("");
+    expect(listing.path).toBe(realpathSync(temp.root));
   });
 });
 

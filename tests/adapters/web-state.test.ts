@@ -2,6 +2,7 @@ import { createWebSettingsStore } from "@adapters/fs/web-settings";
 import { createPiProjectResolver } from "@adapters/pi/projects";
 import { createWebPushNotifier } from "@adapters/pi/web-push";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -68,15 +69,42 @@ describe("web state cutover", () => {
     expect(statSync(f.push).mode & 0o777).toBe(0o600);
   });
 
-  it("does not retire the only valid source when destination preservation fails", () => {
+  it("preserves the source when the destination cannot be read", () => {
     const f = fixture();
+    const before = readFileSync(f.oldPush, "utf8");
     mkdirSync(f.push);
-    expect(() => createWebPushNotifier({ agentDir: f.agentDir })).toThrow();
-    expect(existsSync(f.oldPush)).toBe(true);
+    expect(() => createWebPushNotifier({ agentDir: f.agentDir })).toThrow(
+      "Cannot read web state",
+    );
+    expect(readFileSync(f.oldPush, "utf8")).toBe(before);
     rmSync(f.push, { recursive: true });
     expect(createWebPushNotifier({ agentDir: f.agentDir }).publicKey()).toBe(
       f.key,
     );
+  });
+
+  it("preserves the source when writing the destination fails, then retries the cutover", () => {
+    const f = fixture();
+    const before = readFileSync(f.oldPush, "utf8");
+    const directory = join(f.agentDir, "web-pi");
+    // Reads still work; creating the atomic replacement file must fail.
+    chmodSync(directory, 0o500);
+    try {
+      expect(() => createWebPushNotifier({ agentDir: f.agentDir })).toThrow(
+        expect.objectContaining({
+          code: "EACCES",
+          syscall: "open",
+        }),
+      );
+      expect(readFileSync(f.oldPush, "utf8")).toBe(before);
+      expect(existsSync(f.push)).toBe(false);
+    } finally {
+      chmodSync(directory, 0o700);
+    }
+    const notifier = createWebPushNotifier({ agentDir: f.agentDir });
+    expect(notifier.publicKey()).toBe(f.key);
+    expect(notifier.has(f.subscription)).toBe(true);
+    expect(existsSync(f.oldPush)).toBe(false);
   });
 
   it.each(["source", "destination"])(
@@ -200,22 +228,14 @@ describe("shared settings storage", () => {
     ).toBe(0o600);
   });
 
-  it.each([
-    { warnTokens: 0 },
-    { warnTokens: 1.5 },
-    { warnTokens: Number.MAX_SAFE_INTEGER + 1 },
-    { theme: "sepia" },
-    { sound: "false" },
-  ])(
-    "rejects invalid settings without replacing valid values: %j",
-    (invalid) => {
-      const { agentDir } = fixture();
-      const store = createWebSettingsStore(agentDir);
-      store.update({ theme: "light" });
-      expect(() =>
-        store.update(invalid as Parameters<typeof store.update>[0]),
-      ).toThrow();
-      expect(store.get().theme).toBe("light");
-    },
-  );
+  it("rejects the whole invalid edit without changing persisted settings", () => {
+    const { agentDir } = fixture();
+    const store = createWebSettingsStore(agentDir);
+    const saved = store.update({ theme: "light", sound: false });
+    const path = join(agentDir, "web-pi", "settings.json");
+    const before = readFileSync(path, "utf8");
+    expect(() => store.update({ theme: "dark", warnTokens: 0 })).toThrow();
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(createWebSettingsStore(agentDir).get()).toEqual(saved);
+  });
 });

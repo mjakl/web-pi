@@ -1,13 +1,11 @@
 import {
   clampSearchLimit,
-  installArgs,
   installFromLock,
   installMessage,
   installSucceeded,
   lookupLockEntry,
   mapSearchResults,
   normalizeSource,
-  searchUrl,
   skillFolder,
   skillGroup,
   skillSlug,
@@ -123,29 +121,16 @@ describe("addressing a skill", () => {
 });
 
 describe("npx arguments", () => {
-  it("adds -g only for a global install", () => {
-    expect(installArgs("acme/skills@x", "global")).toEqual([
-      "skills",
-      "add",
-      "acme/skills@x",
-      "-y",
-      "--agent",
-      "pi",
-      "-g",
-    ]);
-    expect(installArgs("acme/skills@x", "project")).not.toContain("-g");
-  });
-
-  it("re-adds the exact folder and ref, naming the one skill", () => {
+  it("encodes a ref containing a slash while naming the one skill", () => {
     const install = installFromLock(
       "changelog",
-      { ...githubEntry, ref: "v1.2" },
+      { ...githubEntry, ref: "release/1.2" },
       "global",
     );
     expect(install && updateArgs(install)).toEqual([
       "skills",
       "add",
-      "acme/skills/changelog#v1.2",
+      "acme/skills/changelog#release%2F1.2",
       "--skill",
       "changelog",
       "-y",
@@ -162,20 +147,13 @@ describe("npx arguments", () => {
   });
 
   it("keeps the tail of a long log and strips its colours", () => {
-    const long = `[31m${"x".repeat(400)}[0m`;
-    const message = installMessage(long, 300);
-    expect(message).toHaveLength(300);
-    expect(message).not.toContain("");
+    const tail = `${"x".repeat(296)}done`;
+    const long = `[31mhead${tail}[0m`;
+    expect(installMessage(long, 300)).toBe(tail);
   });
 });
 
 describe("registry search", () => {
-  it("builds the documented query", () => {
-    expect(searchUrl("https://skills.sh", "a b", 10)).toBe(
-      "https://skills.sh/api/search?q=a%20b&limit=10",
-    );
-  });
-
   it("clamps the limit to 1..50 and defaults to 50", () => {
     expect(clampSearchLimit(undefined)).toBe(50);
     expect(clampSearchLimit("0")).toBe(50);

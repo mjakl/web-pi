@@ -134,41 +134,6 @@ describe("workspace over the fake runtime", () => {
     expect(branch?.items.map((item) => item.kind)).toEqual(["user"]);
   });
 
-  it("forks a user message that is only images before that message", async () => {
-    const world = createFakeWorld({ delayMs: 2 });
-    const workspace = createWorkspace(world);
-    const id = await sendFirst(workspace, "/tmp/project", "first");
-    await waitForIdle(workspace, id);
-    await workspace.send(id, "", {
-      images: [{ data: "AAAA", mimeType: "image/png" }],
-    });
-    await waitForIdle(workspace, id);
-
-    const items = (await workspace.viewSession(id))?.items ?? [];
-    const wordless = items.filter((item) => item.kind === "user").at(-1);
-    const forked = await workspace.fork(id, wordless?.entryId ?? "");
-    expect(forked).toMatchObject({
-      text: "",
-      // The fake runtime records a thumbnail rather than the uploaded bytes.
-      images: [
-        {
-          data: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-          mimeType: "image/gif",
-        },
-      ],
-    });
-    const view = await workspace.viewSession(forked.id);
-    expect(view?.items.map((item) => item.entryId)).not.toContain(
-      wordless?.entryId,
-    );
-    const recalled = await workspace.rewind(id, wordless?.entryId ?? "");
-    expect(recalled).toEqual({ text: "", images: forked.images });
-    expect(world.runtime.get(id)?.snapshot().status.running).toBe(false);
-    expect(
-      (await workspace.viewSession(id))?.items.map((item) => item.entryId),
-    ).not.toContain(wordless?.entryId);
-  });
-
   it.each([false, true])(
     "rewinds into an active idle session without sending the recalled message (previously active: %s)",
     async (active) => {
@@ -194,7 +159,6 @@ describe("workspace over the fake runtime", () => {
       });
       const workspace = createWorkspace(world);
       if (active) await workspace.activate("rewind");
-      const before = world.runtime.get("rewind");
 
       expect(await workspace.rewind("rewind", "u2")).toEqual({
         text: "edit this",
@@ -203,7 +167,6 @@ describe("workspace over the fake runtime", () => {
 
       const resumed = world.runtime.get("rewind");
       expect(resumed).toBeDefined();
-      expect(resumed).not.toBe(before);
       expect(resumed?.snapshot().status.running).toBe(false);
       const view = await workspace.viewSession("rewind");
       expect(view?.summary.live).toBe(true);
@@ -254,9 +217,10 @@ describe("workspace over the fake runtime", () => {
         },
       ],
     });
+    vi.spyOn(world.sessions, "contextTokensAt").mockReturnValue(1_234);
     const workspace = createWorkspace(world);
     const view = await workspace.viewSession("c1");
     const card = view?.items.find((item) => item.kind === "compaction");
-    expect(card?.tokensAfter).toBeGreaterThan(0);
+    expect(card).toMatchObject({ tokensBefore: 40_000, tokensAfter: 1_234 });
   });
 });

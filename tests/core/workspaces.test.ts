@@ -1,7 +1,5 @@
 import {
-  currentWorktree,
   parseWorktreeList,
-  plainProject,
   projectIdentity,
   rememberProjects,
   removedProject,
@@ -139,15 +137,6 @@ describe("project identity", () => {
       isTopLevel: true,
     });
   });
-
-  it("has a shape for a folder git knows nothing about", () => {
-    expect(plainProject("/tmp/notes")).toEqual({
-      root: "/tmp/notes",
-      branch: null,
-      isWorktree: false,
-      isTopLevel: false,
-    });
-  });
 });
 
 describe("the remembered project map", () => {
@@ -181,17 +170,6 @@ describe("the remembered project map", () => {
     const { next, changed } = rememberProjects({}, ["/repo/wt/"], "/repo");
     expect(changed).toBe(true);
     expect(next).toEqual({ "/repo/wt": "/repo" });
-  });
-});
-
-describe("current worktree", () => {
-  it("matches the folder on screen against the listed paths", () => {
-    const trees = [
-      { path: "/repo", branch: "main" },
-      { path: "/repo/wt", branch: "x" },
-    ];
-    expect(currentWorktree(trees, "/repo/wt/")).toBe("/repo/wt");
-    expect(currentWorktree(trees, "/elsewhere")).toBe(null);
   });
 });
 

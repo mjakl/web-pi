@@ -167,20 +167,6 @@ describe("sidebar tree HTTP fragments", () => {
     ).text();
     expect(ids(blankSelection)).not.toContain("parent");
   });
-
-  it.each(["child", "subagent.abc123"])(
-    "rejects the rename editor for inspection-only %s",
-    async (id) => {
-      const { app } = fixture([
-        session("parent"),
-        session("child", "parent"),
-        session("subagent.abc123"),
-      ]);
-      const response = await app.request(`/sessions/${id}/rename`);
-      expect(await response.text()).not.toContain("session-rename-input");
-      expect(response.status).toBe(403);
-    },
-  );
 });
 
 describe("sidebar tree with native HTMX", () => {

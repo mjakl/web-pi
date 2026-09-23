@@ -46,34 +46,30 @@ describe("session input autofocus", () => {
     expect(document.activeElement).toBe(area());
   });
 
-  it.each(["direct link", "reload"])(
-    "focuses once on %s after restoring the draft, without scrolling",
-    async () => {
-      history.replaceState(null, "", "/sessions/s1");
-      localStorage.setItem("web-pi:draft:s1", "saved draft");
-      await page();
-      const focus = vi.spyOn(area(), "focus");
-      frame();
-      expect(document.activeElement).toBe(area());
-      expect(area().value).toBe("saved draft");
-      expect(area().selectionStart).toBe(11);
-      expect(area().selectionEnd).toBe(11);
-      expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
-      byId("elsewhere").focus();
-      htmxEvent(byId("composer"), "htmx:after:process");
-      htmxEvent(byId("composer"), "htmx:after:settle");
-      window.dispatchEvent(new Event("focus"));
-      frame();
-      expect(focus).toHaveBeenCalledTimes(1);
-    },
-  );
+  it("focuses once on initial load after restoring the draft, without scrolling", async () => {
+    history.replaceState(null, "", "/sessions/s1");
+    localStorage.setItem("web-pi:draft:s1", "saved draft");
+    await page();
+    const focus = vi.spyOn(area(), "focus");
+    frame();
+    expect(document.activeElement).toBe(area());
+    expect(area().value).toBe("saved draft");
+    expect(area().selectionStart).toBe(11);
+    expect(area().selectionEnd).toBe(11);
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    byId("elsewhere").focus();
+    htmxEvent(byId("composer"), "htmx:after:process");
+    htmxEvent(byId("composer"), "htmx:after:settle");
+    window.dispatchEvent(new Event("focus"));
+    frame();
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
 
-  it.each(["Back", "Forward"])("focuses after %s navigation", async (kind) => {
+  it("focuses after history navigation", async () => {
     await page();
     frame();
     byId("elsewhere").focus();
     request("/sessions/s2", true);
-    expect(kind === "Back" || kind === "Forward").toBe(true);
     arrive();
     frame();
     expect(document.activeElement).toBe(area());

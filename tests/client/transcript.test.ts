@@ -1,5 +1,5 @@
 import { answerItem } from "#/web/fixtures/transcript-items";
-import { Item, type ItemActions } from "@web/views/Items";
+import { Item } from "@web/views/Items";
 import { describe, expect, it, vi } from "vitest";
 import {
   byId,
@@ -132,102 +132,36 @@ describe("saved transcript updates", () => {
 });
 
 describe("copy buttons", () => {
-  const actions: ItemActions = {
-    sessionId: "s1",
-    cwd: "/repo/one",
-    starred: new Set(),
-    timestamps: new Set([answerItem.entryId]),
-  };
-
-  it.each([false, true])(
-    "groups assistant Copy with history actions (busy: %s)",
-    async (busy) => {
-      const write = vi
-        .spyOn(navigator.clipboard, "writeText")
-        .mockResolvedValue(undefined);
-      await load(
-        render(Item({ item: answerItem, actions: { ...actions, busy } })),
-      );
-      const row = query(".history-action-host > .history-actions");
-      const copy = query("[data-copy]");
-      expect(copy.parentElement).toBe(row);
-      expect(
-        Array.from(row.querySelectorAll("button")).map(
-          (button) => button.title,
-        ),
-      ).toEqual([
-        "Copy message",
-        busy
-          ? "Wait for the current operation to finish before branching"
-          : "New branch — continue from this point within the current session",
-        "New session — copy history to this point into a separate session",
-      ]);
-      expect(query('[aria-label="New branch"]').hasAttribute("disabled")).toBe(
-        busy,
-      );
-      expect(
-        query('[hx-post="/sessions/s1/fork"]').hasAttribute("disabled"),
-      ).toBe(false);
-      const metadata = query(".message-row > div:last-child");
-      expect(metadata.textContent).toContain("1,200 in · 34 out · 500 cache R");
-      expect(metadata.querySelector("[data-copy]")).toBeNull();
-      expect(metadata.querySelector(".transcript-time")).not.toBeNull();
-      click(copy);
-      await flush();
-      expect(write).toHaveBeenCalledWith(
-        answerItem.blocks
-          .filter((block) => block.kind === "text")
-          .map((block) => block.text)
-          .join("\n"),
-      );
-      expect(copy.dataset["copied"]).toBe("1");
-      expect(copy.querySelector("[data-copy-done]")?.textContent).toBe(
-        "Copied",
-      );
-      vi.advanceTimersByTime(1500);
-      expect(copy.dataset["copied"]).toBeUndefined();
-      expect(copy.querySelector("[data-copy-idle]")?.textContent).toBe("Copy");
-    },
-  );
-
-  it.each([{ readOnly: true }, { live: true }])(
-    "retains assistant Copy without history actions: %j",
-    async (mode) => {
-      await load(
-        render(Item({ item: answerItem, actions: { ...actions, ...mode } })),
-      );
-      expect(document.querySelector(".history-actions")).toBeNull();
-      expect(query(".message-row [data-copy]")).toBeTruthy();
-    },
-  );
-
-  it("omits assistant Copy for streaming and textless messages", async () => {
+  it("copies a rendered assistant's source and restores its feedback", async () => {
+    const write = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
     await load(
       render(
         Item({
-          item: { ...answerItem, entryId: "partial" },
+          item: answerItem,
           actions: {
-            ...actions,
-            streaming: { tokens: 42, tokensPerSecond: 12 },
+            sessionId: "s1",
+            cwd: "/repo/one",
+            starred: new Set(),
           },
         }),
       ),
     );
-    expect(document.querySelector("[data-copy]")).toBeNull();
-    await load(
-      render(
-        Item({
-          item: {
-            ...answerItem,
-            blocks: [
-              { kind: "thinking", text: "private", index: 0, deferred: false },
-            ],
-          },
-          actions,
-        }),
-      ),
+    const copy = query("[data-copy]");
+    click(copy);
+    await flush();
+    expect(write).toHaveBeenCalledWith(
+      answerItem.blocks
+        .filter((block) => block.kind === "text")
+        .map((block) => block.text)
+        .join("\n"),
     );
-    expect(document.querySelector("[data-copy]")).toBeNull();
+    expect(copy.dataset["copied"]).toBe("1");
+    expect(copy.querySelector("[data-copy-done]")?.textContent).toBe("Copied");
+    vi.advanceTimersByTime(1500);
+    expect(copy.dataset["copied"]).toBeUndefined();
+    expect(copy.querySelector("[data-copy-idle]")?.textContent).toBe("Copy");
   });
 
   it("copies a message and shows Copied for a moment", async () => {

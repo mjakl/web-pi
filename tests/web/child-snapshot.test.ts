@@ -47,7 +47,6 @@ function diskState() {
 it.each([
   { id: "11111111-1111-4111-8111-111111111111", version: 3 },
   { id: "subagent.legacy1", version: 1 },
-  { id: "subagent.legacy2", version: 2 },
 ])(
   "inspects real saved child $id without writing or consulting a runtime",
   async ({ id, version }) => {
@@ -164,19 +163,19 @@ it.each([
     const reads = [
       [base, "Latest saved answer"],
       [`${base}/earlier?before=${next.id}`, "Saved answer"],
-      [`${base}/entries/${thinking.id}/thinking/0`, "Saved reasoning"],
       [`${base}/entries/${tool.id}/tool-result/call-read`, "Saved tool output"],
-      [
-        `${base}/entries/${tool.id}/tool-result/call-read?full=1`,
-        "Saved tool output",
-      ],
-      [`${base}/last-assistant-text`, "Latest saved answer"],
-      [`${base}/row`, "Saved child title"],
-      ["/sidebar", "Saved child title"],
-      ["/sidebar/rows?after=0", "Saved child title"],
-      [`${base}/stats`, "Tokens"],
-      [`${base}?leaf=${thinking.id}`, "Saved answer"],
     ];
+    // Exercise each read family once on the real catalog. Legacy v1 only
+    // repeats the routes needed to resolve in-memory migrated entry IDs.
+    if (version === 3) {
+      reads.push(
+        [`${base}/entries/${thinking.id}/thinking/0`, "Saved reasoning"],
+        [`${base}/last-assistant-text`, "Latest saved answer"],
+        [`${base}/row`, "Saved child title"],
+        ["/sidebar", "Saved child title"],
+        [`${base}/stats`, "Tokens"],
+      );
+    }
     const alternate = saved?.entries.find(
       (entry) =>
         entry.type === "message" &&

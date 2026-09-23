@@ -1,4 +1,5 @@
 import { renderMarkdown } from "@web/markdown";
+import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 
 describe("renderMarkdown", () => {
@@ -17,14 +18,6 @@ describe("renderMarkdown", () => {
     expect(html).toContain("const a = 1;");
   });
 
-  it("gives fenced code its own body inside the shared Markdown wrapper", () => {
-    const html = renderMarkdown("```ts\nconst a = 1;\n```");
-    expect(html).toContain('<div class="markdown-code-block">');
-    expect(html).toContain(
-      '<pre class="markdown-code-body"><code class="language-ts">const a = 1;</code></pre>',
-    );
-  });
-
   it("marks a mermaid fence for the preview toggle, disabled while live", () => {
     expect(renderMarkdown("```mermaid\ngraph TD;\n```")).toContain(
       "data-mermaid-toggle",
@@ -40,18 +33,46 @@ describe("renderMarkdown", () => {
     expect(html).toContain('href="#user-content-some-heading"');
   });
 
-  it("opens web links in a new tab and keeps local paths as text", () => {
-    const html = renderMarkdown("[a](https://x.dev) [b](./src/main.ts)", {
-      cwd: "/repo",
-    });
-    expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain('data-file-path="/repo/src/main.ts"');
-    expect(html).not.toContain('href="./src/main.ts"');
-  });
-
-  it("wraps tables so a wide one scrolls instead of stretching", () => {
-    const html = renderMarkdown("| a | b |\n| - | - |\n| 1 | 2 |");
-    expect(html).toContain('<div class="markdown-table-wrap"><table>');
+  it("renders safe web and mail links, local file actions, and no executable raw HTML", async () => {
+    const window = new Window();
+    try {
+      const { document } = window;
+      document.body.innerHTML = renderMarkdown(
+        '[web](https://x.dev) [root](/sessions/abc) [relative](./src/main.ts) [mail](mailto:a@example.test) [hash](#heading) [bad](javascript:alert%281%29) <a href="https://evil.test">raw</a>',
+        { cwd: "/repo" },
+      );
+      expect(
+        document.querySelector('[data-file-path="/sessions/abc"]')?.tagName,
+      ).toBe("BUTTON");
+      expect(
+        document.querySelector('[data-file-path="/repo/src/main.ts"]')?.tagName,
+      ).toBe("BUTTON");
+      for (const href of ["https://x.dev", "mailto:a@example.test"]) {
+        const link = document.querySelector(`a[href="${href}"]`);
+        expect(link?.getAttribute("target")).toBe("_blank");
+        expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+        expect(link?.hasAttribute("data-session-link")).toBe(false);
+      }
+      expect(
+        document
+          .querySelector('a[href="#user-content-heading"]')
+          ?.hasAttribute("target"),
+      ).toBe(false);
+      expect(
+        [...document.querySelectorAll("a")].map((link) =>
+          link.getAttribute("href"),
+        ),
+      ).toEqual([
+        "https://x.dev",
+        "mailto:a@example.test",
+        "#user-content-heading",
+      ]);
+      expect(document.body.textContent).toContain(
+        '<a href="https://evil.test">raw</a>',
+      );
+    } finally {
+      await window.happyDOM.close();
+    }
   });
 
   it("leaves a single tilde alone and keeps double-tilde strikethrough", () => {

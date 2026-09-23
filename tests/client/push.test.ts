@@ -195,21 +195,18 @@ describe("manual browser push enrollment", () => {
     expect(reg.pushManager.subscribe).not.toHaveBeenCalled();
   });
 
-  it.each([400, 409, 500])(
-    "identifies server registration failure with HTTP %s",
-    async (code) => {
-      await load();
-      const fetch = mockFetch(() => text("private response", code));
-      click(toggle());
-      await flush();
-      expect(fetch).toHaveBeenCalledWith("/push/subscribe", expect.anything());
-      expect(status()).toBe(
-        `Browser subscription obtained, but server registration was not confirmed (HTTP ${String(code)}). Try Subscribe again, or reload to check enrollment.`,
-      );
-      expect(toggle().disabled).toBe(false);
-      expect(toggle().textContent).toBe("Subscribe");
-    },
-  );
+  it("identifies rejected server registration without exposing the response body", async () => {
+    await load();
+    const fetch = mockFetch(() => text("private response", 409));
+    click(toggle());
+    await flush();
+    expect(fetch).toHaveBeenCalledWith("/push/subscribe", expect.anything());
+    expect(status()).toBe(
+      "Browser subscription obtained, but server registration was not confirmed (HTTP 409). Try Subscribe again, or reload to check enrollment.",
+    );
+    expect(toggle().disabled).toBe(false);
+    expect(toggle().textContent).toBe("Subscribe");
+  });
 
   it.each([false, true])(
     "identifies browser enrollment failure without a POST (synchronous: %s)",

@@ -96,6 +96,23 @@ The check saves the focused state at each size to `dist/settings-scroll/`. This
 opt-in check needs browser layout, which happy-dom does not provide. It is not
 part of `just qa` or CI and does not replace screenshot inspection.
 
+## Composer layout regression
+
+With the same isolated fixture and local Chromium running, check textarea growth
+and control reachability:
+
+```bash
+node --import tsx scripts/check-composer-layout.ts http://127.0.0.1:<printed-port>
+```
+
+The check fills but never submits a draft. In both themes at 390, 640, 641 and
+1440px it measures growth from an empty textarea to the 200px cap, tests
+internal scrolling, and checks that send, attachment and model controls are not
+clipped or covered. At mobile widths it also opens the overflow menu. Captures
+go to `dist/composer-layout/` for visual inspection. This opt-in check replaces
+CSS source-declaration assertions; it is not part of `just qa` or CI and does
+not simulate a physical keyboard or prove layout in other browser engines.
+
 ## Verification record
 
 The committed images were visually inspected after capture with local headless
@@ -105,7 +122,7 @@ Desktop captures use 1440 × 1000; mobile uses 390 × 844. No public listener or
 external provider was used. These captures do not establish minimum-version
 Firefox, Safari, Edge, or physical-device compatibility.
 
-`just smoke` verifies that all five PNGs and the documentation linked by the
-installed README survive packing and consumer installation. It checks PNG
-signatures/dimensions and both product license notices; visual content is
-checked by inspecting the images, not by those file-presence assertions.
+`just smoke` verifies that the documentation and image links in the installed
+README and docs resolve after packing and consumer installation. It also checks
+both product license notices. Visual content is checked by inspecting the
+images, not by those file-presence assertions.

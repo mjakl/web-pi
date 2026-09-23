@@ -169,17 +169,6 @@ describe("sending", () => {
     expect(primary().disabled).toBe(true);
   });
 
-  it("leaves a toolbar request's afterRequest alone", async () => {
-    page();
-    const { setUpComposer } = await load();
-    setUpComposer();
-    type(area(), "still here");
-    htmxEvent(byId("attach-image"), "htmx:after:request", {
-      ctx: { response: { status: 200 } },
-    });
-    expect(area().value).toBe("still here");
-  });
-
   it("aborts the turn on Escape in the textarea", async () => {
     const fetch = mockFetch(() => text(""));
     page();

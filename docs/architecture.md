@@ -268,9 +268,10 @@ the log, the running turn — renders through the one `Items` view, which
 module per item kind (`user.tsx`, `assistant.tsx`, `tools.tsx`, `subagent.tsx`,
 `notes.tsx`), `shared.tsx` for what they all use (Markdown, the copy button,
 times, images, history actions) and `turns.tsx` for the grouping, the pages and
-the running turn. The markup is pinned by `tests/web/transcript-items.test.tsx`
-against a rendered fixture; the running turn renders flat and everything else
-renders grouped.
+the running turn. `tests/web/transcript-items.test.tsx` checks rendered
+behavior: source-copy and action permissions, escaping, stable identities,
+disclosures and lazy-body limits. The running turn renders flat and everything
+else renders grouped.
 
 `src/core/session-entries.ts` derives everything a session's raw entries imply:
 starred answers, statistics and active time, the tip of every branch, and the

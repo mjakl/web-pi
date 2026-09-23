@@ -168,17 +168,23 @@ it.each(["u31", "u1"])(
 it("restores the rewound prompt when SSE replaces history before the action response arrives", async () => {
   const f = await rewritableSession();
   const release = Promise.withResolvers<undefined>();
-  let pending: Request | undefined;
+  const responseHeld = Promise.withResolvers<Request>();
   const browser = await htmxBrowser(
     await (await f.app.request(`/sessions/${f.id}`)).text(),
     async (request) => {
       if (new URL(request.url).pathname === "/events") return new Response("");
-      const response = await f.app.request(request);
       if (new URL(request.url).pathname.endsWith("/rewind")) {
-        pending = request;
-        await release.promise;
+        try {
+          const response = await f.app.request(request);
+          responseHeld.resolve(request);
+          await release.promise;
+          return response;
+        } catch (error) {
+          responseHeld.reject(error);
+          throw error;
+        }
       }
-      return response;
+      return f.app.request(request);
     },
   );
   browsers.push(browser);
@@ -193,14 +199,14 @@ it("restores the rewound prompt when SSE replaces history before the action resp
   );
   try {
     button.click();
-    await expect.poll(() => pending !== undefined).toBe(true);
+    const pending = await responseHeld.promise;
     await expect
       .poll(() => document.querySelector("#log") !== oldLog)
       .toBe(true);
     expect(document.querySelector("#entry-u51")).toBeNull();
     expect(document.querySelector("#entry-a60")).toBeNull();
     expect(document.querySelector("#entry-a50")).not.toBeNull();
-    expect(required(pending).signal.aborted).toBe(false);
+    expect(pending.signal.aborted).toBe(false);
   } finally {
     release.resolve(undefined);
   }

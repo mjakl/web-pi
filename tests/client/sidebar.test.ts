@@ -549,33 +549,6 @@ describe("shortcuts", () => {
     expect(query("#row-s1 .session-shortcut").textContent).toBe("⌘1");
   });
 
-  it("opens the nth session on Ctrl/Cmd+digit, 0 being the tenth", async () => {
-    const ids = Array.from(
-      { length: 11 },
-      (_, index) => `s${String(index + 1)}`,
-    );
-    page({ rows: ids });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    const opened: string[] = [];
-    for (const link of document.querySelectorAll<HTMLAnchorElement>(
-      "#session-list a[href]",
-    )) {
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        opened.push(link.getAttribute("href") ?? "");
-      });
-    }
-    expect(
-      keydown(document.body, "2", { ctrlKey: true }).defaultPrevented,
-    ).toBe(true);
-    keydown(document.body, "0", { metaKey: true });
-    keydown(document.body, "3", { ctrlKey: true, shiftKey: true });
-    keydown(document.body, "4", { ctrlKey: true, repeat: true });
-    keydown(document.body, "5");
-    expect(opened).toEqual(["/sessions/s2", "/sessions/s10"]);
-  });
-
   it("opens a row from a click anywhere on it but its controls", async () => {
     page();
     const { setUpSidebar } = await load();

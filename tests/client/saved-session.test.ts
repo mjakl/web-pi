@@ -91,7 +91,7 @@ const changed = () =>
 
 describe("saved session polling", () => {
   it("checks the loaded window every two seconds without swapping unchanged history", async () => {
-    const { fetch, swap, owner } = await page();
+    const { fetch, swap } = await page();
     await vi.advanceTimersByTimeAsync(1999);
     expect(fetch).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -107,7 +107,6 @@ describe("saved session polling", () => {
     });
     expect(init?.cache).toBe("no-store");
     expect(swap).not.toHaveBeenCalled();
-    expect(owner.dataset["savedRevision"]).toBe("stamp-1");
     expect(byId("turn-oldest").textContent).toBe("Saved history");
     await vi.advanceTimersByTimeAsync(2000);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -126,7 +125,7 @@ describe("saved session polling", () => {
   });
 
   it("aborts hidden work and never overlaps an abort-ignoring request during rapid returns", async () => {
-    const { fetch, swap, visibility, owner } = await page();
+    const { fetch, swap, visibility } = await page();
     const pending = deferred();
     fetch.mockReturnValueOnce(pending.promise);
     await vi.advanceTimersByTimeAsync(2000);
@@ -142,7 +141,14 @@ describe("saved session polling", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(swap).not.toHaveBeenCalled();
-    expect(owner.dataset["savedLeaf"]).toBe("leaf-1");
+    expect(
+      Object.fromEntries(new URL(callAt(fetch.mock.calls, 1)[0]).searchParams),
+    ).toEqual({
+      revision: "stamp-1",
+      leaf: "leaf-1",
+      contentLeaf: "content-1",
+      through: "oldest",
+    });
   });
 
   it.each([false, true])(
@@ -185,7 +191,7 @@ describe("saved session polling", () => {
   );
 
   it("discards a stale loaded-window response when earlier history loads", async () => {
-    const { fetch, swap, owner } = await page();
+    const { fetch, swap } = await page();
     const pending = deferred();
     fetch.mockReturnValueOnce(pending.promise);
     await vi.advanceTimersByTimeAsync(2000);
@@ -200,18 +206,21 @@ describe("saved session polling", () => {
     await vi.advanceTimersByTimeAsync(10000);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(swap).not.toHaveBeenCalled();
-    expect(owner.dataset["savedRevision"]).toBe("stamp-1");
-    expect(owner.dataset["savedLeaf"]).toBe("leaf-1");
     finish();
     await vi.advanceTimersByTimeAsync(2000);
     expect(
-      new URL(callAt(fetch.mock.calls, 1)[0]).searchParams.get("through"),
-    ).toBe("older");
+      Object.fromEntries(new URL(callAt(fetch.mock.calls, 1)[0]).searchParams),
+    ).toEqual({
+      revision: "stamp-1",
+      leaf: "leaf-1",
+      contentLeaf: "content-1",
+      through: "older",
+    });
     expect(byId("turn-older").textContent).toBe("Earlier history");
   });
 
   it("acknowledges unavailable revisions without replacing the branch or history", async () => {
-    const { fetch, swap, owner } = await page();
+    const { fetch, swap } = await page();
     fetch.mockResolvedValueOnce(
       response("unavailable", {
         "X-Web-Pi-Revision": "unavailable%20stamp",
@@ -220,9 +229,6 @@ describe("saved session polling", () => {
       }),
     );
     await vi.advanceTimersByTimeAsync(2000);
-    expect(owner.dataset["savedRevision"]).toBe("unavailable stamp");
-    expect(owner.dataset["savedLeaf"]).toBe("leaf-1");
-    expect(owner.dataset["savedContentLeaf"]).toBe("content-1");
     expect(byId("turn-oldest").textContent).toBe("Saved history");
     expect(swap).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2000);
@@ -236,8 +242,10 @@ describe("saved session polling", () => {
     });
   });
 
-  it("delivers changed HTML to HTMX and advances the acknowledged revision and leaf", async () => {
+  it("waits for HTMX to finish before checking again with the returned cursors", async () => {
     const { fetch, swap, owner } = await page();
+    const pending = Promise.withResolvers<undefined>();
+    swap.mockReturnValueOnce(pending.promise);
     fetch.mockResolvedValueOnce(changed());
     await vi.advanceTimersByTimeAsync(2000);
     expect(swap).toHaveBeenCalledWith({
@@ -246,10 +254,13 @@ describe("saved session polling", () => {
       text: '<div id="messages" hx-swap-oob="outerHTML">Updated history</div>',
       swap: "none",
     });
-    expect(owner.dataset["savedRevision"]).toBe("stamp 2");
-    expect(owner.dataset["savedLeaf"]).toBe("leaf 2");
-    expect(owner.dataset["savedContentLeaf"]).toBe("content 2");
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    pending.resolve(undefined);
+    await flush();
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(
       Object.fromEntries(new URL(callAt(fetch.mock.calls, 1)[0]).searchParams),
     ).toEqual({
@@ -289,8 +300,6 @@ describe("saved session polling", () => {
     });
     await flush();
     expect(first.isConnected).toBe(false);
-    expect(owner.dataset["savedRevision"]).toBe("evicted-stamp");
-    expect(owner.dataset["savedLeaf"]).toBe("evicted-leaf");
     byId("turn-oldest").insertAdjacentHTML(
       "beforebegin",
       '<div class="turn" id="turn-older">Earlier history</div>',
@@ -316,11 +325,16 @@ describe("saved session polling", () => {
     saved(second);
     await flush();
     expect(second.isConnected).toBe(false);
-    expect(owner.dataset["savedRevision"]).toBe("evicted-stamp");
-    expect(owner.dataset["savedLeaf"]).toBe("evicted-leaf");
-    expect(owner.dataset["savedContentLeaf"]).toBe("evicted-content");
     await vi.advanceTimersByTimeAsync(2000);
     expect(fetch).toHaveBeenCalledTimes(3);
+    expect(
+      Object.fromEntries(new URL(callAt(fetch.mock.calls, 2)[0]).searchParams),
+    ).toEqual({
+      revision: "evicted-stamp",
+      leaf: "evicted-leaf",
+      contentLeaf: "evicted-content",
+      through: "older",
+    });
   });
 
   it("does not poll an initially live main until its named saved event", async () => {
@@ -331,8 +345,6 @@ describe("saved session polling", () => {
     await flush();
     expect(owner.isConnected).toBe(true);
     expect(owner.hasAttribute("hx-sse:connect")).toBe(false);
-    expect(owner.dataset["savedLeaf"]).toBe("");
-    expect(owner.dataset["savedContentLeaf"]).toBe("");
     await vi.advanceTimersByTimeAsync(1999);
     expect(fetch).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);

@@ -542,7 +542,10 @@ function setUpShortcuts(): void {
       event.altKey ||
       event.shiftKey ||
       (!event.ctrlKey && !event.metaKey) ||
-      !/^[0-9]$/.test(event.key)
+      !/^[0-9]$/.test(event.key) ||
+      event.target instanceof HTMLInputElement ||
+      event.target instanceof HTMLTextAreaElement ||
+      event.target instanceof HTMLSelectElement
     ) {
       return;
     }

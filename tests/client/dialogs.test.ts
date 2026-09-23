@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { byId, click, flush, htmxEvent, mount } from "./helpers.ts";
 
 // Server-rendered `<dialog open>` fragments become real modals, and leave
@@ -19,13 +19,15 @@ function dialog(id: string): HTMLDialogElement {
 
 describe("dialogs", () => {
   it("upgrades an open dialog to a modal once and removes it on close", async () => {
+    const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
     const { dialogOpen, upgradeDialogs } = await load(
       '<dialog id="d" data-modal open><p>hi</p></dialog>',
     );
-    expect(dialog("d").dataset["upgraded"]).toBe("1");
+    upgradeDialogs();
+    await flush();
+    expect(showModal).toHaveBeenCalledOnce();
     expect(dialog("d").open).toBe(true);
     expect(dialogOpen()).toBe(true);
-    upgradeDialogs();
     dialog("d").close();
     await flush();
     expect(document.getElementById("d")).toBeNull();
@@ -57,13 +59,21 @@ describe("dialogs", () => {
   });
 
   it("upgrades dialogs that arrive by swap, whether the target is one or holds one", async () => {
+    const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
     await load('<div id="dialogs"></div>');
     byId("dialogs").innerHTML = '<dialog id="d" data-modal open></dialog>';
     htmxEvent(byId("dialogs"), "htmx:after:settle");
-    expect(dialog("d").dataset["upgraded"]).toBe("1");
+    expect(showModal).toHaveBeenCalledTimes(1);
+    expect(dialog("d").open).toBe(true);
+    dialog("d").close();
+    await flush();
+    expect(document.getElementById("d")).toBeNull();
     byId("dialogs").innerHTML = '<dialog id="e" data-modal open></dialog>';
     htmxEvent(byId("e"), "htmx:after:settle");
-    expect(dialog("e").dataset["upgraded"]).toBe("1");
-    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+    expect(showModal).toHaveBeenCalledTimes(2);
+    expect(dialog("e").open).toBe(true);
+    dialog("e").close();
+    await flush();
+    expect(document.getElementById("e")).toBeNull();
   });
 });

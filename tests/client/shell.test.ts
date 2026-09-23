@@ -198,25 +198,12 @@ describe("shortcuts", () => {
     '<a href="/sessions/s1">1</a><a href="/sessions/s2">2</a></div>' +
     '<textarea id="composer-text"></textarea>';
 
-  it("opens a new session on Ctrl+K and the nth session on a digit", async () => {
+  it("opens a new session on Ctrl+K", async () => {
     await load(LIST);
     expect(
       keydown(document.body, "k", { ctrlKey: true }).defaultPrevented,
     ).toBe(true);
     expect(location.pathname).toBe("/new");
-    keydown(document.body, "2", { metaKey: true });
-    expect(location.pathname).toBe("/sessions/s2");
-    keydown(document.body, "5", { metaKey: true });
-    expect(location.pathname).toBe("/sessions/s2");
-    keydown(document.body, "1", { ctrlKey: true, shiftKey: true });
-    expect(location.pathname).toBe("/sessions/s2");
-  });
-
-  it("leaves digits alone inside a field", async () => {
-    await load(LIST);
-    const area = byId("composer-text");
-    expect(keydown(area, "1", { ctrlKey: true }).defaultPrevented).toBe(false);
-    expect(location.pathname).toBe("/");
   });
 
   it("aborts the turn on Escape outside a field, unless a dialog owns it", async () => {

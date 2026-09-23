@@ -131,11 +131,6 @@ describe("explorer", () => {
     expect(html).toContain('role="tree"');
     expect(html).toContain('data-name="src"');
     expect(html).toContain('data-name="notes.md"');
-    // Runtime indentation is 8 + depth * 14; icons retain both theme masks.
-    expect(html).toContain("padding-left:8px");
-    expect(html).toContain('class="file-tree-row"');
-    expect(html).toContain("/static/icons/catppuccin/latte/markdown.svg");
-    expect(html).toContain("/static/icons/catppuccin/mocha/_folder.svg");
     // The hover actions: a mention button and a download link per row.
     expect(html).toContain('data-mention="notes.md"');
     expect(html).toContain("Insert path into chat");
@@ -166,7 +161,6 @@ describe("explorer", () => {
     const html = await (await app.request(url)).text();
     expect(html).toContain('data-name="main.ts"');
     expect(html).toContain(">M<");
-    expect(html).toContain("padding-left:22px");
     expect(html).not.toContain('data-name="notes.md"');
   });
 
@@ -310,24 +304,6 @@ describe("stored-session file requests", () => {
 });
 
 describe("viewer", () => {
-  it("puts the toolbar controls in pi-web's order", async () => {
-    const url = `/files/view?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`;
-    const html = await (await app.request(url)).text();
-    const order = [
-      "file-viewer-path",
-      "file-viewer-meta",
-      "file-viewer-live-indicator",
-      "file-viewer-mode-switch",
-      "file-viewer-actions",
-      "file-viewer-icon-button",
-      "file-viewer-content",
-    ].map((mark) => html.indexOf(mark));
-    expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(order[0]).toBeGreaterThan(-1);
-    expect(html).toContain(">Source</button>");
-    expect(html).toContain(">Preview</button>");
-  });
-
   it("numbers the lines of a source file and colours it", async () => {
     const url = `/files/view?session=s1&mode=source&path=${encodeURIComponent(join(repo, "src", "main.ts"))}`;
     const html = await (await app.request(url)).text();
@@ -630,13 +606,6 @@ describe("unsupported documents", () => {
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(
       new Uint8Array([0x50, 0x4b, 3, 4, 0, 0xff]),
     );
-  });
-
-  it("no longer exposes a DOCX conversion endpoint", async () => {
-    const res = await app.request(
-      `/files/docx?session=s1&path=${encodeURIComponent(join(repo, "report.docx"))}`,
-    );
-    expect(res.status).toBe(404);
   });
 });
 

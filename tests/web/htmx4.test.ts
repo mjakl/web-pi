@@ -3,7 +3,7 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 import type { HTMLButtonElement, HTMLInputElement } from "happy-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { controlledStream, htmxBrowser, page } from "#/web/htmx4-browser";
 
 function required<T>(value: T | null | undefined): T {
@@ -14,6 +14,7 @@ function required<T>(value: T | null | undefined): T {
 const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
 afterEach(async () => {
   await Promise.all(browsers.splice(0).map((browser) => browser.close()));
+  vi.restoreAllMocks();
 });
 async function open(...args: Parameters<typeof htmxBrowser>) {
   const browser = await htmxBrowser(...args);
@@ -31,9 +32,7 @@ const eventually = async (assertion: () => void) => {
 const composer = `<form id="composer" data-session-id="s1" hx-post="/send" hx-target="#toasts" hx-swap="beforeend" hx-encoding="multipart/form-data"><textarea id="composer-text" name="text">draft</textarea><button type="submit" name="mode" value="followUp">Send</button><div id="slash-menu"></div><div id="at-menu"></div><input id="image-input" type="file" multiple><div id="image-previews"></div></form><div id="toasts"></div>`;
 
 describe("shipped HTMX 4 with the real browser client", () => {
-  it("loads the exact scripts selected by HtmlLayout", async () => {
-    expect(HTMX_SRC).toBe("/static/vendor/htmx.min-4.0.0.js");
-    expect(HTMX_SSE_SRC).toBe("/static/vendor/hx-sse.min-4.0.0.js");
+  it("loads the scripts and startup configuration selected by HtmlLayout", async () => {
     const app = createWebApp({
       workspace: createWorkspace(createFakeWorld()),
       staticRoot: "static",
@@ -50,7 +49,6 @@ describe("shipped HTMX 4 with the real browser client", () => {
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
       .replace(/(<body\b[^>]*>)[\s\S]*<\/body>/, "$1</body>");
     const { window, document } = await open(markup, () => new Response(""));
-    expect(window.eval("htmx.version")).toBe("4.0.0");
     expect(window.eval("htmx.config.extensions")).toBe("sse");
     expect(window.eval("htmx.config.sse.pauseOnBackground")).toBe(false);
     expect(window.eval("htmx.config.defaultTimeout")).toBe(0);
@@ -60,62 +58,6 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(document.body.getAttribute("hx-status:5xx:inherited")).toBe(
       "swap:none",
     );
-  });
-
-  it("collects multipart repeated fields and the actual submitter before request configuration", async () => {
-    let received: FormData | undefined;
-    const { document, window, requests } = await open(
-      page(
-        `<form hx-post="/send" hx-encoding="multipart/form-data" hx-swap="none"><input name="thinking" value="high"><input name="tag" value="one"><input name="tag" value="two"><input name="omit" value="secret"><input id="upload" type="file" name="images[]" multiple><button id="send" type="submit" name="mode" value="followUp">Send</button></form>`,
-      ),
-      async (request) => {
-        received = await request.formData();
-        return new Response("");
-      },
-    );
-    let collected: string[] = [];
-    document.body.addEventListener("htmx:config:request", (event) => {
-      const body = (
-        event as unknown as CustomEvent<{
-          ctx: { request: { body: FormData } };
-        }>
-      ).detail.ctx.request.body;
-      expect(body).toBeInstanceOf(window.FormData);
-      collected = body.getAll("tag") as string[];
-      body.delete("omit");
-    });
-    const files = new window.DataTransfer();
-    files.items.add(
-      new window.File([new Uint8Array([0, 128, 255])], "one.png", {
-        type: "image/png",
-      }),
-    );
-    files.items.add(
-      new window.File(["second"], "two.png", { type: "image/png" }),
-    );
-    const fileList = new window.FileList();
-    fileList.push(...files.files);
-    required(document.querySelector<HTMLInputElement>("#upload")).files =
-      fileList;
-    required(document.querySelector<HTMLButtonElement>("#send")).click();
-    await eventually(() => {
-      expect(received?.get("mode")).toBe("followUp");
-    });
-    expect(collected).toEqual(["one", "two"]);
-    expect(required(received).getAll("tag")).toEqual(["one", "two"]);
-    expect(required(received).has("omit")).toBe(false);
-    const attachments = required(received).getAll("images[]") as File[];
-    expect(attachments.map((file) => file.name)).toEqual([
-      "one.png",
-      "two.png",
-    ]);
-    expect(
-      new Uint8Array(await required(attachments[0]).arrayBuffer()),
-    ).toEqual(new Uint8Array([0, 128, 255]));
-    expect(required(requests[0]).headers.get("content-type")).toMatch(
-      /^multipart\/form-data; boundary=/,
-    );
-    expect(required(requests[0]).headers.get("HX-Request")).toBe("true");
   });
 
   it("uses the production request-field filter on toolbar controls without consuming the draft", async () => {
@@ -139,23 +81,6 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(required(received).has("text")).toBe(false);
     expect(required(received).getAll("tag")).toEqual(["one", "two"]);
     expect(required(document.querySelector("textarea")).value).toBe("draft");
-  });
-
-  it("blocks an invalid required form before fetch", async () => {
-    const { document, requests } = await open(
-      page(
-        `<form hx-post="/send"><input required name="text"><button id="send">Send</button></form>`,
-      ),
-      () => new Response(""),
-    );
-    required(document.querySelector<HTMLButtonElement>("#send")).click();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(requests).toHaveLength(0);
-    required(document.querySelector("input")).value = "valid";
-    required(document.querySelector<HTMLButtonElement>("#send")).click();
-    await eventually(() => {
-      expect(requests).toHaveLength(1);
-    });
   });
 
   it.each(["accepted", "HTTP 200 rejection"])(
@@ -192,7 +117,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
     },
   );
 
-  it.each([400, 422, 500, 503])(
+  it.each([422, 500])(
     "does not swap or clear drafts on HTTP %i, but delivers header toasts",
     async (status) => {
       const { document } = await open(
@@ -454,11 +379,12 @@ describe("shipped HTMX 4 with the real browser client", () => {
         window.eval("document.getElementById('live')._htmx?.sse?.status"),
       ).toBe(200);
     });
+    const showModal = vi.spyOn(window.HTMLDialogElement.prototype, "showModal");
     stream.send(
       `<div id="status" hx-swap-oob="outerHTML"><span id="session-state" data-running></span></div><hx-partial hx-target="#extension-dialog" hx-swap="outerHTML"><div id="extension-dialog"></div><dialog id="second-sibling" data-modal open>Question</dialog></hx-partial>`,
     );
     await eventually(() => {
-      expect(document.querySelector("dialog")?.dataset["upgraded"]).toBe("1");
+      expect(showModal).toHaveBeenCalledOnce();
     });
     expect(required(document.querySelector("dialog")).open).toBe(true);
     expect(

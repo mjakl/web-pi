@@ -229,8 +229,8 @@ function playTurn(
       finish("error", message);
     },
   };
-  // The agent reads the stream after streamSimple() returns; a script that
-  // throws before its first event is a provider failing during setup.
+  // Scripts run after streamSimple() returns. A thrown script becomes a
+  // stream error, not a synchronous failure to create the stream.
   void Promise.resolve()
     .then(() => script(turn))
     .catch((error: unknown) => {
@@ -259,7 +259,7 @@ export async function createHarness(
       ...options.settings,
     }),
   );
-  const scripts: Script[] = [];
+  const scripts: (Script | Error)[] = [];
   const calls: {
     context: TranscriptContext;
     options: SimpleStreamOptions | undefined;
@@ -276,6 +276,7 @@ export async function createHarness(
         streamSimple: (model, context, streamOptions) => {
           calls.push({ context, options: streamOptions });
           const script = scripts.shift() ?? reply("(unscripted reply)");
+          if (script instanceof Error) throw script;
           return playTurn(model, context, streamOptions, script);
         },
         models: [MODEL_ID, MODEL_2].map((id) => ({
@@ -316,8 +317,8 @@ export async function createHarness(
     webSettings,
     /** Provider calls so far: what the SDK sent, in order. */
     calls,
-    /** Queues replies for the next provider calls. */
-    script(...next: Script[]): void {
+    /** Queues streamed replies or synchronous failures for the next provider calls. */
+    script(...next: (Script | Error)[]): void {
       scripts.push(...next);
     },
     async open(

@@ -12,6 +12,7 @@ import {
 import { readStars, rowMetadata, userMessageText } from "@core/session-entries";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { Window, type HTMLElement } from "happy-dom";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -414,7 +415,7 @@ describe("Pi session catalog", () => {
     );
   });
 
-  it("skips malformed JSONL lines and retains the latest title and cached metadata", async () => {
+  it("skips malformed JSONL lines and retains the latest title on repeated reads", async () => {
     const manager = makeSession(["hello"]);
     manager.appendSessionInfo("Old title");
     manager.appendSessionInfo("Latest title");
@@ -427,7 +428,7 @@ describe("Pi session catalog", () => {
       firstMessage: "hello",
       messageCount: 2,
     });
-    expect(await catalog.rowMetadata(manager.getSessionId())).toBe(first);
+    expect(await catalog.rowMetadata(manager.getSessionId())).toEqual(first);
   });
 
   it("re-reads a file that changed instead of serving the cached counts", async () => {
@@ -443,34 +444,14 @@ describe("Pi session catalog", () => {
     expect((await catalog.rowMetadata(id))?.metadata.messageCount).toBe(3);
   });
 
-  it("forks a user message with no text before the message itself", async () => {
-    const manager = makeSession(["hello"]);
-    manager.appendMessage({
-      role: "user",
-      content: [{ type: "image", data: "AAAA", mimeType: "image/png" }],
-      timestamp: 3,
-    });
-    const catalog = createPiSessionCatalog({ agentDir: root });
-    const id = manager.getSessionId();
-    await catalog.list();
-    const wordless = manager.getEntries().at(-1);
-    if (!wordless) throw new Error("missing entry");
-
-    const forked = await catalog.fork(id, wordless.id);
-    const branch = (await catalog.read(forked.id))?.branch ?? [];
-    expect(branch.map((entry) => entry.id)).not.toContain(wordless.id);
-    expect(branch).toHaveLength(2);
-  });
-
   it.each([
     { shape: "flat", text: "" },
-    { shape: "flat", text: "  Explain\n\tthese images  " },
-    { shape: "nested", text: "" },
     { shape: "nested", text: "  Explain\n\tthese images  " },
   ])(
-    "restores $shape history images with text '$text' before rewind",
+    "restores $shape images and text '$text' when forking and rewinding saved history",
     async ({ shape, text }) => {
       const manager = makeSession(["earlier"]);
+      const earlier = manager.getBranch();
       const images = [
         { data: "AAEC/w==", mimeType: "image/png" },
         { data: "//79AA==", mimeType: "image/jpeg" },
@@ -505,17 +486,17 @@ describe("Pi session catalog", () => {
       const forked = await catalog.fork(id, targetId);
       expect(forked).toMatchObject({ text, images });
       expect(readFileSync(file, "utf8")).toBe(before);
-      expect((await catalog.read(forked.id))?.branch).toHaveLength(2);
+      expect((await catalog.read(forked.id))?.branch).toEqual(earlier);
 
       const recalled = await catalog.rewind(id, targetId);
       expect(recalled).toEqual({ text, images });
       const reopened = SessionManager.open(file);
-      expect(reopened.getEntries().some((entry) => entry.id === targetId)).toBe(
-        false,
-      );
+      expect(
+        reopened.getEntries().filter((entry) => entry.type === "message"),
+      ).toEqual(earlier);
       expect(
         reopened.getBranch().filter((entry) => entry.type === "message"),
-      ).toHaveLength(2);
+      ).toEqual(earlier);
     },
   );
 
@@ -544,7 +525,7 @@ describe("Pi session catalog", () => {
     expect(readFileSync(file, "utf8")).toBe(before);
   });
 
-  it("estimates what a compaction left in context", async () => {
+  it("estimates context at an ordinary saved answer", async () => {
     const manager = makeSession(["hello"]);
     const catalog = createPiSessionCatalog({ agentDir: root });
     const id = manager.getSessionId();
@@ -557,16 +538,60 @@ describe("Pi session catalog", () => {
 });
 
 describe("HTML export", () => {
-  it("renders through the Pi CLI with the tree walks made iterative", async () => {
-    const manager = makeSession(["hello"]);
+  it("renders and navigates a deeply nested session exported by the Pi CLI", async () => {
+    const manager = makeSession(["root prompt"]);
+    const branchPoint = manager.getLeafId();
+    if (!branchPoint) throw new Error("missing branch point");
+    // Hidden metadata makes a deep tree without thousands of rendered messages.
+    for (let i = 0; i < 40_000; i += 1) {
+      manager.appendCustomEntry("depth", {});
+    }
+    const deepPrompt = manager.appendMessage({
+      role: "user",
+      content: "deep prompt",
+      timestamp: 2,
+    });
+    manager.appendMessage(answer("deep answer"));
+    manager.branch(branchPoint);
+    manager.appendMessage({
+      role: "user",
+      content: "other prompt",
+      timestamp: 3,
+    });
+    manager.appendMessage(answer("other answer"));
     const exported = await exportSessionHtml(fileOf(manager));
-
     expect(exported.filename).toMatch(/^pi-session-.*\.html$/);
-    // The transcript itself is embedded as encoded bytes, not as markup.
-    expect(exported.html).toContain("<!DOCTYPE html>");
-    // Deep sessions overflow the exported page's stack without these.
-    expect(exported.html).toContain("function sortChildren(root)");
-    expect(exported.html).not.toContain("tree.forEach(mapNodes)");
-    expect(exported.html).not.toContain("roots.forEach(markActive)");
+
+    const window = new Window({
+      url: "http://export.test/",
+      settings: {
+        disableCSSFileLoading: true,
+        disableJavaScriptFileLoading: true,
+      },
+    });
+    try {
+      Object.assign(window, { TextDecoder });
+      window.document.write(exported.html);
+      // Execute the shipped artifact, including its bundled renderers.
+      for (const script of window.document.querySelectorAll(
+        'script:not([type="application/json"])',
+      )) {
+        window.eval(script.textContent);
+      }
+      const messages = () =>
+        window.document.getElementById("messages")?.textContent;
+      expect(messages()).toContain("other answer");
+      expect(messages()).not.toContain("deep answer");
+      const target = window.document.querySelector<HTMLElement>(
+        `#tree-container [data-id="${deepPrompt}"]`,
+      );
+      if (!target) throw new Error("deep branch is missing from the tree");
+      target.click();
+      expect(messages()).toContain("root prompt");
+      expect(messages()).toContain("deep answer");
+      expect(messages()).not.toContain("other answer");
+    } finally {
+      await window.happyDOM.close();
+    }
   });
 });

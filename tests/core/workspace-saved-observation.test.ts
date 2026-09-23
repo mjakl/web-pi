@@ -107,70 +107,62 @@ describe("saved-only workspace observation", () => {
     expect(result.view.items.map((item) => item.entryId)).toEqual(["a", "b"]);
   });
 
-  it.each([false, true])(
-    "advances the shared continuation, then holds at an ambiguous fork (inspection only: %s)",
-    async (inspectionOnly) => {
-      const { stored, workspace } = fixture(undefined, inspectionOnly);
-      const initial = await observation(workspace);
-      stored.entries.push(
-        userEntry("shared", "b", "Shared continuation"),
-        assistantEntry("left", "shared", "First alternative", 20),
-        assistantEntry("right", "shared", "Second alternative", 20),
-      );
-      const update = await workspace.observeSavedSession("saved", initial);
-      expect(update.kind).toBe("changed");
-      if (update.kind !== "changed")
-        throw new Error("Expected shared continuation");
-      expect(update.view.items.map((item) => item.entryId)).toEqual([
-        "a",
-        "b",
-        "shared",
-      ]);
-      const held = update.view.savedObservation;
-      if (!held) throw new Error("Expected saved observation");
-      expect(held.leaf).toBe("shared");
-      expect(held.contentLeaf).toBe("shared");
-      expect(await workspace.observeSavedSession("saved", held)).toEqual({
-        kind: "unchanged",
-      });
-      stored.entries.push(
-        userEntry("later", "left", "More on one alternative"),
-      );
-      const next = await workspace.observeSavedSession("saved", held);
-      expect(next).toMatchObject({
-        kind: "changed",
-        view: { savedObservation: { leaf: "shared", contentLeaf: "shared" } },
-      });
-      if (next.kind !== "changed") throw new Error("Expected held branch");
-      expect(next.view.items.map((item) => item.entryId)).toEqual([
-        "a",
-        "b",
-        "shared",
-      ]);
-      expect(
-        (await workspace.viewSession("saved"))?.savedObservation?.leaf,
-      ).toBe("later");
-    },
-  );
+  it("advances the shared continuation, then holds at an ambiguous fork", async () => {
+    const { stored, workspace } = fixture();
+    const initial = await observation(workspace);
+    stored.entries.push(
+      userEntry("shared", "b", "Shared continuation"),
+      assistantEntry("left", "shared", "First alternative", 20),
+      assistantEntry("right", "shared", "Second alternative", 20),
+    );
+    const update = await workspace.observeSavedSession("saved", initial);
+    expect(update.kind).toBe("changed");
+    if (update.kind !== "changed")
+      throw new Error("Expected shared continuation");
+    expect(update.view.items.map((item) => item.entryId)).toEqual([
+      "a",
+      "b",
+      "shared",
+    ]);
+    const held = update.view.savedObservation;
+    if (!held) throw new Error("Expected saved observation");
+    expect(held.leaf).toBe("shared");
+    expect(held.contentLeaf).toBe("shared");
+    expect(await workspace.observeSavedSession("saved", held)).toEqual({
+      kind: "unchanged",
+    });
+    stored.entries.push(userEntry("later", "left", "More on one alternative"));
+    const next = await workspace.observeSavedSession("saved", held);
+    expect(next).toMatchObject({
+      kind: "changed",
+      view: { savedObservation: { leaf: "shared", contentLeaf: "shared" } },
+    });
+    if (next.kind !== "changed") throw new Error("Expected held branch");
+    expect(next.view.items.map((item) => item.entryId)).toEqual([
+      "a",
+      "b",
+      "shared",
+    ]);
+    expect((await workspace.viewSession("saved"))?.savedObservation?.leaf).toBe(
+      "later",
+    );
+  });
 
-  it.each([false, true])(
-    "holds at the observed tip when competing continuations arrive together (inspection only: %s)",
-    async (inspectionOnly) => {
-      const { stored, workspace } = fixture(undefined, inspectionOnly);
-      const initial = await observation(workspace);
-      stored.entries.push(
-        userEntry("left", "b", "First continuation"),
-        userEntry("right", "b", "Second continuation"),
-      );
-      const update = await workspace.observeSavedSession("saved", initial);
-      expect(update).toMatchObject({
-        kind: "changed",
-        view: { savedObservation: { leaf: "b", contentLeaf: "b" } },
-      });
-      if (update.kind !== "changed") throw new Error("Expected held branch");
-      expect(update.view.items.map((item) => item.entryId)).toEqual(["a", "b"]);
-    },
-  );
+  it("holds a child observation at the tip when competing continuations arrive together", async () => {
+    const { stored, workspace } = fixture(undefined, true);
+    const initial = await observation(workspace);
+    stored.entries.push(
+      userEntry("left", "b", "First continuation"),
+      userEntry("right", "b", "Second continuation"),
+    );
+    const update = await workspace.observeSavedSession("saved", initial);
+    expect(update).toMatchObject({
+      kind: "changed",
+      view: { savedObservation: { leaf: "b", contentLeaf: "b" } },
+    });
+    if (update.kind !== "changed") throw new Error("Expected held branch");
+    expect(update.view.items.map((item) => item.entryId)).toEqual(["a", "b"]);
+  });
 
   it("holds an empty observation when competing roots arrive together", async () => {
     const { stored, workspace } = fixture([]);

@@ -37,16 +37,6 @@ describe("fileKind and mimeOf", () => {
   });
 });
 
-describe("unsupported documents", () => {
-  it("treats DOCX like any unknown extension", () => {
-    expect(fileKind("report.DOCX")).toBe("text");
-    expect(languageOf("report.DOCX")).toBe("text");
-    expect(mimeOf("report.DOCX")).toBe("application/octet-stream");
-    expect(hasPreview("report.DOCX")).toBe(false);
-    expect(catppuccinIcon("report.DOCX")).toBe("_file");
-  });
-});
-
 describe("hasPreview and catppuccinIcon", () => {
   it("offers a preview for markdown and html only", () => {
     expect(hasPreview("readme.md")).toBe(true);

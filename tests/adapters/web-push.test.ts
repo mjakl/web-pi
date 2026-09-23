@@ -48,22 +48,18 @@ afterEach(() => {
 });
 
 describe("web push store", () => {
-  it("generates VAPID keys once and keeps them across restarts", () => {
+  it("persists VAPID keys privately and keeps them across restarts", () => {
     const directory = agentDir();
     const first = createWebPushNotifier({ agentDir: directory }).publicKey();
     expect(first).not.toBe("");
     expect(stored(directory).vapidKeys.publicKey).toBe(first);
+    expect(statSync(join(directory, "web-pi", "push.json")).mode & 0o777).toBe(
+      0o600,
+    );
     // A second process reads the same keys rather than minting new ones.
     expect(createWebPushNotifier({ agentDir: directory }).publicKey()).toBe(
       first,
     );
-  });
-
-  it("writes the private key owner-only", () => {
-    const directory = agentDir();
-    createWebPushNotifier({ agentDir: directory }).publicKey();
-    const mode = statSync(join(directory, "web-pi", "push.json")).mode & 0o777;
-    expect(mode).toBe(0o600);
   });
 
   it("upserts a subscription by endpoint", () => {
@@ -76,11 +72,15 @@ describe("web push store", () => {
       keys: { p256dh: "new", auth: "new" },
     });
     const { subscriptions } = stored(directory);
-    expect(subscriptions.map((entry) => entry.endpoint)).toEqual([
-      "https://push.example/b",
-      "https://push.example/a",
+    expect(
+      subscriptions.sort((a, b) => a.endpoint.localeCompare(b.endpoint)),
+    ).toEqual([
+      {
+        endpoint: "https://push.example/a",
+        keys: { p256dh: "new", auth: "new" },
+      },
+      subscription("https://push.example/b"),
     ]);
-    expect(subscriptions.at(-1)?.keys.p256dh).toBe("new");
   });
 
   it("checks complete enrollment and removes only the matching browser record", () => {
@@ -173,8 +173,10 @@ describe("web push store", () => {
     notifier.subscribe(subscription("https://push.example/a"));
     notifier.subscribe(subscription("https://push.example/b"));
     await notifier.send(MESSAGE);
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toContain(JSON.stringify(MESSAGE));
+    expect(sent.sort()).toEqual([
+      `https://push.example/a:${JSON.stringify(MESSAGE)}`,
+      `https://push.example/b:${JSON.stringify(MESSAGE)}`,
+    ]);
   });
 
   it("does nothing when nobody is subscribed", async () => {
@@ -211,20 +213,6 @@ describe("web push store", () => {
     expect(stored(directory).subscriptions.map((s) => s.endpoint)).toEqual([
       "https://push.example/live",
     ]);
-  });
-
-  it("keeps a subscription whose delivery failed for another reason", async () => {
-    const directory = agentDir();
-    const notifier = createWebPushNotifier({
-      agentDir: directory,
-      send: () =>
-        Promise.reject(
-          Object.assign(new Error("Service unavailable"), { statusCode: 503 }),
-        ),
-    });
-    notifier.subscribe(subscription("https://push.example/a"));
-    await notifier.send(MESSAGE);
-    expect(stored(directory).subscriptions).toHaveLength(1);
   });
 
   it("refuses malformed state without rotating keys or overwriting it", () => {

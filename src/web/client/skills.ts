@@ -290,7 +290,10 @@ export function setUpSkills(
   filter?.addEventListener(
     "keydown",
     (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Enter") {
+        // Search is inside the composer form; even IME confirmation must not submit it.
+        event.preventDefault();
+      } else if (event.key === "Escape") {
         event.preventDefault();
         menu?.hidePopover();
         trigger?.focus();

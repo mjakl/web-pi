@@ -28,7 +28,9 @@ export function encodeSkillPrompt(
   skills: readonly SkillSelection[],
   expanded: string,
 ): string {
-  return `${PREFIX}${encodeURIComponent(JSON.stringify({ text, skills: uniqueSkills(skills) }))}${SUFFIX}${expanded}`;
+  // String length frames the expansion without parsing delimiters in arbitrary
+  // skill Markdown. Input hooks can prepend/append text without losing it on recall.
+  return `${PREFIX}${encodeURIComponent(JSON.stringify({ text, skills: uniqueSkills(skills), expandedLength: expanded.length }))}${SUFFIX}${expanded}`;
 }
 
 /** Pi's legacy single-skill envelope, retained for terminal and older sessions. */
@@ -46,16 +48,30 @@ export function skillCommand(text: string): string | undefined {
 
 /** Decode only our versioned record. Unknown or damaged records remain literal text. */
 function provenance(text: string): SkillPrompt | undefined {
-  if (!text.startsWith(PREFIX)) return undefined;
-  const end = text.indexOf(SUFFIX, PREFIX.length);
+  const start = text.indexOf(PREFIX);
+  if (start < 0) return undefined;
+  // The record precedes the envelopes. Never promote an instruction-body
+  // example if an extension removes the real record, or skip a damaged record.
+  const firstSkill = text.indexOf('<skill name="');
+  if (firstSkill >= 0 && firstSkill < start) return undefined;
+  const end = text.indexOf(SUFFIX, start + PREFIX.length);
   if (end < 0) return undefined;
+  const expandedStart = end + SUFFIX.length;
   try {
     const value: unknown = JSON.parse(
-      decodeURIComponent(text.slice(PREFIX.length, end)),
+      decodeURIComponent(text.slice(start + PREFIX.length, end)),
     );
     if (typeof value !== "object" || value === null) return undefined;
     const record = value as Record<string, unknown>;
-    if (typeof record["text"] !== "string" || !Array.isArray(record["skills"]))
+    const expandedLength = record["expandedLength"];
+    if (
+      typeof record["text"] !== "string" ||
+      !Array.isArray(record["skills"]) ||
+      typeof expandedLength !== "number" ||
+      !Number.isSafeInteger(expandedLength) ||
+      expandedLength < 0 ||
+      expandedLength > text.length - expandedStart
+    )
       return undefined;
     const skills: SkillSelection[] = [];
     for (const item of record["skills"] as unknown[]) {
@@ -70,7 +86,13 @@ function provenance(text: string): SkillPrompt | undefined {
         return undefined;
       skills.push({ id: selection["id"], name: selection["name"] });
     }
-    return { text: record["text"], skills: uniqueSkills(skills) };
+    return {
+      text:
+        text.slice(0, start) +
+        record["text"] +
+        text.slice(expandedStart + expandedLength),
+      skills: uniqueSkills(skills),
+    };
   } catch {
     return undefined;
   }

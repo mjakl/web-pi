@@ -322,120 +322,150 @@ describe("selected skills through Pi", () => {
     );
   });
 
-  it("keeps actual expanded queue identities, images and input hooks in both delivery modes", async () => {
-    const inputs: { text: string; mode: string | undefined }[] = [];
-    const transformedImage = {
-      type: "image" as const,
-      data: "BBBB",
-      mimeType: "image/png",
-    };
-    h = await createHarness({
-      extensions: [
-        (pi: ExtensionAPI) => {
-          pi.on("input", (event) => {
-            if (!event.text.startsWith("<!-- web-pi:skill-selection:"))
-              return { action: "continue" };
-            inputs.push({ text: event.text, mode: event.streamingBehavior });
-            return {
-              action: "transform",
-              text: `${event.text}\nHook suffix`,
-              images: [transformedImage],
-            };
-          });
-        },
-      ],
-    });
-    const first = await skill("first", "First instructions");
-    const second = await skill("second", "Second instructions");
-    const session = await h.open();
-    const hold = gate();
-    h.script(async (turn) => {
-      turn.text("busy");
-      await hold.wait;
-      turn.done();
-    });
-    await session.prompt("ordinary");
-    await until(session, (snapshot) => snapshot.partial !== undefined);
-    for (const [skills, behavior] of [
-      [[first], "steer"],
-      [[second], "followUp"],
-    ] as const) {
-      await session.prompt("same text", {
-        skills: [...skills],
-        behavior,
-        images: [{ data: "AAAA", mimeType: "image/png" }],
+  it.each([
+    ["Context note.\n", ""],
+    ["", "\nHook suffix"],
+    ["<request>\n", "\n</request>"],
+  ])(
+    "keeps wrapped queue text, selections and images in both delivery modes (%j, %j)",
+    async (prefix, suffix) => {
+      const inputs: { text: string; mode: string | undefined }[] = [];
+      const transformedImage = {
+        type: "image" as const,
+        data: "BBBB",
+        mimeType: "image/png",
+      };
+      h = await createHarness({
+        extensions: [
+          (pi: ExtensionAPI) => {
+            pi.on("input", (event) => {
+              if (!event.text.startsWith("<!-- web-pi:skill-selection:"))
+                return { action: "continue" };
+              inputs.push({ text: event.text, mode: event.streamingBehavior });
+              return {
+                action: "transform",
+                text: `${prefix}${event.text}${suffix}`,
+                images: [transformedImage],
+              };
+            });
+          },
+        ],
       });
-    }
-    expect(inputs.map((input) => input.mode)).toEqual(["steer", "followUp"]);
-    const queued = session.snapshot().status.queue;
-    expect(queued).toHaveLength(2);
-    expect(queued[0]?.text).not.toBe(queued[1]?.text);
-    expect(queued.every((item) => item.text.endsWith("Hook suffix"))).toBe(
-      true,
-    );
-    const recalled = session.clearQueue();
-    expect(recalled).toHaveLength(2);
-    expect(recalled.map((item) => item.images)).toEqual([
-      [{ data: "BBBB", mimeType: "image/png" }],
-      [{ data: "BBBB", mimeType: "image/png" }],
-    ]);
-    expect(recallSkillPrompts(recalled)).toEqual({
-      text: "same text\n\nsame text",
-      skills: [first, second],
-      images: [
-        { data: "BBBB", mimeType: "image/png" },
-        { data: "BBBB", mimeType: "image/png" },
-      ],
-    });
-    expect(session.snapshot().status.queue).toEqual([]);
-    const done = next(session, "turn_done");
-    hold.open();
-    await done;
-    expect(h.calls).toHaveLength(1);
-  });
+      const first = await skill("first", "First instructions");
+      const second = await skill("second", "Second instructions");
+      const session = await h.open();
+      const hold = gate();
+      h.script(async (turn) => {
+        turn.text("busy");
+        await hold.wait;
+        turn.done();
+      });
+      await session.prompt("ordinary");
+      await until(session, (snapshot) => snapshot.partial !== undefined);
+      for (const [skills, behavior] of [
+        [[first], "steer"],
+        [[second], "followUp"],
+      ] as const) {
+        await session.prompt("same text", {
+          skills: [...skills],
+          behavior,
+          images: [{ data: "AAAA", mimeType: "image/png" }],
+        });
+      }
+      expect(inputs.map((input) => input.mode)).toEqual(["steer", "followUp"]);
+      const queued = session.snapshot().status.queue;
+      expect(queued).toHaveLength(2);
+      expect(queued[0]?.text).not.toBe(queued[1]?.text);
+      expect(
+        queued.every(
+          (item) => item.text.startsWith(prefix) && item.text.endsWith(suffix),
+        ),
+      ).toBe(true);
+      const recalled = session.clearQueue();
+      expect(recalled).toHaveLength(2);
+      expect(recalled.map((item) => item.images)).toEqual([
+        [{ data: "BBBB", mimeType: "image/png" }],
+        [{ data: "BBBB", mimeType: "image/png" }],
+      ]);
+      expect(recallSkillPrompts(recalled)).toEqual({
+        text: `${prefix}same text${suffix}\n\n${prefix}same text${suffix}`,
+        skills: [first, second],
+        images: [
+          { data: "BBBB", mimeType: "image/png" },
+          { data: "BBBB", mimeType: "image/png" },
+        ],
+      });
+      expect(session.snapshot().status.queue).toEqual([]);
+      const done = next(session, "turn_done");
+      hold.open();
+      await done;
+      expect(h.calls).toHaveLength(1);
+    },
+  );
 
-  it("restores provenance and images through persistence, tree navigation, fork and rewind", async () => {
-    h = await createHarness();
-    const selected = await skill("first", "Instructions");
-    const session = await h.open();
-    const image = {
-      data: (await readFile("static/icons/favicon-light.png")).toString(
-        "base64",
-      ),
-      mimeType: "image/png",
-    };
-    const original = "  original\n\trequest  ";
-    const done = next(session, "turn_done");
-    await session.prompt(original, { skills: [selected], images: [image] });
-    await done;
-    const { entry } = userText(session);
-    const file = session.snapshot().summary.filePath;
-    if (!file) throw new Error("Missing session file");
-    expect(await readFile(file, "utf8")).toContain(
-      "web-pi:skill-selection:v1:",
-    );
-    expect(
-      (await h.catalog.rowMetadata(session.id))?.metadata.firstMessage,
-    ).toBe("original request");
-    const persisted = SessionManager.open(file).getEntry(entry.id);
-    expect(persisted && editableUserMessage(persisted)).toEqual({
-      text: original,
-      skills: [selected],
-      images: [image],
-    });
-    expect(
-      decodeSkillPrompt((await session.navigateTree(entry.id)) ?? ""),
-    ).toEqual({ text: original, skills: [selected] });
-    await session.stop();
-    expect(await h.catalog.fork(session.id, entry.id)).toMatchObject({
-      text: original,
-      skills: [selected],
-      images: [image],
-    });
-    expect(await h.catalog.rewind(session.id, entry.id)).toEqual({
-      text: original,
-      skills: [selected],
-      images: [image],
-    });
-  });
+  it.each([
+    ["", ""],
+    ["Context note.\n", ""],
+    ["", "\nHook suffix"],
+    ["<request>\n", "\n</request>"],
+  ])(
+    "restores retained provenance and images through persistence, tree navigation, fork and rewind (%j, %j)",
+    async (prefix, suffix) => {
+      h = await createHarness({
+        extensions: [
+          (pi: ExtensionAPI) => {
+            pi.on("input", (event) => ({
+              action: "transform",
+              text: `${prefix}${event.text}${suffix}`,
+            }));
+          },
+        ],
+      });
+      const selected = await skill("first", "Instructions");
+      const session = await h.open();
+      const image = {
+        data: (await readFile("static/icons/favicon-light.png")).toString(
+          "base64",
+        ),
+        mimeType: "image/png",
+      };
+      const original = "  original\n\trequest  ";
+      const restored = `${prefix}${original}${suffix}`;
+      const done = next(session, "turn_done");
+      await session.prompt(original, { skills: [selected], images: [image] });
+      await done;
+      const { entry } = userText(session);
+      const file = session.snapshot().summary.filePath;
+      if (!file) throw new Error("Missing session file");
+      expect(await readFile(file, "utf8")).toContain(
+        "web-pi:skill-selection:v1:",
+      );
+      expect(
+        (await h.catalog.rowMetadata(session.id))?.metadata.firstMessage,
+      ).toBe(restored.replaceAll(/\s+/g, " ").trim());
+      expect(
+        projectTranscript(session.snapshot().branch).items[0],
+      ).toMatchObject({ kind: "user", text: restored, skills: [selected] });
+      const persisted = SessionManager.open(file).getEntry(entry.id);
+      expect(persisted && editableUserMessage(persisted)).toEqual({
+        text: restored,
+        skills: [selected],
+        images: [image],
+      });
+      expect(
+        decodeSkillPrompt((await session.navigateTree(entry.id)) ?? ""),
+      ).toEqual({ text: restored, skills: [selected] });
+      await session.stop();
+      expect(await h.catalog.fork(session.id, entry.id)).toMatchObject({
+        text: restored,
+        skills: [selected],
+        images: [image],
+      });
+      expect(await h.catalog.rewind(session.id, entry.id)).toEqual({
+        text: restored,
+        skills: [selected],
+        images: [image],
+      });
+    },
+  );
 });

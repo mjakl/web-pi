@@ -56,6 +56,71 @@ describe("skill prompt provenance", () => {
     expect(decodeSkillPrompt(text)).toEqual({ text });
   });
 
+  it.each([
+    ["Context note.\n", ""],
+    ["", "\nHook suffix."],
+    ["<request>\n", "\n</request>"],
+  ])(
+    "preserves text outside the retained expansion (%j, %j)",
+    (prefix, suffix) => {
+      const original = "/skill:first  exact 🦉 request\n";
+      const encoded = encodeSkillPrompt(
+        original,
+        [first, second],
+        `${legacy}\n\nMore 🦉 instructions`,
+      );
+      expect(decodeSkillPrompt(`${prefix}${encoded}${suffix}`)).toEqual({
+        text: `${prefix}${original}${suffix}`,
+        skills: [first, second],
+      });
+    },
+  );
+
+  it.each([undefined, null, "4", -1, 0.5, 1e100, 500])(
+    "rejects a missing, invalid or out-of-range expansion boundary %j",
+    (expandedLength) => {
+      const marker = `<!-- web-pi:skill-selection:v1:${encodeURIComponent(JSON.stringify({ text: "hidden", skills: [first], expandedLength }))} -->\nbody`;
+      expect(decodeSkillPrompt(marker)).toEqual({ text: marker });
+    },
+  );
+
+  it("does not promote a record literal from skill instructions, even after losing the outer record", () => {
+    const literal = encodeSkillPrompt(
+      "not the draft",
+      [second],
+      "example expansion",
+    );
+    const instructions = legacy.replace(
+      "Private instructions",
+      `Example:\n${literal}`,
+    );
+    const encoded = encodeSkillPrompt("real draft", [first], instructions);
+    expect(decodeSkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
+      text: "Before\nreal draft\nAfter",
+      skills: [first],
+    });
+    const withoutRecord = `Before\n${instructions}\nAfter`;
+    expect(decodeSkillPrompt(withoutRecord)).toEqual({ text: withoutRecord });
+    expect(decodeSkillPrompt(instructions)).toEqual({
+      text: "/skill:legacy legacy args",
+    });
+    const damagedRecord = `<!-- web-pi:skill-selection:v1:%broken -->\n${instructions}`;
+    expect(decodeSkillPrompt(damagedRecord)).toEqual({ text: damagedRecord });
+  });
+
+  it("does not recursively interpret a complete record literal restored from the original draft", () => {
+    const original = encodeSkillPrompt(
+      "literal draft",
+      [second],
+      "literal instructions",
+    );
+    const encoded = encodeSkillPrompt(original, [first], "actual instructions");
+    expect(decodeSkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
+      text: `Before\n${original}\nAfter`,
+      skills: [first],
+    });
+  });
+
   it("keeps the legacy single-skill fallback without guessing originals from multiple envelopes", () => {
     expect(skillCommand(legacy)).toBe("/skill:legacy legacy args");
     expect(decodeSkillPrompt(legacy)).toEqual({

@@ -138,6 +138,33 @@ describe("skill selection", () => {
     },
   );
 
+  it.each([
+    {},
+    { isComposing: true },
+    { keyCode: 229 },
+    { ctrlKey: true },
+    { shiftKey: true },
+  ])(
+    "cancels implicit search submission without changing the draft or selection (%j)",
+    async (modifiers) => {
+      mockFetch(() => text(menu));
+      const { submits } = page({
+        draft: "unfinished request",
+        skills: [alpha],
+      });
+      await setup();
+      await open();
+      type(field("#skills-filter"), "beta");
+      const event = keydown(field("#skills-filter"), "Enter", modifiers);
+      expect(event.defaultPrevented).toBe(true);
+      expect(submits).toHaveLength(0);
+      expect(area().value).toBe("unfinished request");
+      expect(selected()).toEqual([alpha]);
+      expect(field("#skills-filter").value).toBe("beta");
+      expect(document.activeElement).toBe(field("#skills-filter"));
+    },
+  );
+
   it("keeps the dropdown usable for steer and follow-up during a running turn", async () => {
     mockFetch(() => text(menu));
     page();

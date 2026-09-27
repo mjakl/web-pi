@@ -30,7 +30,7 @@ afterEach(async () => {
   await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
   vi.restoreAllMocks();
 });
-function fixture() {
+function fixture(userText = expanded) {
   const world = createFakeWorld({
     sessions: [
       {
@@ -44,7 +44,7 @@ function fixture() {
         entries: [
           userEntry("u0", null, "earlier request"),
           assistantEntry("a0", "u0", "answer", 10),
-          userEntry("u1", "a0", expanded),
+          userEntry("u1", "a0", userText),
         ],
       },
     ],
@@ -156,26 +156,36 @@ describe("skill selection HTTP and display boundary", () => {
     },
   );
 
-  it("renders readable transcript, copy and history with dropdown provenance, never instructions", async () => {
-    const { app } = fixture();
-    const document = documentOf(
-      await (await app.request("/sessions/s1")).text(),
-    );
-    const message = document.querySelector("#entry-u1");
-    const history = message?.querySelector("[data-user-text]");
-    expect(history?.textContent).toBe(original);
-    expect(
-      JSON.parse(history?.getAttribute("data-user-skills") ?? "null"),
-    ).toEqual([testing, other]);
-    expect(message?.textContent).toContain("Skills included: testing, other");
-    expect(message?.querySelector("[data-copy-source]")?.textContent).toBe(
-      `${original}\n\nSkills included: testing, other`,
-    );
-    expect(document.body.textContent).not.toContain("SECRET INSTRUCTIONS");
-    expect(document.body.textContent).not.toContain(
-      "web-pi:skill-selection:v1:",
-    );
-  });
+  it.each([
+    ["", ""],
+    ["Context note.\n", ""],
+    ["", "\nHook suffix"],
+    ["<request>\n", "\n</request>"],
+  ])(
+    "renders readable transcript, copy and history with retained surrounding text (%j, %j)",
+    async (prefix, suffix) => {
+      const { app } = fixture(`${prefix}${expanded}${suffix}`);
+      const readable = `${prefix}${original}${suffix}`;
+      const document = documentOf(
+        await (await app.request("/sessions/s1")).text(),
+      );
+      const message = document.querySelector("#entry-u1");
+      const history = message?.querySelector("[data-user-text]");
+      expect(history?.textContent).toBe(readable);
+      expect(
+        JSON.parse(history?.getAttribute("data-user-skills") ?? "null"),
+      ).toEqual([testing, other]);
+      expect(message?.textContent).toContain("Skills included: testing, other");
+      expect(message?.querySelector("[data-copy-source]")?.textContent).toBe(
+        `${readable}\n\nSkills included: testing, other`,
+      );
+      expect(document.querySelector("request")).toBeNull();
+      expect(document.body.textContent).not.toContain("SECRET INSTRUCTIONS");
+      expect(document.body.textContent).not.toContain(
+        "web-pi:skill-selection:v1:",
+      );
+    },
+  );
 
   it.each(["rewind", "fork", "navigate"])(
     "restores original text and dropdown selections after %s",
@@ -199,7 +209,10 @@ describe("skill selection HTTP and display boundary", () => {
   it("decodes queue previews and delivers combined recall text and selections", async () => {
     const { app, workspace } = fixture();
     const queue = [
-      { text: expanded, behavior: "steer" as const },
+      {
+        text: `Context note.\n${expanded}\nHook suffix`,
+        behavior: "steer" as const,
+      },
       {
         text: encodeSkillPrompt(
           "second request",
@@ -214,7 +227,9 @@ describe("skill selection HTTP and display boundary", () => {
     if (!view?.status) throw new Error("Missing live fixture");
     view.status.queue = queue;
     const preview = documentOf(await html(<Status view={view} />));
-    expect(preview.body.textContent).toContain(original);
+    expect(preview.body.textContent).toContain(
+      `Context note.\n${original}\nHook suffix`,
+    );
     expect(preview.body.textContent).toContain(
       "Skills included: testing, other",
     );

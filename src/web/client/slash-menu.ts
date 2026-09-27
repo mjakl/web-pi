@@ -1,4 +1,4 @@
-import { slashQuery } from "@core/composer";
+import { slashCompletionQuery } from "@core/composer";
 import { type MenuEndpoints, replaceRange } from "./editor.ts";
 import { createMenu, handleMenuKey, type Menu } from "./menu.ts";
 
@@ -26,7 +26,19 @@ export function setUpSlashMenu(
       const area = textarea();
       const name = item.dataset["command"];
       if (!area || name === undefined) return;
-      replaceRange(area, 0, area.value.length, `/${name} `, name.length + 2);
+      if (slashCompletionQuery(area.value, area.selectionStart) === null) {
+        menu.close();
+        return;
+      }
+      const separator = area.value.search(/\s/);
+      const end = separator < 0 ? area.value.length : separator;
+      replaceRange(
+        area,
+        0,
+        end,
+        `/${name}${separator < 0 ? " " : ""}`,
+        name.length + 2,
+      );
       menu.close();
     },
     owner,
@@ -59,7 +71,10 @@ export function setUpSlashMenu(
         if (
           signal?.aborted ||
           controller.signal.aborted ||
-          slashQuery(textarea()?.value ?? "") !== query
+          slashCompletionQuery(
+            textarea()?.value ?? "",
+            textarea()?.selectionStart ?? 0,
+          ) !== query
         )
           return;
         menu.render(html);
@@ -74,7 +89,11 @@ export function setUpSlashMenu(
       if (signal?.aborted) return;
       clearTimeout(timer);
       inFlight?.abort();
-      const query = slashQuery(textarea()?.value ?? "");
+      const area = textarea();
+      const query = slashCompletionQuery(
+        area?.value ?? "",
+        area?.selectionStart ?? 0,
+      );
       if (query === null) {
         menu.close();
         return;

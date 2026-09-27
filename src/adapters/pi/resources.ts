@@ -50,6 +50,7 @@ export function createPiProjectResources(options: {
       name: `skill:${skill.name}`,
       description: skill.description,
       source: "skill",
+      skillId: skill.filePath,
       ...(skill.disableModelInvocation ? { manual: true } : {}),
     }));
     return [...extensions, ...prompts, ...skills];

@@ -1,4 +1,4 @@
-import type { ImageAttachment } from "@core/ports";
+import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
 import { honoFactory } from "@web/hono";
@@ -74,6 +74,7 @@ export function createWebApp(deps: WebDeps) {
     id: string,
     draft?: string,
     images: ImageAttachment[] = [],
+    skills?: SkillSelection[],
   ): Promise<Response> {
     const [sidebar, view] = await Promise.all([
       sidebarOf(id),
@@ -90,6 +91,7 @@ export function createWebApp(deps: WebDeps) {
         view={view}
         draft={draft}
         images={images}
+        skills={skills}
         {...(deps.home === undefined ? {} : { home: deps.home })}
       />,
     );

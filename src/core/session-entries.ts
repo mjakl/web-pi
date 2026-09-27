@@ -1,4 +1,5 @@
 import type { EditableMessage } from "./ports.ts";
+import { decodeSkillPrompt } from "./skill-prompt.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionRowMetadata } from "./sessions.ts";
 
@@ -209,7 +210,8 @@ export function editableUserMessage(
 ): EditableMessage | undefined {
   if (entry.type !== "message" || entry.message.role !== "user") return;
   const { content } = entry.message;
-  if (typeof content === "string") return { text: content, images: [] };
+  if (typeof content === "string")
+    return { ...decodeSkillPrompt(content), images: [] };
   const text: string[] = [];
   const images: EditableMessage["images"] = [];
   for (const value of content) {
@@ -231,7 +233,7 @@ export function editableUserMessage(
       }
     }
   }
-  return { text: text.join("\n"), images };
+  return { ...decodeSkillPrompt(text.join("\n")), images };
 }
 
 /** Plain text of a user message entry; undefined for anything else. */
@@ -245,7 +247,7 @@ export function userMessageText(entry: SessionEntry): string | undefined {
           .filter((part) => part.type === "text")
           .map((part) => part.text)
           .join(" ");
-  return text.replaceAll(/\s+/g, " ").trim();
+  return decodeSkillPrompt(text).text.replaceAll(/\s+/g, " ").trim();
 }
 
 /**

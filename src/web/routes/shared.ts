@@ -5,7 +5,8 @@
 
 import { imageLimitError } from "@core/composer";
 import { FileAccessError } from "@core/path-access";
-import type { ImageAttachment } from "@core/ports";
+import type { ImageAttachment, SkillSelection } from "@core/ports";
+import { uniqueSkills } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
 import type { SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
@@ -46,6 +47,7 @@ export type RouteContext = {
     id: string,
     draft?: string,
     images?: ImageAttachment[],
+    skills?: SkillSelection[],
   ) => Promise<Response>;
   row: (c: Context, id: string) => Promise<Response>;
   guard: (c: Context, action: () => Promise<Response>) => Promise<Response>;
@@ -140,6 +142,7 @@ export function toastHeader(
 export type Submission = {
   text: string;
   images: ImageAttachment[];
+  skills: SkillSelection[];
   behavior: "steer" | "followUp";
 };
 
@@ -147,6 +150,32 @@ export type Submission = {
 export async function readSubmission(
   form: FormData,
 ): Promise<Submission | { error: string }> {
+  let skills: SkillSelection[] = [];
+  const selection = rawField(form, "skills");
+  if (selection) {
+    try {
+      const value: unknown = JSON.parse(selection);
+      if (!Array.isArray(value)) throw new Error("Expected selections");
+      for (const item of value as unknown[]) {
+        if (typeof item !== "object" || item === null)
+          throw new Error("Expected a skill");
+        const skill = item as Record<string, unknown>;
+        if (
+          typeof skill["id"] !== "string" ||
+          !skill["id"] ||
+          typeof skill["name"] !== "string" ||
+          !skill["name"]
+        )
+          throw new Error("Expected a skill identity");
+        skills.push({ id: skill["id"], name: skill["name"] });
+      }
+      skills = uniqueSkills(skills);
+    } catch {
+      return {
+        error: "Invalid skill selection. Reload the Skills menu and try again.",
+      };
+    }
+  }
   const files = form
     .getAll("images[]")
     .filter((value): value is File => value instanceof File && value.size > 0);
@@ -161,8 +190,13 @@ export async function readSubmission(
     })),
   );
   return {
-    text: field(form, "text"),
+    // Multipart uses CRLF; textareas expose LF. Keep the original editor text.
+    text:
+      skills.length > 0
+        ? rawField(form, "text").replaceAll("\r\n", "\n")
+        : field(form, "text"),
     images,
+    skills,
     behavior: field(form, "behavior") === "followUp" ? "followUp" : "steer",
   };
 }

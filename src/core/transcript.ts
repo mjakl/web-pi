@@ -1,5 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SkillSelection } from "./ports.ts";
+import { decodeSkillPrompt, skillCommand } from "./skill-prompt.ts";
+export { skillCommand } from "./skill-prompt.ts";
 
 // The conversation as the UI shows it: one item per visible entry on the
 // active branch, each carrying the blocks it renders. Tool results are folded
@@ -99,6 +102,8 @@ export type UserItem = {
   timestamp: string;
   /** `/skill:name args` when the text is Pi's skill expansion envelope. */
   command?: string;
+  /** Dropdown provenance only, never a reconstruction from skill instructions. */
+  skills?: SkillSelection[];
 };
 
 export type AssistantItem = {
@@ -273,20 +278,6 @@ function optional<K extends string, V>(
   value: V | undefined,
 ): Record<K, V> | Record<string, never> {
   return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
-}
-
-/**
- * Display-only restoration of Pi's skill expansion envelope: the stored text
- * stays the expansion, the header shows the command that produced it.
- */
-const SKILL_EXPANSION =
-  /^<skill name="([^"\n]+)" location="([^"\n]+)">\nReferences are relative to [^\n]+\.\n\n([\s\S]*)\n<\/skill>(?:\n\n([\s\S]+))?$/;
-
-export function skillCommand(text: string): string | undefined {
-  const match = SKILL_EXPANSION.exec(text);
-  if (!match) return undefined;
-  const args = match[4];
-  return args ? `/skill:${match[1] ?? ""} ${args}` : `/skill:${match[1] ?? ""}`;
 }
 
 /** The one line a collapsed tool call shows: its most telling argument. */
@@ -629,13 +620,18 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
         if (message.role === "user") {
           contentLeaf = entry.id;
           const text = contentText(message.content);
+          const decoded = decodeSkillPrompt(text);
           items.push({
             kind: "user",
             entryId: entry.id,
-            text,
+            text: decoded.skills ? decoded.text : text,
             images: imageIndices(message.content),
             timestamp: entry.timestamp,
-            ...optional("command", skillCommand(text)),
+            ...optional("skills", decoded.skills),
+            ...optional(
+              "command",
+              decoded.skills ? undefined : skillCommand(text),
+            ),
           });
         } else if (message.role === "assistant") {
           contentLeaf = entry.id;

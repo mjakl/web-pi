@@ -41,7 +41,8 @@
   margin-top: var(--space-3);
 }
 .composer-toolbar > button,
-.model-selector.is-composer > button {
+.model-selector.is-composer > button,
+.skills-selector.is-composer > button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -56,7 +57,8 @@
   cursor: pointer;
 }
 .composer-toolbar > button:hover:not(:disabled),
-.model-selector.is-composer > button:hover:not(:disabled) {
+.model-selector.is-composer > button:hover:not(:disabled),
+.skills-selector.is-composer > button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 .composer-toolbar > button:disabled {
@@ -65,7 +67,19 @@
 }
 .model-selector.is-composer {
   margin-left: auto;
-  max-width: calc(100% - 112px);
+  max-width: min(50%, 340px);
+}
+.skills-selector.is-composer {
+  min-width: 0;
+  flex-shrink: 0;
+}
+.skills-selector.is-composer > button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
 .model-selector.is-composer > button {
   width: 100%;
@@ -90,7 +104,7 @@
   color: var(--bg);
   background: none;
 }
-.model-selector.is-composer + .composer-action-primary {
+.skills-selector.is-composer + .composer-action-primary {
   margin-left: 0;
 }
 .composer-action-primary::before {
@@ -149,6 +163,12 @@
 .menu-model-selector {
   position-anchor: --model-selector;
 }
+.anchor-skills-selector {
+  anchor-name: --skills-selector;
+}
+.menu-skills-selector {
+  position-anchor: --skills-selector;
+}
 .anchored-menu.opens-up.menu-composer-controls {
   left: anchor(left);
   right: auto;
@@ -169,8 +189,71 @@
   overflow: hidden;
 }
 /* Author display:flex must not expose the closed native popover. */
-.anchored-menu.opens-up.menu-model-selector:not(:popover-open) {
+.anchored-menu.opens-up.menu-model-selector:not(:popover-open),
+.anchored-menu.opens-up.menu-skills-selector:not(:popover-open) {
   display: none;
+}
+.anchored-menu.opens-up.menu-skills-selector {
+  /* Anchor to the trigger when there is room, otherwise pull the 400px panel
+     back inside the viewport (notably with the sidebar open at 641px). */
+  left: clamp(
+    8px,
+    anchor(left),
+    calc(100vw - min(400px, calc(100vw - 16px)) - 8px)
+  );
+  right: auto;
+  width: min(400px, calc(100vw - 16px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.composer-skills-filter {
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.composer-skills-filter .menu-filter {
+  width: 100%;
+}
+.composer-skills-results {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+.composer-skill-option {
+  width: 100%;
+  min-height: 36px;
+  overflow: hidden;
+  text-align: left;
+}
+.composer-skill-option[aria-selected="true"] {
+  background: var(--bg-hover);
+}
+.composer-skill-check {
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.composer-skill-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-skill-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-skills-empty {
+  padding: var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--text-sm);
 }
 .chat-notices {
   position: absolute;
@@ -772,11 +855,15 @@ button.extension-widget-trigger:focus-visible {
     left: 12px;
     right: auto;
   }
-  .anchored-menu.opens-up.menu-model-selector {
+  .anchored-menu.opens-up.menu-model-selector,
+  .anchored-menu.opens-up.menu-skills-selector {
     left: 8px;
     right: 8px;
     width: auto;
     margin-right: 0;
+  }
+  .composer-skill-option {
+    min-height: 44px;
   }
   .menu-composer-controls .menu-item {
     min-height: 44px;
@@ -792,14 +879,30 @@ button.extension-widget-trigger:focus-visible {
 
 @media (max-width: 640px), (pointer: coarse) {
   .composer-toolbar > button,
-  .model-selector.is-composer > button {
+  .model-selector.is-composer > button,
+  .skills-selector.is-composer > button {
     min-height: 44px;
   }
   .composer-toolbar > button {
     min-width: 44px;
   }
   .model-selector.is-composer {
-    max-width: calc(100% - 132px);
+    max-width: calc(100% - 210px);
+  }
+  .skills-selector.is-composer > button {
+    padding-inline: var(--space-2);
+  }
+}
+
+@media (max-width: 400px) {
+  /* At phone width, keep the model name; reasoning remains in its menu. */
+  .model-selector.is-composer .composer-model-detail {
+    display: none;
+  }
+  .model-selector.is-composer > button,
+  .skills-selector.is-composer > button {
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
   }
 }
 

@@ -12,6 +12,8 @@ export type SlashCommand = {
   source: SlashSource;
   /** A skill Pi may not invoke on its own; only a person can run it. */
   manual?: boolean;
+  /** The discovered skill file identity; absent for non-skill commands. */
+  skillId?: string;
   /** Built-ins that still work while a turn is running. */
   whileRunning?: boolean;
 };
@@ -57,6 +59,18 @@ export function slashQuery(value: string): string | null {
   if (!value.startsWith("/")) return null;
   const rest = value.slice(1);
   return /\s/.test(rest) ? null : rest.toLowerCase();
+}
+
+/** Only a leading skill token may be completed after request text exists. */
+export function slashCompletionQuery(
+  value: string,
+  caret: number,
+): string | null {
+  if (!value.startsWith("/skill:")) return slashQuery(value);
+  const separator = value.search(/\s/);
+  const end = separator < 0 ? value.length : separator;
+  if (caret < 1 || caret > end) return null;
+  return value.slice(1, caret).toLowerCase();
 }
 
 const SOURCE_ORDER: Record<SlashSource, number> = {

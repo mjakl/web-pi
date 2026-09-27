@@ -31,6 +31,7 @@ import { createCompletionTracker } from "@core/turn-completion";
 import { toolParameters } from "@core/tools";
 import { estimateTokens, streamedText, toolProgress } from "@core/transcript";
 import { STAR_TYPE } from "@core/session-entries";
+import { selectedSkillPrompt } from "./selected-skills.ts";
 import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
@@ -89,7 +90,7 @@ class PiLiveSession implements LiveSession {
   private partialStart: number | null = null;
   private readonly partialArguments = new Map<string, string>();
   /** Attachments of messages waiting in the SDK's queue, keyed by their text. */
-  private readonly queuedImages = new Map<string, ImageAttachment[]>();
+  private readonly queuedImages: Map<string, ImageAttachment[]>;
   private turnStart: number;
   private compacting = false;
   private queue: QueuedMessage[] = [];
@@ -122,11 +123,13 @@ class PiLiveSession implements LiveSession {
       agentDir: string;
       shellPath?: string;
       bashOperations?: BashOperations;
+      queuedImages: Map<string, ImageAttachment[]>;
     },
     onStop: () => void,
   ) {
     this.inner = inner;
     this.agentDir = options.agentDir;
+    this.queuedImages = options.queuedImages;
     this.shellPath = options.shellPath;
     this.bashOperations = options.bashOperations;
     this.onStop = onStop;
@@ -444,11 +447,22 @@ class PiLiveSession implements LiveSession {
         ),
       );
     }
-    if (this.inner.isStreaming) {
-      if (input.images && input.images.length > 0) {
-        this.queuedImages.set(text, input.images);
+    const hasSkills = (input.skills?.length ?? 0) > 0;
+    let promptText = text;
+    if (hasSkills) {
+      try {
+        promptText = selectedSkillPrompt(
+          text,
+          input.skills ?? [],
+          this.inner.resourceLoader.getSkills().skills,
+        );
+      } catch (error) {
+        return Promise.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
       }
-    } else {
+    }
+    if (!this.inner.isStreaming) {
       this.turnStart = this.inner.sessionManager.getBranch().length;
       this.compaction = null;
     }
@@ -457,7 +471,8 @@ class PiLiveSession implements LiveSession {
     this.pendingPrompts += 1;
     return new Promise((resolve, reject) => {
       this.inner
-        .prompt(text, {
+        .prompt(promptText, {
+          ...(hasSkills ? { expandPromptTemplates: false } : {}),
           streamingBehavior: input.behavior ?? "steer",
           ...(input.images && input.images.length > 0
             ? {
@@ -582,6 +597,7 @@ class PiLiveSession implements LiveSession {
           name: `skill:${skill.name}`,
           description: skill.description,
           source: "skill",
+          skillId: skill.filePath,
           ...(skill.disableModelInvocation ? { manual: true } : {}),
         })),
     ];
@@ -826,6 +842,7 @@ export function createPiAgentRuntime(options: {
     const cwd = manager.getCwd();
     const settingsManager = SettingsManager.create(cwd, options.agentDir);
     const trust = projectTrustReloadOptions(cwd, options.agentDir);
+    const queuedImages = new Map<string, ImageAttachment[]>();
     const services = await createAgentSessionServices({
       cwd,
       agentDir: options.agentDir,
@@ -843,6 +860,26 @@ export function createPiAgentRuntime(options: {
               : {}),
           }),
           ...(options.extensions ?? []),
+          {
+            name: "web-pi-queue-images",
+            hidden: true,
+            factory(pi) {
+              // Inline extensions follow discovered ones. Selected prompts are
+              // already expanded; observe after user hooks to key their images
+              // by the final queued text, including transformed attachments.
+              pi.on("input", (event) => {
+                if (event.streamingBehavior) {
+                  const images = event.images?.map(({ data, mimeType }) => ({
+                    data,
+                    mimeType,
+                  }));
+                  if (images?.length) queuedImages.set(event.text, images);
+                  else queuedImages.delete(event.text);
+                }
+                return { action: "continue" };
+              });
+            },
+          },
         ],
         extensionsOverride: preferUserBashExtension,
       },
@@ -909,6 +946,7 @@ export function createPiAgentRuntime(options: {
       session,
       {
         agentDir: options.agentDir,
+        queuedImages,
         ...(shellPath === undefined ? {} : { shellPath }),
         ...(options.bashOperations
           ? { bashOperations: options.bashOperations }

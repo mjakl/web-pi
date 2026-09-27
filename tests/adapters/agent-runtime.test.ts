@@ -320,6 +320,7 @@ describe("session commands", () => {
           name: "skill:tidy",
           description: "Tidy up",
           source: "skill",
+          skillId: join(h.agentDir, "skills", "tidy", "SKILL.md"),
           manual: true,
         },
       ]),

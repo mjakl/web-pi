@@ -3,7 +3,6 @@ import {
   buildAtInsertText,
   cycleHistory,
   exactBuiltin,
-  inputHistory,
 } from "@core/composer";
 import { setUpAtCompletion } from "./at-complete.ts";
 import { draftKey, setUpDrafts } from "./drafts.ts";
@@ -19,6 +18,8 @@ import { setUpImages } from "./images.ts";
 import { requestContext } from "./htmx.ts";
 import { navigationIntent } from "./navigation.ts";
 import { setUpSlashMenu } from "./slash-menu.ts";
+import { setUpSkills } from "./skills.ts";
+import type { SkillSelection } from "@core/ports";
 import {
   focusSessionInput,
   setUpSessionInputFocus,
@@ -151,7 +152,9 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     );
     if (!button) return;
     const filled =
-      (textarea()?.value.trim() ?? "") !== "" || images.count() > 0;
+      (textarea()?.value.trim() ?? "") !== "" ||
+      images.count() > 0 ||
+      skills.count() > 0;
     const running = form.hasAttribute("data-running");
     const action: Action = !running
       ? "send"
@@ -173,17 +176,55 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     button.disabled = !running && !filled;
   };
   const drafts = setUpDrafts(sessionId, cwd, textarea, signal);
+  const skills = setUpSkills(form, syncAction, signal);
+  syncAction();
 
   let cycle: number | null = null;
   let compositionEndedAt = -Infinity;
   let composing = false;
 
-  function history(): string[] {
-    return inputHistory(
-      [...document.querySelectorAll<HTMLElement>("[data-user-text]")].map(
-        (element) => element.textContent ?? "",
-      ),
-    );
+  function history(): { text: string; skills: SkillSelection[] }[] {
+    const entries = [
+      ...document.querySelectorAll<HTMLElement>("[data-user-text]"),
+    ].map((element) => {
+      let selected: SkillSelection[] = [];
+      try {
+        const value: unknown = JSON.parse(
+          element.dataset["userSkills"] ?? "[]",
+        );
+        if (Array.isArray(value)) {
+          const items: unknown[] = value;
+          selected = items.filter(
+            (item): item is SkillSelection =>
+              item !== null &&
+              typeof item === "object" &&
+              "id" in item &&
+              "name" in item &&
+              typeof item.id === "string" &&
+              typeof item.name === "string",
+          );
+        }
+      } catch {
+        /* Older history has text only. */
+      }
+      const text = element.textContent ?? "";
+      return {
+        text: element.hasAttribute("data-user-skills") ? text : text.trim(),
+        skills: selected,
+      };
+    });
+    // Deduplicate by the full payload, so the same words with different skills remain distinct.
+    const seen = new Set<string>();
+    const distinct: typeof entries = [];
+    for (const entry of entries.reverse()) {
+      if (entry.text === "" && entry.skills.length === 0) continue;
+      const key = JSON.stringify(entry);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      distinct.push(entry);
+      if (distinct.length === 50) break;
+    }
+    return distinct.reverse();
   }
 
   function shellHint(value: string): void {
@@ -214,6 +255,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     if (area) setComposerValue(area, "");
     images.clear();
     drafts.clear();
+    skills.restore([]);
     slash.close();
     at.close();
     cycle = null;
@@ -236,7 +278,8 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
       form.isConnected &&
       drafts.version() === version &&
       textarea()?.value.trim() === "/copy" &&
-      images.count() === 0;
+      images.count() === 0 &&
+      skills.count() === 0;
     copying = true;
     let failure = "Could not load the answer to copy.";
     try {
@@ -266,7 +309,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
 
   /** These commands never submit a model prompt. */
   function runLocalBuiltin(value: string): boolean {
-    if (images.count() > 0) return false;
+    if (images.count() > 0 || skills.count() > 0) return false;
     if (value === "/session") {
       const trigger = document.querySelector<HTMLElement>("#stats-trigger");
       if (!sessionId || !trigger) {
@@ -292,9 +335,21 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     if (field) field.value = behavior;
   };
 
+  function incompatibleSelection(): boolean {
+    if (skills.count() === 0) return false;
+    const text = textarea()?.value.trim() ?? "";
+    if (
+      text.startsWith("/skill:") ||
+      (!text.startsWith("/") && !text.startsWith("!"))
+    )
+      return false;
+    showToast("Remove selected skills before sending a command.", "warning");
+    return true;
+  }
+
   const submit = (behavior: "steer" | "followUp"): void => {
     const area = textarea();
-    if (!area) return;
+    if (!area || incompatibleSelection()) return;
     if (runLocalBuiltin(area.value.trim())) return;
     setBehavior(behavior);
     slash.close();
@@ -320,7 +375,10 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
       const behavior = button?.dataset["behavior"];
       if (behavior !== "steer" && behavior !== "followUp") return;
       const area = textarea();
-      if (area && runLocalBuiltin(area.value.trim())) {
+      if (
+        incompatibleSelection() ||
+        (area && runLocalBuiltin(area.value.trim()))
+      ) {
         event.preventDefault();
         event.stopPropagation();
         return;
@@ -381,12 +439,16 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
           slash.close();
           at.close();
           const step = cycleHistory(
-            past,
+            past.map((entry) => entry.text),
             cycle,
             event.key === "ArrowUp" ? "up" : "down",
           );
-          cycle = step.cycle;
-          setComposerValue(area, step.text);
+          const entry =
+            step.cycle === null
+              ? undefined
+              : past[past.length - 1 - step.cycle];
+          setComposerValue(area, entry?.text ?? "");
+          skills.restore(entry?.skills ?? []);
           cycle = step.cycle;
           return;
         }
@@ -418,9 +480,11 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     (event) => {
       if (event.target !== form) return;
       const textVersion = drafts.version();
+      const clearSubmittedSkills = skills.submitted();
       const clearSubmittedImages = images.submitted();
       submissions.set(requestContext(event), () => {
         drafts.clear(textVersion);
+        clearSubmittedSkills();
         clearSubmittedImages();
         if (!signal.aborted) {
           slash.close();

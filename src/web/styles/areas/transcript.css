@@ -1332,6 +1332,11 @@
   margin-right: var(--space-2);
   padding: 0 var(--space-4) 0 var(--space-6);
 }
+.user-message-skills {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
 .user-command {
   display: flex;
   flex-direction: column;

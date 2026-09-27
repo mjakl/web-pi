@@ -22,6 +22,7 @@ import {
 } from "@core/packages";
 import type { SkillInfo } from "@core/skills";
 import { estimateTokens, streamedText } from "@core/transcript";
+import { encodeSkillPrompt } from "@core/skill-prompt";
 import type { ProjectInfo, WorktreeInfo } from "@core/workspaces";
 import type {
   AgentRuntime,
@@ -57,7 +58,6 @@ import {
   rowMetadata,
   STAR_TYPE,
   editableUserMessage,
-  userMessageText,
 } from "@core/session-entries";
 import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -344,6 +344,7 @@ export const FAKE_COMMANDS: SlashCommand[] = [
     name: "skill:testing",
     description: "How this repository tests things",
     source: "skill",
+    skillId: "/fake/skills/testing/SKILL.md",
     manual: true,
   },
 ];
@@ -687,9 +688,12 @@ class FakeLiveSession implements LiveSession {
   }
 
   prompt(text: string, input: PromptInput = {}): Promise<void> {
+    const storedText = input.skills?.length
+      ? encodeSkillPrompt(text, input.skills, text)
+      : text;
     if (this.running) {
       this.queue.push({
-        text,
+        text: storedText,
         behavior: input.behavior ?? "steer",
         ...(input.images && input.images.length > 0
           ? { images: input.images }
@@ -703,7 +707,12 @@ class FakeLiveSession implements LiveSession {
     this.turnStart = branchOf(this.stored).length;
     const userId = this.nextId();
     this.append(
-      userEntry(userId, leafOf(this.stored), text, input.images?.length ?? 0),
+      userEntry(
+        userId,
+        leafOf(this.stored),
+        storedText,
+        input.images?.length ?? 0,
+      ),
     );
     this.emit({ type: "activity" });
     void this.play(userId, this.script(text));
@@ -864,7 +873,12 @@ class FakeLiveSession implements LiveSession {
     this.stored.leafId = targetId;
     this.turnStart = branchOf(this.stored).length;
     this.emit({ type: "activity" });
-    return Promise.resolve(userMessageText(entry));
+    const draft = editableUserMessage(entry);
+    return Promise.resolve(
+      draft?.skills
+        ? encodeSkillPrompt(draft.text, draft.skills, draft.text)
+        : draft?.text,
+    );
   }
 
   subscribe(listener: (event: LiveEvent) => void): () => void {

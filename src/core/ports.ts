@@ -176,8 +176,15 @@ export type Notice = { level: "info" | "warning" | "error"; message: string };
 
 export type ImageAttachment = { data: string; mimeType: string };
 
+/** Identity from the receiving session's discovered resources, never a free-form read path. */
+export type SkillSelection = { id: string; name: string };
+
 /** A historical user message restored to the composer, without display normalization. */
-export type EditableMessage = { text: string; images: ImageAttachment[] };
+export type EditableMessage = {
+  text: string;
+  images: ImageAttachment[];
+  skills?: SkillSelection[];
+};
 
 export type QueuedMessage = {
   text: string;
@@ -314,6 +321,7 @@ export type LiveEvent =
 
 export type PromptInput = {
   images?: ImageAttachment[];
+  skills?: SkillSelection[];
   /** How to deliver the message while a turn runs. Default: steer. */
   behavior?: "steer" | "followUp";
 };

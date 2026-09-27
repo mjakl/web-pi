@@ -31,6 +31,7 @@ import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
 import { Status, turnBusy } from "@web/views/Status";
+import { SkillsMenu } from "@web/views/Skills";
 import { LiveRecovery, SavedMessages, Transcript } from "@web/views/Transcript";
 import { type Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -52,6 +53,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   for (const action of [
     "prompt",
     "commands",
+    "skills",
     "compact",
     "compact/abort",
     "queue/recall",
@@ -87,12 +89,23 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     const form = await c.req.formData();
     const submission = await readSubmission(form);
     if ("error" in submission) return reject(c, submission.error);
-    const { text, images, behavior } = submission;
+    const { text, images, skills, behavior } = submission;
     const cwd = field(form, "cwd");
     if (existingId === undefined && !cwd) {
       return reject(c, "Choose a working folder first.");
     }
-    if (!text && images.length === 0) return reject(c, "Type a request first.");
+    if (!text.trim() && images.length === 0 && skills.length === 0)
+      return reject(c, "Type a request first.");
+    if (
+      skills.length > 0 &&
+      (/^\/(?!skill:)/.test(text.trimStart()) ||
+        text.trimStart().startsWith("!"))
+    ) {
+      return reject(
+        c,
+        "Remove selected skills before sending another slash or shell command.",
+      );
+    }
     // An explicit local-only command must never become a model prompt, even
     // when attachments would otherwise cancel shell mode.
     if (text.startsWith("!!") && images.length > 0) {
@@ -138,7 +151,11 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       } else if (name) {
         response = await runBuiltin(c, id, name, argument);
       } else {
-        await deps.workspace.send(id, text, { images, behavior });
+        await deps.workspace.send(id, text, {
+          images,
+          behavior,
+          ...(skills.length ? { skills } : {}),
+        });
         response = c.body(null, 204);
       }
       // A 2xx toast can still reject input. Only completed dispatch grants
@@ -200,6 +217,13 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     return c.html(<CommandMenu commands={commands} query={query} />);
   });
 
+  app.get("/sessions/:id/skills", async (c) => {
+    const id = c.req.param("id");
+    if (!isSessionId(id)) return c.notFound();
+    const commands = await deps.workspace.commands(id, "");
+    return c.html(<SkillsMenu commands={commands} />);
+  });
+
   app.post("/sessions/:id/compact", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
@@ -225,9 +249,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
     const recalled = await deps.workspace.recallQueue(id);
+    if (recalled.warning) toastHeader(c, recalled.warning, "warning");
     return c.html(
       <>
-        <ComposerText draft={recalled.text} />
+        <ComposerText draft={recalled.text} skills={recalled.skills ?? []} />
         <RecalledImages images={recalled.images} />
       </>,
     );
@@ -394,6 +419,14 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const query = c.req.query("q") ?? "";
       const commands = await deps.workspace.folderCommands(cwd, query);
       return c.html(<CommandMenu commands={commands} query={query} />);
+    });
+  });
+
+  app.get("/workspaces/skills", async (c) => {
+    const cwd = c.req.query("cwd") ?? "";
+    return guard(c, async () => {
+      const commands = await deps.workspace.folderCommands(cwd, "");
+      return c.html(<SkillsMenu commands={commands} />);
     });
   });
 

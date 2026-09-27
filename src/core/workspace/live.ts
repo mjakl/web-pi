@@ -23,6 +23,7 @@ import {
 } from "@core/transcript";
 import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
+import { recallSkillPrompts, type QueueRecall } from "@core/skill-prompt";
 import { isSubagentSession } from "@core/sessions";
 import type { Shared } from "./deps.ts";
 import { ForbiddenPath } from "./views.ts";
@@ -203,18 +204,21 @@ export function liveUseCases({
      * draft, and the images of every queued message, so recalling a message
      * that carried a screenshot does not silently drop it.
      */
-    async recallQueue(
-      id: string,
-    ): Promise<{ text: string; images: ImageAttachment[] }> {
+    async recallQueue(id: string): Promise<QueueRecall> {
       await requireWritableSession(id);
-      const queued = deps.runtime.get(id)?.clearQueue() ?? [];
-      return {
-        text: queued
-          .map((message) => message.text)
-          .filter((text) => text !== "")
-          .join("\n\n"),
-        images: queued.flatMap((message) => message.images ?? []),
-      };
+      const live = deps.runtime.get(id);
+      const available =
+        live?.commands().flatMap((command) =>
+          command.source === "skill" && command.skillId
+            ? [
+                {
+                  id: command.skillId,
+                  name: command.name.slice("skill:".length),
+                },
+              ]
+            : [],
+        ) ?? [];
+      return recallSkillPrompts(live?.clearQueue() ?? [], available);
     },
 
     async runBash(

@@ -4,7 +4,7 @@ import {
   formatContextUsage,
 } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
-import type { ImageAttachment } from "@core/ports";
+import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
 import type { SessionStats } from "@core/session-entries";
 import type { NewSessionView, SessionView, SidebarView } from "@core/workspace";
@@ -569,6 +569,7 @@ export function SessionPage({
   view,
   draft,
   images,
+  skills,
   trust,
   home,
   overlay,
@@ -578,6 +579,7 @@ export function SessionPage({
   view: SessionView;
   draft?: string;
   images?: ImageAttachment[];
+  skills?: SkillSelection[];
   trust?: { requiresTrust: boolean; trusted: boolean };
   home?: string;
   overlay?: unknown;
@@ -632,6 +634,7 @@ export function SessionPage({
                 cwd={summary.cwd}
                 draft={draft}
                 images={images}
+                skills={skills}
                 view={view}
                 status={<Status view={view} />}
               />

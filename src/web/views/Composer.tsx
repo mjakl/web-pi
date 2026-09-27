@@ -3,10 +3,12 @@ import type {
   ImageAttachment,
   ModelOption,
   Notice,
+  SkillSelection,
   ThinkingChoice,
   ThinkingLevel,
 } from "@core/ports";
 import type { NewSessionView, SessionView } from "@core/workspace";
+import { SkillsSelector } from "./Skills.tsx";
 import {
   AttachImageIcon,
   ChevronDownIcon,
@@ -161,13 +163,22 @@ export function RecalledImages({
   );
 }
 
-export function ComposerText({ draft }: { draft?: string }) {
+export function ComposerText({
+  draft,
+  skills,
+}: {
+  draft?: string;
+  skills?: SkillSelection[];
+}) {
   return (
     <textarea
       id="composer-text"
       name="text"
       class="composer-textarea"
       data-restored-draft={draft !== undefined ? "" : undefined}
+      data-restored-skills={
+        skills === undefined ? undefined : JSON.stringify(skills)
+      }
       rows={1}
       placeholder="Message…"
       // The browser keyboard must not steal Enter from a phone user.
@@ -556,6 +567,7 @@ export function Composer({
   sessionId,
   cwd,
   draft,
+  skills,
   images = [],
   view,
   start,
@@ -564,6 +576,7 @@ export function Composer({
   sessionId?: string;
   cwd?: string;
   draft?: string;
+  skills?: SkillSelection[];
   images?: ImageAttachment[];
   /** The session this composer belongs to: its models and running state. */
   view?: SessionView;
@@ -639,7 +652,7 @@ export function Composer({
           />
           <div class="composer-surface">
             <div id="image-previews" class="composer-image-previews" hidden />
-            <ComposerText draft={draft} />
+            <ComposerText draft={draft} skills={skills} />
             <div class="composer-toolbar">
               <button
                 type="button"
@@ -654,6 +667,11 @@ export function Composer({
                 {...(sessionId === undefined ? {} : { sessionId })}
               />
               {pick === undefined ? null : <ModelSelector pick={pick} />}
+              <SkillsSelector
+                {...(sessionId === undefined ? {} : { sessionId })}
+                {...(cwd === undefined ? {} : { cwd })}
+                skills={skills}
+              />
               <button
                 type="submit"
                 class="composer-action-primary"

@@ -14,6 +14,7 @@ import {
   isFilePathQuery,
   rankCommands,
   slashQuery,
+  slashCompletionQuery,
   type SlashCommand,
 } from "@core/composer";
 import { describe, expect, it } from "vitest";
@@ -24,6 +25,18 @@ describe("slash commands", () => {
     expect(slashQuery("/NAME")).toBe("name");
     expect(slashQuery("/name foo")).toBeNull();
     expect(slashQuery("hello /name")).toBeNull();
+  });
+
+  it("queries only the leading skill token up to the caret, not request text", () => {
+    const value = "/skill:find-skill explain the issue";
+    expect(slashCompletionQuery(value, "/skill:fi".length)).toBe("skill:fi");
+    expect(slashCompletionQuery(value, "/skill:find-skill".length)).toBe(
+      "skill:find-skill",
+    );
+    expect(slashCompletionQuery(value, value.length)).toBeNull();
+    expect(slashCompletionQuery("ask /skill:fi", 13)).toBeNull();
+    expect(slashCompletionQuery("/name Bob", 3)).toBeNull();
+    expect(slashCompletionQuery("/name", 5)).toBe("name");
   });
 
   it("ranks exact names first, then prefixes, then descriptions", () => {

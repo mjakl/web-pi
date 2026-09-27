@@ -190,6 +190,29 @@ describe("workspace over the fake runtime", () => {
     expect(recalled.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
   });
 
+  it("recalls selected prompts separately and keeps manual skill identities discoverable while running", async () => {
+    const world = createFakeWorld({ delayMs: 20, reply: () => "slow answer" });
+    const workspace = createWorkspace(world);
+    const id = await sendFirst(workspace, "/tmp/project", "first");
+    const skills = [{ id: "/fake/skills/testing/SKILL.md", name: "testing" }];
+    await workspace.send(id, "  second  ", { skills });
+    await workspace.send(id, "third", { skills, behavior: "followUp" });
+    expect(await workspace.recallQueue(id)).toEqual({
+      text: "  second  \n\nthird",
+      skills,
+      images: [],
+    });
+    expect(await workspace.commands(id, "testing")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "skill",
+          manual: true,
+          skillId: skills[0]?.id,
+        }),
+      ]),
+    );
+  });
+
   it("puts the post-compaction estimate on the compaction card", async () => {
     const world = createFakeWorld({
       delayMs: 2,

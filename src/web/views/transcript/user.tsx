@@ -29,6 +29,11 @@ export function UserMessage({
       separated={item.text !== ""}
     />
   );
+  const included = item.skills?.length
+    ? `Skills included: ${item.skills.map((skill) => skill.name).join(", ")}`
+    : "";
+  const source = item.command ?? item.text;
+  const copy = included ? `${source}\n\n${included}` : source;
   const command = item.command;
   const space = command === undefined ? -1 : command.search(/\s/);
   const name =
@@ -53,8 +58,14 @@ export function UserMessage({
                 <>
                   {images}
                   {/* `data-user-text` is what the composer's ArrowUp reads. */}
-                  <div data-user-text hidden>
-                    {item.text}
+                  <div
+                    data-user-text
+                    data-user-skills={
+                      item.skills ? JSON.stringify(item.skills) : undefined
+                    }
+                    hidden
+                  >
+                    {item.draftText ?? item.text}
                   </div>
                   <Markdown
                     source={item.text}
@@ -86,13 +97,21 @@ export function UserMessage({
                   />
                 </details>
               )}
+              {included ? (
+                <div
+                  class="user-message-skills"
+                  title="These skill instructions were included in this message; inclusion does not guarantee model compliance."
+                >
+                  {included}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
       <div class="user-message-footer">
         <div class="message-actions user-message-copy">
-          <CopyButton text={item.command ?? item.text} />
+          <CopyButton text={copy} />
         </div>
         {editable && actions ? (
           <div class="message-actions user-message-history">

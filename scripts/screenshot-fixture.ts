@@ -1,6 +1,7 @@
 import {
   assistantEntry,
   createFakeWorld,
+  FAKE_COMMANDS,
   userEntry,
   type FakeStoredSession,
 } from "@adapters/fake/index";
@@ -15,6 +16,20 @@ import { join, resolve } from "node:path";
 
 // The real Hono app and file adapters, with fictional in-memory sessions.
 // Nothing loads Pi resources, credentials, user sessions, or a model.
+FAKE_COMMANDS.push(
+  {
+    name: "skill:release-planning",
+    description: "Plan a safe, incremental release",
+    source: "skill",
+    skillId: "/fake/skills/release-planning/SKILL.md",
+  },
+  {
+    name: "skill:accessibility-and-responsive-layout",
+    description: "Check keyboard focus and narrow layouts",
+    source: "skill",
+    skillId: "/fake/skills/accessibility-and-responsive-layout/SKILL.md",
+  },
+);
 const root = mkdtempSync(join(tmpdir(), "web-pi-screenshots-"));
 const cwd = join(root, "field-notes");
 mkdirSync(join(cwd, "src"), { recursive: true });

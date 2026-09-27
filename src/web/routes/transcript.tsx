@@ -2,6 +2,7 @@
 // branching, and the export. The transcript area owns this module.
 
 import { isSessionId, isSubagentSession } from "@core/sessions";
+import { recoverSkillPrompt } from "@core/skill-prompt";
 import { InspectionOnlySession } from "@core/workspace";
 import { renderMarkdown } from "@web/markdown";
 import { EarlierPage, StarButton, ToolBody } from "@web/views/Items";
@@ -224,7 +225,13 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
     const form = await c.req.formData();
     return guard(c, async () => {
       const forked = await deps.workspace.fork(id, field(form, "entryId"));
-      return page(c, forked.id, forked.text, forked.images);
+      return page(
+        c,
+        forked.id,
+        forked.text,
+        forked.images,
+        forked.skills ?? [],
+      );
     });
   });
 
@@ -239,7 +246,9 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
         id,
         field(form, "entryId"),
       );
-      return page(c, id, draft);
+      if (draft === undefined) return page(c, id);
+      const restored = recoverSkillPrompt(draft);
+      return page(c, id, restored.text, [], restored.skills ?? []);
     });
   });
 
@@ -249,7 +258,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
     const form = await c.req.formData();
     return guard(c, async () => {
       const draft = await deps.workspace.rewind(id, field(form, "entryId"));
-      return page(c, id, draft.text, draft.images);
+      return page(c, id, draft.text, draft.images, draft.skills ?? []);
     });
   });
 

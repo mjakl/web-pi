@@ -1,6 +1,7 @@
 import { userEntry } from "@adapters/fake/index";
 import {
-  decodeSkillPrompt,
+  displaySkillPrompt,
+  recoverSkillPrompt,
   encodeSkillPrompt,
   recallSkillPrompts,
   skillCommand,
@@ -31,7 +32,7 @@ describe("skill prompt provenance", () => {
         [first, second, first],
         "Instructions containing </skill> and <!-- web-pi:skill-selection:v1:fake -->\n",
       );
-      expect(decodeSkillPrompt(encoded)).toEqual({
+      expect(displaySkillPrompt(encoded)).toEqual({
         text,
         skills: [first, second],
       });
@@ -53,7 +54,8 @@ describe("skill prompt provenance", () => {
     "<!-- web-pi:skill-selection:v1:%7B%7D -->\nbody",
     `<!-- web-pi:skill-selection:v1:${encodeURIComponent(JSON.stringify({ text: "hidden", skills: [{ id: 2, name: "first" }] }))} -->\nbody`,
   ])("leaves malformed and unsupported records literal", (text) => {
-    expect(decodeSkillPrompt(text)).toEqual({ text });
+    expect(displaySkillPrompt(text)).toEqual({ text });
+    expect(recoverSkillPrompt(text)).toEqual({ text });
   });
 
   it.each([
@@ -69,8 +71,12 @@ describe("skill prompt provenance", () => {
         [first, second],
         `${legacy}\n\nMore 🦉 instructions`,
       );
-      expect(decodeSkillPrompt(`${prefix}${encoded}${suffix}`)).toEqual({
+      expect(displaySkillPrompt(`${prefix}${encoded}${suffix}`)).toEqual({
         text: `${prefix}${original}${suffix}`,
+        skills: [first, second],
+      });
+      expect(recoverSkillPrompt(`${prefix}${encoded}${suffix}`)).toEqual({
+        text: original,
         skills: [first, second],
       });
     },
@@ -80,7 +86,8 @@ describe("skill prompt provenance", () => {
     "rejects a missing, invalid or out-of-range expansion boundary %j",
     (expandedLength) => {
       const marker = `<!-- web-pi:skill-selection:v1:${encodeURIComponent(JSON.stringify({ text: "hidden", skills: [first], expandedLength }))} -->\nbody`;
-      expect(decodeSkillPrompt(marker)).toEqual({ text: marker });
+      expect(displaySkillPrompt(marker)).toEqual({ text: marker });
+      expect(recoverSkillPrompt(marker)).toEqual({ text: marker });
     },
   );
 
@@ -95,17 +102,19 @@ describe("skill prompt provenance", () => {
       `Example:\n${literal}`,
     );
     const encoded = encodeSkillPrompt("real draft", [first], instructions);
-    expect(decodeSkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
+    expect(displaySkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
       text: "Before\nreal draft\nAfter",
       skills: [first],
     });
     const withoutRecord = `Before\n${instructions}\nAfter`;
-    expect(decodeSkillPrompt(withoutRecord)).toEqual({ text: withoutRecord });
-    expect(decodeSkillPrompt(instructions)).toEqual({
+    expect(displaySkillPrompt(withoutRecord)).toEqual({ text: withoutRecord });
+    expect(recoverSkillPrompt(withoutRecord)).toEqual({ text: withoutRecord });
+    expect(displaySkillPrompt(instructions)).toEqual({
       text: "/skill:legacy legacy args",
     });
     const damagedRecord = `<!-- web-pi:skill-selection:v1:%broken -->\n${instructions}`;
-    expect(decodeSkillPrompt(damagedRecord)).toEqual({ text: damagedRecord });
+    expect(displaySkillPrompt(damagedRecord)).toEqual({ text: damagedRecord });
+    expect(recoverSkillPrompt(damagedRecord)).toEqual({ text: damagedRecord });
   });
 
   it("does not recursively interpret a complete record literal restored from the original draft", () => {
@@ -115,18 +124,22 @@ describe("skill prompt provenance", () => {
       "literal instructions",
     );
     const encoded = encodeSkillPrompt(original, [first], "actual instructions");
-    expect(decodeSkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
+    expect(displaySkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
       text: `Before\n${original}\nAfter`,
+      skills: [first],
+    });
+    expect(recoverSkillPrompt(`Before\n${encoded}\nAfter`)).toEqual({
+      text: original,
       skills: [first],
     });
   });
 
   it("keeps the legacy single-skill fallback without guessing originals from multiple envelopes", () => {
     expect(skillCommand(legacy)).toBe("/skill:legacy legacy args");
-    expect(decodeSkillPrompt(legacy)).toEqual({
+    expect(displaySkillPrompt(legacy)).toEqual({
       text: "/skill:legacy legacy args",
     });
-    expect(decodeSkillPrompt(`${legacy}\n\n${legacy}`)).toEqual({
+    expect(displaySkillPrompt(`${legacy}\n\n${legacy}`)).toEqual({
       text: `${legacy}\n\n${legacy}`,
     });
   });
@@ -144,20 +157,77 @@ describe("skill prompt provenance", () => {
     );
     const image = { data: "AAAA", mimeType: "image/png" };
     expect(
-      recallSkillPrompts([
-        { ...queued(encoded), images: [image] },
-        queued(another),
-        queued(legacy),
-      ]),
+      recallSkillPrompts(
+        [
+          { ...queued(encoded), images: [image] },
+          queued(another),
+          queued(legacy),
+        ],
+        [first, second, { id: "/skills/legacy/SKILL.md", name: "legacy" }],
+      ),
     ).toEqual({
       text: "  first draft  \n\nsecond draft\n\n/skill:legacy legacy args",
       skills: [first, second],
       images: [image],
+      warning: expect.stringContaining("/skill:legacy") as string,
     });
-    expect(recallSkillPrompts([queued(legacy)])).toEqual({
+    expect(recallSkillPrompts([queued(legacy)], [])).toEqual({
       text: "/skill:legacy legacy args",
       images: [],
     });
+  });
+
+  it.each([
+    ["/skill:first one", "/skill:second two", [first], true],
+    ["plain prose first", "/skill:second two", [first], true],
+    ["/skill:first one", "/skill:second two", [second], false],
+    ["/skill:second one", "/skill:second two", [first], false],
+    ["", "/skill:second two", [first], false],
+    ["  \n", "/skill:second two", [first], false],
+    ["plain prose first", "please use /skill:second", [first], false],
+    [
+      "plain prose first",
+      "/skill:second two",
+      [{ id: "/other/second/SKILL.md", name: "second" }],
+      true,
+    ],
+  ])(
+    "warns only about newly inline, uncovered invocations (%j, %j)",
+    (before, after, selections, warns) => {
+      const result = recallSkillPrompts(
+        [
+          queued(
+            `Prefix\n${encodeSkillPrompt(before, selections, "PRIVATE")}\nSuffix`,
+          ),
+          {
+            ...queued(
+              `Prefix\n${encodeSkillPrompt(after, [first], "PRIVATE")}\nSuffix`,
+            ),
+            behavior: "followUp",
+          },
+        ],
+        [first, second],
+      );
+      expect(result.text).toBe([before, after].filter(Boolean).join("\n\n"));
+      expect(result.skills).toEqual([
+        ...selections,
+        ...(selections.some((skill) => skill.id === first.id) ? [] : [first]),
+      ]);
+      expect(Boolean(result.warning)).toBe(warns);
+      if (warns) {
+        expect(result.warning).toContain("/skill:second will not invoke");
+        expect(result.warning).toContain("Select second in Skills");
+      }
+    },
+  );
+
+  it("does not infer an invocation from a plain unexpanded command or inline prose", () => {
+    expect(
+      recallSkillPrompts(
+        [queued("prose"), queued("/skill:second never expanded")],
+        [second],
+      ),
+    ).toEqual({ text: "prose\n\n/skill:second never expanded", images: [] });
   });
 
   it("combines original text and only dropdown selections when selected prompts have different leading commands", () => {
@@ -170,11 +240,15 @@ describe("skill prompt provenance", () => {
       legacy.replaceAll("legacy", "other"),
     );
     expect(
-      recallSkillPrompts([queued(firstPrompt), queued(secondPrompt)]),
+      recallSkillPrompts(
+        [queued(firstPrompt), queued(secondPrompt)],
+        [first, second],
+      ),
     ).toEqual({
       text: `${firstText}\n\n${secondText}`,
       skills: [second, first],
       images: [],
+      warning: expect.stringContaining("/skill:other") as string,
     });
   });
 });

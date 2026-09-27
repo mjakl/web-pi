@@ -65,7 +65,7 @@ export function UserMessage({
                     }
                     hidden
                   >
-                    {item.text}
+                    {item.draftText ?? item.text}
                   </div>
                   <Markdown
                     source={item.text}

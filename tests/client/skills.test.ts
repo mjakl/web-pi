@@ -1,4 +1,8 @@
 import type { SkillSelection } from "@core/ports";
+import { userEntry } from "@adapters/fake/index";
+import { encodeSkillPrompt, recallSkillPrompts } from "@core/skill-prompt";
+import { projectTranscript } from "@core/transcript";
+import { UserMessage } from "@web/views/transcript/user";
 import { CommandMenu, Composer, ComposerText } from "@web/views/Composer";
 import { SkillsMenu } from "@web/views/Skills";
 import { describe, expect, it, vi } from "vitest";
@@ -408,6 +412,69 @@ describe("skill selection", () => {
     expect(byId("skills-results").textContent).toContain(
       "Could not load skills",
     );
+  });
+
+  it("restores exact authored history without hook additions and protects recovered draft ownership", async () => {
+    mockFetch(() => text(menu));
+    page();
+    const original = "/skill:alpha  keep 🦉\n  ";
+    const encoded = encodeSkillPrompt(original, [beta], "PRIVATE");
+    const item = projectTranscript([
+      userEntry("u1", null, `Prefix\n${encoded}\nSuffix`),
+    ]).items[0];
+    if (item?.kind !== "user") throw new Error("Missing user item");
+    query("main").insertAdjacentHTML(
+      "afterbegin",
+      render(UserMessage({ item })),
+    );
+    await setup();
+    keydown(area(), "ArrowUp");
+    expect(area().value).toBe(original);
+    expect(selected()).toEqual([beta]);
+    const failed = { response: { status: 500, headers: new Headers() } };
+    htmxEvent(byId("composer"), "htmx:before:request", { ctx: failed });
+    htmxEvent(byId("composer"), "htmx:before:response", { ctx: failed });
+    expect(area().value).toBe(original);
+    expect(selected()).toEqual([beta]);
+    const pending = {
+      response: {
+        status: 200,
+        headers: new Headers({ "X-Web-Pi-Submission": "accepted" }),
+      },
+    };
+    htmxEvent(byId("composer"), "htmx:before:request", { ctx: pending });
+    type(area(), "newer draft");
+    await open();
+    click(option(alpha.id));
+    htmxEvent(byId("composer"), "htmx:before:response", { ctx: pending });
+    expect(area().value).toBe("newer draft");
+    expect(selected()).toEqual([alpha]);
+  });
+
+  it("announces the queue recall warning through the existing visible status shelf", async () => {
+    page();
+    const { setUpToasts } = await import("@web/client/toasts");
+    setUpToasts();
+    const recalled = recallSkillPrompts(
+      [
+        { text: "prose first", behavior: "steer" },
+        {
+          text: encodeSkillPrompt("/skill:alpha later", [beta], "PRIVATE"),
+          behavior: "followUp",
+        },
+      ],
+      [alpha, beta],
+    );
+    document.body.dispatchEvent(
+      new CustomEvent("web-pi:toast", {
+        detail: { level: "warning", message: recalled.warning },
+      }),
+    );
+    const notice = query(".notice-shelf-item.is-warning");
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.textContent).toContain("Select alpha in Skills");
+    expect(notice.hidden).toBe(false);
+    expect(query(".notice-shelf-text").tabIndex).toBe(0);
   });
 
   it("restores text and skill payload through history, recall, and a replaced textarea", async () => {

@@ -7,7 +7,6 @@ import type { DialogAnswer } from "@core/extension-ui";
 import type { StartupChoice } from "@core/models";
 import { isBashOutputPath } from "@core/path-access";
 import type {
-  EditableMessage,
   ImageAttachment,
   LiveEvent,
   LiveSession,
@@ -24,7 +23,7 @@ import {
 } from "@core/transcript";
 import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
-import { recallSkillPrompts } from "@core/skill-prompt";
+import { recallSkillPrompts, type QueueRecall } from "@core/skill-prompt";
 import { isSubagentSession } from "@core/sessions";
 import type { Shared } from "./deps.ts";
 import { ForbiddenPath } from "./views.ts";
@@ -205,9 +204,21 @@ export function liveUseCases({
      * draft, and the images of every queued message, so recalling a message
      * that carried a screenshot does not silently drop it.
      */
-    async recallQueue(id: string): Promise<EditableMessage> {
+    async recallQueue(id: string): Promise<QueueRecall> {
       await requireWritableSession(id);
-      return recallSkillPrompts(deps.runtime.get(id)?.clearQueue() ?? []);
+      const live = deps.runtime.get(id);
+      const available =
+        live?.commands().flatMap((command) =>
+          command.source === "skill" && command.skillId
+            ? [
+                {
+                  id: command.skillId,
+                  name: command.name.slice("skill:".length),
+                },
+              ]
+            : [],
+        ) ?? [];
+      return recallSkillPrompts(live?.clearQueue() ?? [], available);
     },
 
     async runBash(

@@ -2,7 +2,7 @@
 // branching, and the export. The transcript area owns this module.
 
 import { isSessionId, isSubagentSession } from "@core/sessions";
-import { decodeSkillPrompt } from "@core/skill-prompt";
+import { recoverSkillPrompt } from "@core/skill-prompt";
 import { InspectionOnlySession } from "@core/workspace";
 import { renderMarkdown } from "@web/markdown";
 import { EarlierPage, StarButton, ToolBody } from "@web/views/Items";
@@ -247,7 +247,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
         field(form, "entryId"),
       );
       if (draft === undefined) return page(c, id);
-      const restored = decodeSkillPrompt(draft);
+      const restored = recoverSkillPrompt(draft);
       return page(c, id, restored.text, [], restored.skills ?? []);
     });
   });

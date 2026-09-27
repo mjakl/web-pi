@@ -249,6 +249,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
     const recalled = await deps.workspace.recallQueue(id);
+    if (recalled.warning) toastHeader(c, recalled.warning, "warning");
     return c.html(
       <>
         <ComposerText draft={recalled.text} skills={recalled.skills ?? []} />

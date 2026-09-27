@@ -162,7 +162,7 @@ describe("skill selection HTTP and display boundary", () => {
     ["", "\nHook suffix"],
     ["<request>\n", "\n</request>"],
   ])(
-    "renders readable transcript, copy and history with retained surrounding text (%j, %j)",
+    "separates readable transcript and copy from authored history (%j, %j)",
     async (prefix, suffix) => {
       const { app } = fixture(`${prefix}${expanded}${suffix}`);
       const readable = `${prefix}${original}${suffix}`;
@@ -171,7 +171,10 @@ describe("skill selection HTTP and display boundary", () => {
       );
       const message = document.querySelector("#entry-u1");
       const history = message?.querySelector("[data-user-text]");
-      expect(history?.textContent).toBe(readable);
+      expect(history?.textContent).toBe(original);
+      expect(
+        message?.querySelector(".markdown-user-message")?.textContent,
+      ).toContain("keep this request");
       expect(
         JSON.parse(history?.getAttribute("data-user-skills") ?? "null"),
       ).toEqual([testing, other]);
@@ -190,7 +193,7 @@ describe("skill selection HTTP and display boundary", () => {
   it.each(["rewind", "fork", "navigate"])(
     "restores original text and dropdown selections after %s",
     async (action) => {
-      const { app } = fixture();
+      const { app } = fixture(`Context note.\n${expanded}\nHook suffix`);
       const body = new FormData();
       body.set("entryId", "u1");
       const response = await app.request(`/sessions/s1/${action}`, {
@@ -206,8 +209,67 @@ describe("skill selection HTTP and display boundary", () => {
     },
   );
 
+  it.each([false, true])(
+    "warns on queue recall only when the later leading skill is uncovered (covered: %j)",
+    async (covered) => {
+      const { app, workspace, world } = fixture();
+      await workspace.activate("s1");
+      const live = world.runtime.get("s1");
+      if (!live) throw new Error("Missing live fixture");
+      vi.spyOn(live, "commands").mockReturnValue(
+        [testing, other].map((skill) => ({
+          name: `skill:${skill.name}`,
+          description: "",
+          source: "skill",
+          skillId: skill.id,
+        })),
+      );
+      vi.spyOn(live, "clearQueue").mockReturnValue([
+        {
+          text: `Prefix\n${encodeSkillPrompt(original, covered ? [testing, other] : [testing], "PRIVATE")}\nSuffix`,
+          behavior: "steer",
+          images: [{ data: "AAAA", mimeType: "image/png" }],
+        },
+        {
+          text: `Prefix\n${encodeSkillPrompt("/skill:other later", [testing], "PRIVATE")}\nSuffix`,
+          behavior: "followUp",
+        },
+      ]);
+      const response = await app.request("/sessions/s1/queue/recall", {
+        method: "POST",
+      });
+      const event = response.headers.get("HX-Trigger");
+      if (covered) expect(event).toBeNull();
+      else
+        expect(JSON.parse(event ?? "null")).toEqual({
+          "web-pi:toast": {
+            level: "warning",
+            message: expect.stringContaining(
+              "Select other in Skills",
+            ) as string,
+          },
+        });
+      const document = documentOf(await response.text());
+      expect(document.querySelector("#composer-text")?.textContent).toBe(
+        `${original}\n\n/skill:other later`,
+      );
+      expect(
+        document
+          .querySelector("#recalled-images [data-image]")
+          ?.getAttribute("data-image"),
+      ).toBe("AAAA");
+      expect(
+        JSON.parse(
+          document
+            .querySelector("#composer-text")
+            ?.getAttribute("data-restored-skills") ?? "null",
+        ),
+      ).toEqual(covered ? [testing, other] : [testing]);
+    },
+  );
+
   it("decodes queue previews and delivers combined recall text and selections", async () => {
-    const { app, workspace } = fixture();
+    const { app, workspace, world } = fixture();
     const queue = [
       {
         text: `Context note.\n${expanded}\nHook suffix`,
@@ -234,11 +296,9 @@ describe("skill selection HTTP and display boundary", () => {
       "Skills included: testing, other",
     );
     expect(preview.body.textContent).not.toContain("SECRET INSTRUCTIONS");
-    vi.spyOn(workspace, "recallQueue").mockResolvedValue({
-      text: `${original}\n\nsecond request`,
-      skills: [testing, other],
-      images: [],
-    });
+    const live = world.runtime.get("s1");
+    if (!live) throw new Error("Missing live fixture");
+    vi.spyOn(live, "clearQueue").mockReturnValue(queue);
     const document = documentOf(
       await (
         await app.request("/sessions/s1/queue/recall", { method: "POST" })

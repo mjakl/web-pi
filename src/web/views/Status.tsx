@@ -2,7 +2,7 @@ import { Partial } from "@web/views/Partial";
 import { formatContextUsage } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { LiveStatus } from "@core/ports";
-import { decodeSkillPrompt } from "@core/skill-prompt";
+import { displaySkillPrompt } from "@core/skill-prompt";
 import type { SessionView } from "@core/workspace";
 import { ModelSelector, ModelScopeWarning, modelPick } from "./Composer.tsx";
 import {
@@ -134,7 +134,7 @@ function QueuedRow({
   text: string;
 }) {
   const steer = behavior === "steer";
-  const prompt = decodeSkillPrompt(text);
+  const prompt = displaySkillPrompt(text);
   const readable = [
     prompt.text,
     ...(prompt.skills?.length

@@ -207,7 +207,11 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
       } catch {
         /* Older history has text only. */
       }
-      return { text: (element.textContent ?? "").trim(), skills: selected };
+      const text = element.textContent ?? "";
+      return {
+        text: element.hasAttribute("data-user-skills") ? text : text.trim(),
+        skills: selected,
+      };
     });
     // Deduplicate by the full payload, so the same words with different skills remain distinct.
     const seen = new Set<string>();

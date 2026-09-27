@@ -1,7 +1,11 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SkillSelection } from "./ports.ts";
-import { decodeSkillPrompt, skillCommand } from "./skill-prompt.ts";
+import {
+  displaySkillPrompt,
+  recoverSkillPrompt,
+  skillCommand,
+} from "./skill-prompt.ts";
 export { skillCommand } from "./skill-prompt.ts";
 
 // The conversation as the UI shows it: one item per visible entry on the
@@ -102,6 +106,8 @@ export type UserItem = {
   timestamp: string;
   /** `/skill:name args` when the text is Pi's skill expansion envelope. */
   command?: string;
+  /** Authored text for history recall, excluding extension-added display content. */
+  draftText?: string;
   /** Dropdown provenance only, never a reconstruction from skill instructions. */
   skills?: SkillSelection[];
 };
@@ -620,7 +626,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
         if (message.role === "user") {
           contentLeaf = entry.id;
           const text = contentText(message.content);
-          const decoded = decodeSkillPrompt(text);
+          const decoded = displaySkillPrompt(text);
           items.push({
             kind: "user",
             entryId: entry.id,
@@ -628,6 +634,10 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
             images: imageIndices(message.content),
             timestamp: entry.timestamp,
             ...optional("skills", decoded.skills),
+            ...optional(
+              "draftText",
+              decoded.skills ? recoverSkillPrompt(text).text : undefined,
+            ),
             ...optional(
               "command",
               decoded.skills ? undefined : skillCommand(text),

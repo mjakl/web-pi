@@ -47,7 +47,9 @@ export function skillCommand(text: string): string | undefined {
 }
 
 /** Decode only our versioned record. Unknown or damaged records remain literal text. */
-function provenance(text: string): SkillPrompt | undefined {
+function provenance(
+  text: string,
+): { draft: SkillPrompt; prefix: string; suffix: string } | undefined {
   const start = text.indexOf(PREFIX);
   if (start < 0) return undefined;
   // The record precedes the envelopes. Never promote an instruction-body
@@ -87,34 +89,65 @@ function provenance(text: string): SkillPrompt | undefined {
       skills.push({ id: selection["id"], name: selection["name"] });
     }
     return {
-      text:
-        text.slice(0, start) +
-        record["text"] +
-        text.slice(expandedStart + expandedLength),
-      skills: uniqueSkills(skills),
+      draft: { text: record["text"], skills: uniqueSkills(skills) },
+      prefix: text.slice(0, start),
+      suffix: text.slice(expandedStart + expandedLength),
     };
   } catch {
     return undefined;
   }
 }
 
-/** Original draft and only its dropdown selections; legacy envelopes become commands. */
-export function decodeSkillPrompt(text: string): SkillPrompt {
-  return provenance(text) ?? { text: skillCommand(text) ?? text };
+/** Readable message content includes additions retained outside the generated expansion. */
+export function displaySkillPrompt(text: string): SkillPrompt {
+  const frame = provenance(text);
+  return frame
+    ? { ...frame.draft, text: frame.prefix + frame.draft.text + frame.suffix }
+    : { text: skillCommand(text) ?? text };
 }
 
-/** Decode each queued prompt before joining; union only its dropdown selections. */
+/** Recover authored intent, not hook output: hooks will run again on a new submission. */
+export function recoverSkillPrompt(text: string): SkillPrompt {
+  return provenance(text)?.draft ?? { text: skillCommand(text) ?? text };
+}
+
+export type QueueRecall = EditableMessage & { warning?: string };
+
+/** Recover each authored request before joining; union only dropdown selections. */
 export function recallSkillPrompts(
   queued: readonly QueuedMessage[],
-): EditableMessage {
-  const decoded = queued.map(({ text }) => decodeSkillPrompt(text));
-  const skills = uniqueSkills(decoded.flatMap((prompt) => prompt.skills ?? []));
+  available: readonly SkillSelection[],
+): QueueRecall {
+  const drafts = queued.map(({ text }) => recoverSkillPrompt(text));
+  const skills = uniqueSkills(drafts.flatMap((prompt) => prompt.skills ?? []));
+  // Resolve names against this live session's discovery, just as resend will.
+  // A selected identity or the combined draft's first command already includes it.
+  const included = new Set(skills.map((skill) => skill.id));
+  const lost = new Set<string>();
+  let precedingText = false;
+  for (const [index, draft] of drafts.entries()) {
+    const name = /^\/skill:([^\s]+)/.exec(draft.text.trimStart())?.[1];
+    const id = available.find((skill) => skill.name === name)?.id;
+    const invoked =
+      draft.skills !== undefined ||
+      skillCommand(queued[index]?.text ?? "") !== undefined;
+    if (name && invoked) {
+      if (!precedingText && id) included.add(id);
+      else if (precedingText && (!id || !included.has(id))) lost.add(name);
+    }
+    precedingText ||= draft.text.trim() !== "";
+  }
+  const warning =
+    lost.size > 0
+      ? `After queue recall, ${[...lost].map((name) => `/skill:${name}`).join(", ")} will not invoke from the middle of the combined request. Select ${[...lost].join(", ")} in Skills to include ${lost.size === 1 ? "it" : "them"} on resend.`
+      : undefined;
   return {
-    text: decoded
+    text: drafts
       .map(({ text }) => text)
       .filter((text) => text !== "")
       .join("\n\n"),
     images: queued.flatMap((message) => message.images ?? []),
     ...(skills.length > 0 ? { skills } : {}),
+    ...(warning ? { warning } : {}),
   };
 }

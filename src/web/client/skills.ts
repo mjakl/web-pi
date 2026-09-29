@@ -143,7 +143,7 @@ export function setUpSkills(
       name.textContent = skill.name;
       name.title = skill.name;
       const note = document.createElement("span");
-      note.className = "composer-skill-description";
+      note.className = "composer-skill-unavailable-note";
       note.textContent = "Unavailable · select to remove";
       row.append(check, name, note);
       results?.append(row);

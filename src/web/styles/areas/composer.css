@@ -222,6 +222,8 @@
   padding: var(--space-2);
 }
 .composer-skill-option {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
   width: 100%;
   min-height: 36px;
   overflow: hidden;
@@ -237,18 +239,16 @@
 }
 .composer-skill-label {
   min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
-.composer-skill-description {
-  min-width: 0;
-  overflow: hidden;
+.composer-skill-option .composer-command-manual {
+  margin-left: 0;
+}
+.composer-skill-unavailable-note {
+  grid-column: 2 / -1;
   color: var(--text-dim);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .composer-skills-empty {
   padding: var(--space-4);

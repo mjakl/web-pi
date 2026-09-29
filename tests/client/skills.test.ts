@@ -116,6 +116,8 @@ describe("skill selection", () => {
         sessionId ? "/sessions/s1/skills" : "/workspaces/skills?cwd=%2Frepo",
       );
       expect(document.activeElement).toBe(field("#skills-filter"));
+      expect(option(alpha.id).textContent).toBe("alpha");
+      expect(option(beta.id).textContent).toBe("betaManual");
       type(field("#skills-filter"), "explain");
       expect(option(alpha.id).hidden).toBe(true);
       expect(option(beta.id).hidden).toBe(false);
@@ -130,6 +132,18 @@ describe("skill selection", () => {
         "Skills (2)",
       );
       expect(option(beta.id).getAttribute("aria-selected")).toBe("true");
+      keydown(option(alpha.id), "ArrowDown");
+      expect(document.activeElement).toBe(option(beta.id));
+      keydown(option(beta.id), "ArrowUp");
+      expect(document.activeElement).toBe(option(alpha.id));
+      keydown(option(alpha.id), "ArrowUp");
+      expect(document.activeElement).toBe(field("#skills-filter"));
+      keydown(field("#skills-filter"), "Escape");
+      expect(document.activeElement).toBe(byId("skills-trigger"));
+      expect(byId("skills-trigger").getAttribute("aria-expanded")).toBe(
+        "false",
+      );
+      expect(selected()).toEqual([beta, alpha]);
       expect(
         byId("composer").querySelector(".composer-image-preview"),
       ).toBeNull();

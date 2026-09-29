@@ -36,11 +36,6 @@ export function SkillsMenu({ commands }: { commands: SlashCommand[] }) {
             {command.manual ? (
               <span class="composer-command-manual">Manual</span>
             ) : null}
-            {command.description ? (
-              <span class="composer-skill-description">
-                {command.description}
-              </span>
-            ) : null}
           </button>
         ))}
       {commands.every(

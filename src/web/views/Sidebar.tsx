@@ -361,6 +361,7 @@ export function SessionList({
     <div
       id="session-list"
       class="session-list"
+      hx-sync="#sidebar:drop"
       {...(oob === true ? { "hx-swap-oob": "innerHTML" } : {})}
     >
       {body}
@@ -786,8 +787,7 @@ export function Sidebar({
                 <PlusIcon />
               </span>
             </a>
-            {/* The list is pushed by the shared stream; this is for a session
-                started in the terminal, which nothing here can hear about. */}
+            {/* Manual refresh stays available alongside automatic discovery. */}
             <button
               type="button"
               id="sidebar-refresh"
@@ -795,6 +795,7 @@ export function Sidebar({
               title="Refresh"
               aria-label="Refresh"
               hx-get="/sidebar"
+              hx-sync="#sidebar:queue first"
               hx-target="#session-nav"
               hx-swap="outerHTML"
             >

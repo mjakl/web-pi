@@ -174,7 +174,7 @@ describe("relative timestamps", () => {
     expect(query("#row-s1 [data-session-modified-at]").textContent).toBe(
       "31 seconds ago",
     );
-    expect(vi.getTimerCount()).toBe(1);
+    expect(vi.getTimerCount()).toBe(2);
     htmxEvent(byId("sidebar"), "htmx:before:cleanup");
     byId("sidebar").remove();
     expect(vi.getTimerCount()).toBe(0);

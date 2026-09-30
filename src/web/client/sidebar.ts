@@ -141,6 +141,7 @@ function setUpSessionTree(): void {
   const collapsedSelection = new Set<string>();
   let pending = false;
   let refreshNeeded = false;
+  let automaticRefreshNeeded = false;
 
   const loadChildren = (root: Element) => {
     for (const placeholder of root.querySelectorAll(
@@ -182,13 +183,17 @@ function setUpSessionTree(): void {
     }
     const selected = list.querySelector(".session-row.is-selected");
     if (!active || selected) attemptedSelection = undefined;
+    const automaticRefresh = automaticRefreshNeeded && !document.hidden;
     if (
       pending ||
-      (!refreshNeeded && (!active || selected || attemptedSelection === active))
+      (!refreshNeeded &&
+        !automaticRefresh &&
+        (!active || selected || attemptedSelection === active))
     )
       return;
     const explicitRefresh = refreshNeeded;
     refreshNeeded = false;
+    automaticRefreshNeeded = false;
     attemptedSelection = active;
     pending = true;
     const query = new URLSearchParams({ selected: active });
@@ -212,6 +217,62 @@ function setUpSessionTree(): void {
       });
   };
 
+  setUpRegion("#sidebar", (sidebar, signal) => {
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let scheduled: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      clearTimeout(scheduled);
+      scheduled = undefined;
+      if (document.hidden || !sidebar.isConnected) return;
+      automaticRefreshNeeded = true;
+      reconcile();
+    };
+    // Focus, visibility and reconnect commonly arrive together. One short
+    // window avoids repeating a full-store scan for the same return to the page.
+    const schedule = () => {
+      if (document.hidden || scheduled !== undefined) return;
+      scheduled = setTimeout(() => {
+        scheduled = undefined;
+        refresh();
+      }, 100);
+    };
+    const stop = () => {
+      clearInterval(poll);
+      clearTimeout(scheduled);
+      poll = undefined;
+      scheduled = undefined;
+      automaticRefreshNeeded = false;
+    };
+    const observeVisibility = () => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      poll ??= setInterval(refresh, 30_000);
+    };
+    observeVisibility();
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        observeVisibility();
+        schedule();
+      },
+      { signal },
+    );
+    window.addEventListener("focus", schedule, { signal });
+    sidebar.addEventListener(
+      "htmx:sse:after:connection",
+      (event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.id === "sidebar-events"
+        )
+          schedule();
+      },
+      { signal },
+    );
+    signal.addEventListener("abort", stop, { once: true });
+  });
   setUpRegion("#session-list, main", reconcile);
   // Capture the inserted selection before the settle delay: another stream
   // frame may replace it before after:settle is delivered.

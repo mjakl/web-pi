@@ -56,10 +56,9 @@ async function browse(active = "other", sessions?: FakeStoredSession[]) {
     (request) => f.app.request(request),
   );
   browsers.push(browser);
+  const initialRow = browser.document.querySelector(".session-row");
   await expect
-    .poll(() =>
-      browser.requests.some((r) => new URL(r.url).pathname === "/events"),
-    )
+    .poll(() => browser.document.querySelector(".session-row") !== initialRow)
     .toBe(true);
   return { ...f, ...browser };
 }
@@ -175,7 +174,7 @@ describe("sidebar tree with native HTMX", () => {
     expect(b.document.querySelector("#row-child")).toBeNull();
     expect(
       b.requests.filter((r) => new URL(r.url).pathname === "/sidebar/rows"),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
     toggle(b, "parent", true);
     await expect
       .poll(() => b.document.querySelector("#row-child"))
@@ -305,9 +304,10 @@ describe("sidebar tree with native HTMX", () => {
     browsers.push(browser);
     const b = { ...f, ...browser };
     try {
+      const initialRow = b.document.querySelector("#row-pinned");
       await expect
-        .poll(() => b.document.querySelector("#row-pinned"))
-        .not.toBeNull();
+        .poll(() => b.document.querySelector("#row-pinned") !== initialRow)
+        .toBe(true);
       b.window.eval(
         `window.pendingPage = htmx.ajax('GET', '/sidebar/rows?after=50', {source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'}); undefined`,
       );

@@ -260,6 +260,19 @@ conversation and directory navigation. No cookie or query scopes the stream. Row
 selection is projected from the displayed `main` on processing and settlement,
 including paginated rows, star responses and stream updates.
 
+The browser also refreshes the list every 30 seconds while visible, on sidebar
+SSE connection or reconnection, and on visibility return or window focus. Return
+and connection events share a 100 ms coalescing window. Automatic and
+lifecycle-requested refreshes use the list-only `/sidebar/rows` path, leaving
+the sidebar stream owner in place. List refreshes are single-flight, with at
+most one pending automatic follow-up. Automatic refreshes yield to an in-flight
+manual refresh, which already refreshes the list; manual refresh shares the
+sidebar's HTMX request queue and retains its existing navigation replacement.
+Hiding the document removes the polling clock and cancels scheduled automatic
+work. This discovers external sessions only after Pi persists them in the
+configured session directory; it does not infer external live status or change
+pagination.
+
 `src/core/transcript.ts` projects one branch into items, and `src/core/turns.ts`
 groups those items into turns, pages them, and writes the activity line. Every
 transcript fragment — a page load, an earlier page, the settled turn appended to

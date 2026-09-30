@@ -723,6 +723,11 @@ it("retains progressively loaded global rows across cross-directory navigation",
   expect(
     b.document.querySelectorAll("#session-list .session-row"),
   ).toHaveLength(50);
+  // The replacement stream's connection refresh precedes progressive paging.
+  const initialRow = b.document.querySelector("#row-s1");
+  await expect
+    .poll(() => b.document.querySelector("#row-s1") !== initialRow)
+    .toBe(true);
   const sentinel = b.document.querySelector(".session-rows-loading");
   const url = sentinel?.getAttribute("hx-get");
   expect(url).toBe("/sidebar/rows?after=50&selected=s1");

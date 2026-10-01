@@ -6,6 +6,8 @@ import {
   type FakeStoredSession,
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
+import { createCoordinator } from "@core/coordinator";
+import { randomUUID } from "node:crypto";
 import { createWebApp } from "@web/app";
 import { serve } from "@hono/node-server";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -309,8 +311,50 @@ const world = createFakeWorld({
     isTopLevel: true,
   }),
 });
+const workspace = createWorkspace(world);
+await workspace.activate("release");
+// This fixture never contacts OpenAI. Its scripted replies exercise the real
+// proposal and admission UI, not voice quality or provider availability.
+const coordinator = createCoordinator(
+  workspace,
+  {
+    ready: () => true,
+    respond(input) {
+      if (input.purpose === "updates")
+        return Promise.resolve({
+          kind: "reply",
+          text: "Offline fixture: S1 has a new result. Read its session for the exact text.",
+          speech: "S1 has a new result.",
+          instruction: "",
+        });
+      if (!input.target || /list/i.test(input.text))
+        return Promise.resolve({
+          kind: "reply",
+          text: `Offline fixture — no OpenAI calls.\n${input.sessions.map((session) => `${session.handle}: ${session.task.slice(0, 100)}`).join("\n")}`,
+          speech: "The session list is displayed.",
+          instruction: "",
+        });
+      return Promise.resolve({
+        kind: "prompt",
+        text: "Offline fixture: review this sample instruction before sending.",
+        speech: "Review the sample instruction.",
+        instruction:
+          "Review the release checklist changes discussed in this session. Report findings without changing files.",
+      });
+    },
+    connect() {
+      return Promise.reject(
+        new Error(
+          "The screenshot fixture has no voice transport. No microphone audio is sent to a provider.",
+        ),
+      );
+    },
+  },
+  randomUUID,
+);
 const app = createWebApp({
-  workspace: createWorkspace(world),
+  workspace,
+  coordinator,
   staticRoot: resolve("static"),
   defaultCwd: cwd,
   home: root,
@@ -325,6 +369,7 @@ const server = serve(
 );
 function close() {
   server.close();
+  void coordinator.shutdown();
   if ("closeAllConnections" in server) server.closeAllConnections();
   rmSync(root, { recursive: true, force: true });
 }

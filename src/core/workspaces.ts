@@ -15,6 +15,8 @@ export function shortPath(path: string, home?: string): string {
 export type ProjectInfo = {
   /** The folder sessions of this checkout group under. */
   root: string;
+  /** Canonical repository root, including when cwd is a checkout subdirectory. */
+  repositoryRoot?: string;
   branch: string | null;
   isWorktree: boolean;
   isTopLevel: boolean;
@@ -76,6 +78,7 @@ export function projectIdentity(git: {
   const isTopLevel = samePath(toplevel, git.cwd);
   return {
     root: isTopLevel ? git.root : git.cwd,
+    repositoryRoot: git.root,
     branch: bareDirectory ? null : git.branch,
     // A linked worktree has a gitdir of its own; the main checkout shares it.
     isWorktree: isTopLevel && !samePath(git.gitDir, git.commonDir),

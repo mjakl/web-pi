@@ -320,6 +320,8 @@ export type LiveEvent =
   | { type: "stopped" };
 
 export type PromptInput = {
+  /** Bypass slash commands, skill commands and prompt-template expansion. */
+  literal?: boolean;
   images?: ImageAttachment[];
   skills?: SkillSelection[];
   /** How to deliver the message while a turn runs. Default: steer. */

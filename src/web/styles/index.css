@@ -7,6 +7,7 @@
 
 /* Component owners. */
 @import url("./areas/shell.css");
+@import url("./areas/coordinator.css");
 @import url("./areas/sidebar.css");
 @import url("./areas/transcript.css");
 @import url("./areas/composer.css");

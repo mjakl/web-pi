@@ -1,4 +1,7 @@
 import type { FrameComponent } from "@core/extension-ui";
+import { createCoordinator, type Coordinator } from "@core/coordinator";
+import { createOpenAiCoordinatorProvider } from "@adapters/openai/coordinator";
+import { randomUUID } from "node:crypto";
 import {
   assistantEntry,
   createFakeWorld,
@@ -200,7 +203,23 @@ function demoScript(cwd: string, prompt: string): ScriptedStep[] {
 }
 
 // The only place that knows both the core and the Pi adapters.
-export function createDeps(config: Config): { workspace: Workspace } {
+export function createDeps(config: Config): {
+  workspace: Workspace;
+  coordinator: Coordinator;
+} {
+  const { workspace } = createWorkspaceDeps(config);
+  const apiKey = process.env["OPENAI_API_KEY"];
+  return {
+    workspace,
+    coordinator: createCoordinator(
+      workspace,
+      createOpenAiCoordinatorProvider(apiKey ? { apiKey } : {}),
+      randomUUID,
+    ),
+  };
+}
+
+function createWorkspaceDeps(config: Config): { workspace: Workspace } {
   if (config.runtime === "fake") {
     const world = createFakeWorld({
       sessions: demoSessions(config.defaultCwd),

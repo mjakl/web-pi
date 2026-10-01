@@ -10,6 +10,7 @@ import { setUpFiles } from "./files.ts";
 import { setUpRequestFields } from "./htmx.ts";
 import { setUpSseStartup } from "./sse.ts";
 import { setUpNavigation } from "./navigation.ts";
+import { setUpCoordinator } from "./coordinator.ts";
 
 setUpRequestFields();
 setUpSseStartup();
@@ -19,3 +20,4 @@ setUpTranscript();
 setUpComposer();
 setUpFiles();
 setUpNavigation();
+setUpCoordinator();

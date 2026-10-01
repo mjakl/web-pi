@@ -18,6 +18,7 @@ export type WebApp = ReturnType<typeof honoFactory.createApp>;
 
 export type WebDeps = {
   workspace: Workspace;
+  coordinator?: import("@core/coordinator").Coordinator;
   /** Directory served under /static. */
   staticRoot: string;
   /** Suggested working folder for new sessions. */

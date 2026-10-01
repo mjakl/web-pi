@@ -472,7 +472,9 @@ class PiLiveSession implements LiveSession {
     return new Promise((resolve, reject) => {
       this.inner
         .prompt(promptText, {
-          ...(hasSkills ? { expandPromptTemplates: false } : {}),
+          ...(hasSkills || input.literal
+            ? { expandPromptTemplates: false }
+            : {}),
           streamingBehavior: input.behavior ?? "steer",
           ...(input.images && input.images.length > 0
             ? {

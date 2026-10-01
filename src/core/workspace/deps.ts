@@ -57,6 +57,89 @@ export function createShared(deps: WorkspaceDeps) {
   // Folders a reader explicitly validated, as pi-web does: in memory, gone on
   // restart, never written to Pi's store.
   const validatedRoots = new Set<string>();
+  const admissions = new Map<string, { count: number; exclusive: boolean }>();
+  const coordinated = new Set<string>();
+
+  /** Coordinator turns exclude other writers in the same project until idle.
+   * Ordinary browser sends participate so they cannot race that admission. */
+  async function admit<T>(
+    id: string,
+    action: () => Promise<T>,
+    exclusive = false,
+  ): Promise<T> {
+    const existing = admissions.get(id);
+    if (existing && (exclusive || existing.exclusive))
+      throw new Error(
+        "Another submission is being admitted. Try again after it finishes.",
+      );
+    const admission = existing ?? { count: 0, exclusive };
+    admission.count++;
+    admissions.set(id, admission);
+    try {
+      for (const other of coordinated) {
+        const status = deps.runtime.get(other)?.snapshot().status;
+        if (
+          !admissions.has(other) &&
+          !status?.running &&
+          !status?.bashRunning &&
+          !status?.compacting
+        )
+          coordinated.delete(other);
+      }
+      if (
+        exclusive ||
+        coordinated.size ||
+        [...admissions.values()].some((entry) => entry.exclusive)
+      ) {
+        const own = await summaryOf(id);
+        if (!own) throw new Error("Unknown session.");
+        const ownRoot =
+          (await deps.projects.resolve(own.cwd)).repositoryRoot ??
+          own.projectRoot ??
+          own.cwd;
+        const candidates = new Set([
+          ...admissions.keys(),
+          ...deps.runtime.live().map((live) => live.id),
+        ]);
+        for (const otherId of candidates) {
+          if (
+            otherId === id ||
+            (!exclusive &&
+              !coordinated.has(otherId) &&
+              admissions.get(otherId)?.exclusive !== true)
+          )
+            continue;
+          const status = deps.runtime.get(otherId)?.snapshot().status;
+          if (
+            !admissions.has(otherId) &&
+            !status?.running &&
+            !status?.bashRunning &&
+            !status?.compacting
+          )
+            continue;
+          const other = await summaryOf(otherId);
+          const otherRoot = other
+            ? ((await deps.projects.resolve(other.cwd)).repositoryRoot ??
+              other.projectRoot ??
+              other.cwd)
+            : undefined;
+          if (
+            otherRoot &&
+            (withinAny([ownRoot], otherRoot) || withinAny([otherRoot], ownRoot))
+          )
+            throw new Error(
+              "Another session is working in this project. Wait before sending coordinator work.",
+            );
+        }
+      }
+      const result = await action();
+      if (exclusive) coordinated.add(id);
+      return result;
+    } finally {
+      admission.count--;
+      if (admission.count === 0) admissions.delete(id);
+    }
+  }
 
   async function modelsFor(cwd: string): Promise<ModelListing> {
     try {
@@ -278,6 +361,7 @@ export function createShared(deps: WorkspaceDeps) {
 
   return {
     deps,
+    admit,
     validatedRoots,
     modelsFor,
     decorate,

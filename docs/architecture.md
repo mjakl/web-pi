@@ -150,19 +150,111 @@ replaced. Project trust still gates project settings, and existing conversations
 retain SDK model/reasoning restoration.
 
 `src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
-`src/core/workspace/index.ts` composes one flat `Workspace` object from four
+`src/core/workspace/index.ts` composes one flat `Workspace` object from five
 use-case families that never import each other —
 `src/core/workspace/sessions.ts` (the sidebar, one session's page, and the edits
 Pi's `SessionManager` writes), `src/core/workspace/live.ts` (the running agent
 and what only its entries can answer), `src/core/workspace/files.ts` (the file
-panel and `@` completion) and `src/core/workspace/config.ts` (folder choice,
-`/new`, trust, skills, packages). `src/core/workspace/deps.ts` holds the
-`WorkspaceDeps` ports and the internals more than one family needs (session
-lookup and decoration, folder availability, `authorize`), and
-`src/core/workspace/views.ts` the view types a page renders. Every route calls
-the workspace and renders the returned `SessionView`. The fake world in
-`src/adapters/fake/index.ts` implements every outbound port in memory; web tests
-and `WEB_PI_RUNTIME=fake` use it.
+panel and `@` completion), `src/core/workspace/config.ts` (folder choice,
+`/new`, trust, skills, packages) and `src/core/workspace/coordinator.ts`
+(bounded root-session observation and guarded coordinator admission).
+`src/core/workspace/deps.ts` holds the `WorkspaceDeps` ports and the internals
+more than one family needs (session lookup and decoration, folder availability,
+`authorize`), and `src/core/workspace/views.ts` the view types a page renders.
+Every route calls the workspace and renders the returned `SessionView`. The fake
+world in `src/adapters/fake/index.ts` implements every outbound port in memory;
+web tests and `WEB_PI_RUNTIME=fake` use it.
+
+## App-level conversational coordinator
+
+`src/core/coordinator.ts` owns one opt-in, bounded conversation. It holds short
+session handles, the explicit target, a small text exchange window, a single
+pending proposal and observation cursors in memory. Ending drops that state; Pi
+remains the canonical coding history. `src/core/coordinator-types.ts` defines
+the internal provider boundary; `src/adapters/openai/coordinator.ts` implements
+GPT-Live client delegation and stateless Responses requests. `src/container.ts`
+wires it alongside Workspace. Provider configuration and credentials never enter
+the browser or session prompt.
+
+The Workspace coordinator use cases list at most 50 ordinary roots, read bounded
+user/assistant text, and watch known saved files or owned runtime events without
+consuming notices. Saved reads use the stable `readSaved` path. The initial
+snapshot establishes a baseline; missing cursors after branch changes establish
+a new baseline rather than replay history. Repeated activity is deduplicated by
+context revision. Fresh updates are coalesced by session while a bounded text
+request is in flight. Pending text stays queued until a current summary
+succeeds; superseded summaries do not consume it. Each session has a
+6,000-character update window, with an explicit notice on overflow, and a
+request contains at most three windows. Failed requests are not retried.
+Watchers exist only while the coordinator is enabled and expose no user-supplied
+filesystem path.
+
+Responses produces structured replies or proposals, not executable tool calls.
+Live delegation notifications contain metadata, not instructions. The
+coordinator uses bounded captured context only to reason or propose. Fresh
+speech invalidates an in-flight proposal, and a visible user confirmation is
+required before any prompt admission. The selected target, writer incarnation,
+latest meaningful message, running state and exact dialog bind that
+confirmation. Workspace checks fresh state immediately before dispatch. Typed
+dialog answers additionally check method, offered options and deadline; a model
+has no answer capability.
+
+Coordinator prompts use Pi's literal-input option to bypass slash commands,
+skill commands and prompt templates, and never enter the web shell classifier.
+Existing extension input hooks still apply. A shared admission boundary makes
+ordinary browser prompt/shell submissions participate in coordinator project
+exclusion. This deliberately conservative rule also excludes sibling worktrees
+while coordinator work runs. Admission uses canonical repository identity even
+when the folder picker groups a checkout subdirectory separately. It is not a
+cross-process lock; external writers must be stopped before a session is
+activated in web-pi.
+
+The shell owns the panel outside the replaceable session region. A separate SSE
+stream delivers server-rendered coordinator state, not a browser-maintained
+transcript. Drafts, microphone tracks and playback belong to that panel's client
+lifecycle. A late Enable response is ended rather than attaching a stream to a
+removed owner. End immediately revokes the server token; only Begin writes the
+browser cookie. Its three-hour lifetime covers the initial text window and a
+first voice connection near that window's end; the server deadline remains
+authoritative. The obsolete cookie grants no access and expires or is replaced,
+so a late End response cannot delete a newer conversation's cookie. Voice is
+explicitly enabled using WebRTC; a server-owned sideband receives transcripts
+and sends short verified commentary. The browser's provider data channel can
+only close the voice session. Transcript deltas are not turn boundaries, and
+commentary receipt does not establish playback. Stop-speaking mutes local
+playback; it neither retracts provider context nor stops coding.
+
+Each browser voice attempt owns its media, callbacks and outstanding voice HTTP
+requests. The existing media epoch invalidates permission and startup outcomes
+when the attempt stops. Local media stops immediately; the retiring attempt
+remains the owner until its requests drain and server cleanup completes. No
+replacement can start during that interval. A failed browser voice request has
+an unknown remote outcome and blocks restart, even if a later cleanup request
+succeeds. An unsolicited provider-side close retains its uncertainty warning,
+but currently drops the core voice object; a subsequent no-voice cleanup can
+therefore permit an explicit restart. That prototype limitation does not
+establish provider finalization. End coordinator remains available to revoke the
+conversation and is the advised next step. UI pending operations also own their
+completion, so obsolete work cannot unlock a newer operation. The existing
+server voice generation identifies both the startup response and rendered voice
+state. An off frame describes the connection that stopped, not whichever browser
+attempt happens to be current when it arrives. The client checks this identity
+after either HTTP or SSE delivery, including when a current off frame arrives
+before the startup response.
+
+Both provider requests set `store:false`; client delegation was chosen because
+managed Live Responses configuration does not expose that backend setting.
+Ordinary abuse monitoring remains separate. Text-only coordination has a
+90-minute deadline from Enable. The first successful provider connection resets
+that deadline once to 90 minutes from connection; later voice restarts do not
+extend it. Browser audio negotiation follows that server connection. The former
+ten-minute value was a prototype trial budget, not an established vendor cap.
+Backend requests retain per-call input/output bounds and single-flight
+execution, without a fixed request-count cutoff that proactive summaries could
+exhaust. Failed calls are not retried automatically. Transport loss ends voice
+and requires explicit restart. A failed graceful close reports provider
+finalization as unconfirmed. No paid API request is part of the automated
+validation or screenshot fixture.
 
 ## One rendering of UI state
 

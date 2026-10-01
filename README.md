@@ -170,11 +170,92 @@ Stop affected old web runtimes for the one-time file migration. With the server
 stopped after cutover, deleting only `<agentDir>/web-pi/` resets web state
 without touching Pi data. Browsers then need to confirm enrollment again.
 
+## Conversational coordinator prototype
+
+Open **Coordinator** to talk about tasks across sessions, independently of the
+coding session on screen. **Enable text coordinator** starts the conversation;
+**Start microphone & voice** separately requests microphone consent. Nothing
+listens or speaks automatically on page load.
+
+Set `OPENAI_API_KEY` in the server's environment before startup. The key stays
+server-side. This prototype uses `gpt-live-1` with client delegation and a
+server-owned `gpt-4.1-mini-2025-04-14` Responses coordinator. Both requests
+explicitly use `store:false`. This disables requested application-state storage,
+not ordinary abuse-monitoring retention. Enabling the coordinator sends bounded
+session metadata and conversation text to OpenAI. API billing is separate from
+ChatGPT subscriptions: Live costs $0.05 per active minute, including silence,
+plus text-model and coding usage. Missing credentials and provider failures are
+reported; there is no fallback to another voice product.
+
+- Ask to list sessions, then use their `S1`, `S2` handles or displayed short
+  labels. Handles remain stable until **End coordinator**. Duplicate labels and
+  conflicting targets require clarification. **Current target** is separate from
+  the coding session displayed behind the panel.
+- The coordinator rewrites indirect requests into direct, contextualized
+  proposals. Review the target, exact instruction and delivery mode, then choose
+  **Confirm and send this instruction**. Nothing is sent by the model alone.
+  Acceptance means Pi admitted the prompt, not that the task succeeded.
+- Voice captions are approximate fragments, not finalized turns. **Use captured
+  words** copies a snapshot into the editable draft. **Review instruction** also
+  works without a microphone. New speech invalidates a pending proposal.
+- Typed extension dialogs have exact, session-bound answer controls. Spoken
+  assent never approves them. Ordinary assistant questions remain prose; they
+  are not automatically classified as approval dialogs.
+- New assistant text in the observed root sessions is summarized briefly. Tool
+  output, thinking, token deltas and historical answers are not announced.
+  Saved-session file changes are observed without opening a writer; external
+  activity is not inferred. Full session text remains the source of truth.
+- **Stop speaking** mutes playback until **Resume speech**. **Mute microphone**,
+  **End voice**, and **End coordinator** never cancel coding. Use the coding
+  session's existing Stop control to cancel work deliberately.
+
+The trial is bounded to one coordinator per server and 50 recent root sessions.
+Backend reasoning and proactive summaries have no fixed request-count cutoff;
+each request remains bounded and only one runs at a time. Their usage is billed
+separately from voice. Text-only coordination ends 90 minutes after Enable. The
+first successful provider voice connection starts a fresh 90-minute window for
+the conversation; text-only preparation does not consume that voice window.
+Stopping and restarting voice does not extend it again. Browser audio
+negotiation follows the provider connection. At
+$0.05 per connected minute, 90 minutes costs $4.50 for voice, including silence,
+plus coordinator and coding usage. It keeps only bounded in-memory coordinator
+context, not another persistent coding history. It does not create sessions,
+grant project trust, orchestrate worktrees or merge work. Sending requires a
+runtime already activated in this server; saved or external sessions are not
+silently opened. Stop an external writer before activating its session.
+Coordinator work conservatively excludes concurrent work in the same project,
+including sibling worktrees, through the web server's prompt and shell admission
+paths. It cannot coordinate writers in another process.
+
+Ordinary in-app navigation preserves the panel. Reload, owner removal or stream
+failure ends the conversation instead of reconnecting speech or retrying work.
+Read
+[the isolated trial instructions](docs/deployment.md#isolated-coordinator-trial)
+before trying it beside a live service. Remote microphone use requires trusted
+HTTPS; plain remote HTTP is text-only. Local Stop releases microphone/playback
+immediately; restarting waits for outstanding voice controls and remote cleanup.
+Client cleanup failures block restart. A provider-side disconnect can leave
+restart enabled despite an unconfirmed-finalization warning; choose End
+coordinator before trying again whenever that warning appears.
+
+Live provider operation, continuous 90-minute WebRTC use and phone/headphone use
+are unverified. Backgrounding, screen lock, calls, headset changes and network
+handoffs may interrupt capture or playback. No automatic reconnect or background
+keepalive is provided. While unmuted, the microphone sends nearby audio even
+with the panel collapsed; Stop speaking does not mute it. Coding instructions
+and approval questions still require the visible confirmation controls, so this
+is not a hands-free approval workflow. See the
+[mobile trial checks](docs/deployment.md#phone-and-headphone-trial-limits).
+Automated checks use fake transports; real account access, voice latency and
+model wording quality require a separately authorized trial with credentials.
+
 ## Security
 
 web-pi runs agent tools and project commands. It has no accounts, login, or
-built-in authentication, and does not check `Host` or `Origin` headers. Keep it
-on `127.0.0.1` unless you have a trusted network or an external access-control
+built-in authentication. Ordinary session routes do not check `Host` or
+`Origin`; coordinator POSTs require same-host JSON and use a short-lived
+conversation cookie. That guard is not application authentication. Keep it on
+`127.0.0.1` unless you have a trusted network or an external access-control
 layer. `--lan` prints a warning for the same reason.
 
 Project resources can run local code. Extensions, skills, and other

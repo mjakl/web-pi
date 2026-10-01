@@ -168,9 +168,12 @@ web tests and `WEB_PI_RUNTIME=fake` use it.
 ## App-level conversational coordinator
 
 `src/core/coordinator.ts` owns one opt-in, bounded conversation. It holds short
-session handles, the explicit target, a small text exchange window, a single
-pending proposal and observation cursors in memory. Ending drops that state; Pi
-remains the canonical coding history. `src/core/coordinator-types.ts` defines
+session handles, full substantive conversation records, current focus, a single
+pending proposal/question and observation cursors in memory. Focus changes,
+resolved requests, proposals and admission results carry stable session IDs.
+Background summaries are recorded separately by event kind; only the latest
+three enter reasoning context and none changes focus. Ending drops that state;
+Pi remains the canonical coding history. `src/core/coordinator-types.ts` defines
 the internal provider boundary; `src/adapters/openai/coordinator.ts` implements
 GPT-Live client delegation and stateless Responses requests. `src/container.ts`
 wires it alongside Workspace. Provider configuration and credentials never enter
@@ -189,15 +192,22 @@ request contains at most three windows. Failed requests are not retried.
 Watchers exist only while the coordinator is enabled and expose no user-supplied
 filesystem path.
 
-Responses produces structured replies or proposals, not executable tool calls.
-Live delegation notifications contain metadata, not instructions. The
-coordinator uses bounded captured context only to reason or propose. Fresh
-speech invalidates an in-flight proposal, and a visible user confirmation is
-required before any prompt admission. The selected target, writer incarnation,
-latest meaningful message, running state and exact dialog bind that
-confirmation. Workspace checks fresh state immediately before dispatch. Typed
-dialog answers additionally check method, offered options and deadline; a model
-has no answer capability.
+Responses produces structured replies or proposals with an inventory session ID,
+not executable tool calls. Reasoning resolves task references and pronouns using
+conversation, explicit focus/pending state, and each candidate's recent user
+request and assistant outcome. The server validates the returned identity,
+explicit handle constraint, root/write eligibility and captured context
+revision. No current-selection fallback substitutes for an unresolved model
+target. Live delegation notifications contain metadata, not instructions.
+Captured input since the previous delegation becomes one app request; transcript
+fragments alone never trigger reasoning or execution. Captured voice output is
+labeled speech context, not authoritative admission evidence. The coordinator
+uses this context only to reason or propose. Fresh speech invalidates an
+in-flight proposal, and a visible user confirmation is required before any
+prompt admission. The selected target, writer incarnation, latest meaningful
+message, running state and exact dialog bind that confirmation. Workspace checks
+fresh state immediately before dispatch. Typed dialog answers additionally check
+method, offered options and deadline; a model has no answer capability.
 
 Requests may omit delivery mode. Text requests and voice delegation both default
 from the captured target context: idle sessions use `prompt`, and running
@@ -261,12 +271,22 @@ Ordinary abuse monitoring remains separate. Text-only coordination has a
 that deadline once to 90 minutes from connection; later voice restarts do not
 extend it. Browser audio negotiation follows that server connection. The former
 ten-minute value was a prototype trial budget, not an established vendor cap.
-Backend requests retain per-call input/output bounds and single-flight
-execution, without a fixed request-count cutoff that proactive summaries could
-exhaust. Failed calls are not retried automatically. Transport loss ends voice
-and requires explicit restart. A failed graceful close reports provider
-finalization as unconfirmed. No paid API request is part of the automated
-validation or screenshot fixture.
+Backend requests retain single-flight execution, output and instruction bounds,
+without a fixed request-count cutoff that proactive summaries could exhaust.
+Responses receives the full substantive coordinator records without per-message
+prefix clipping or a small exchange window, with `truncation: "disabled"`.
+Provider context-capacity errors fail explicitly rather than dropping history.
+Live startup uses `session.input` for an inert recap of identity/eligibility,
+focus, pending state and selected whole history records. Live allows 8,192
+startup tokens; a conservative 7,600 UTF-8-byte text budget leaves framing room.
+The recap marks omissions and the backend keeps the full originals. Live's
+500-token append limit still bounds brief ongoing commentary. See the
+[Live context contract](https://developers.openai.com/api/docs/guides/live-conversations).
+Voice-only restart seeds context without replaying actions; End, reload and
+server restart do not recover coordinator memory. Failed calls are not retried
+automatically. Transport loss ends voice and requires explicit restart. A failed
+graceful close reports provider finalization as unconfirmed. No paid API request
+is part of the automated validation or screenshot fixture.
 
 ## One rendering of UI state
 

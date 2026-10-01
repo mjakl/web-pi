@@ -15,6 +15,8 @@ function fixture(ready = true) {
         text: "No sessions.",
         speech: "No sessions.",
         instruction: "",
+        targetId: null,
+        question: null,
       }),
     ),
     connect: vi.fn(),

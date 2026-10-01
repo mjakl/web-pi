@@ -34,6 +34,20 @@ export function coordinatorUseCases(shared: Shared) {
           const metadata = snapshot
             ? rowMetadata(snapshot.entries, snapshot.summary)
             : (await deps.sessions.rowMetadata(summary.id))?.metadata;
+          const saved = snapshot
+            ? undefined
+            : await deps.sessions.readSaved(summary.id);
+          const read =
+            snapshot ??
+            (saved?.kind === "changed" ? saved.snapshot : undefined);
+          const context = read
+            ? contextFrom(
+                summary.id,
+                deps.runtime.get(summary.id),
+                read,
+                snapshot,
+              )
+            : null;
           return {
             id: summary.id,
             name: metadata?.name ?? summary.name ?? "",
@@ -42,7 +56,13 @@ export function coordinatorUseCases(shared: Shared) {
             project: summary.projectRoot ?? summary.cwd,
             live: summary.live === true,
             running: summary.running === true,
-            available: summary.cwdAvailable !== false,
+            available: summary.cwdAvailable !== false && !!context,
+            root: true,
+            writable:
+              summary.cwdAvailable !== false && context?.writable === true,
+            revision: context?.revision ?? null,
+            currentRequest: context?.currentRequest ?? "",
+            latestOutcome: context?.latestOutcome ?? "",
           };
         }),
     );
@@ -96,6 +116,13 @@ export function coordinatorUseCases(shared: Shared) {
     return {
       id,
       messages: messages.slice(-12),
+      // A coding turn can emit many assistant messages. Its task must survive
+      // moving outside the detailed context window.
+      currentRequest:
+        messages.findLast((m) => m.role === "user")?.text.slice(0, 1200) ?? "",
+      latestOutcome:
+        messages.findLast((m) => m.role === "assistant")?.text.slice(0, 1200) ??
+        "",
       // The identity covers question changes and restarts, not every tool token.
       revision: JSON.stringify([
         live ? incarnations.get(live) : null,

@@ -11,12 +11,17 @@ const input: CoordinatorInput = {
   target: null,
   context: null,
   conversation: [],
+  proposal: null,
+  question: null,
+  explicitTargetId: null,
 };
 const reply = {
   kind: "reply",
   text: "No active sessions.",
   speech: "No active sessions.",
   instruction: "",
+  targetId: null,
+  question: null,
 };
 class Socket extends EventTarget {
   readyState = 1;
@@ -44,7 +49,7 @@ describe("OpenAI coordinator transport", () => {
   it("fails explicitly when unconfigured and never substitutes another provider", () => {
     expect(createOpenAiCoordinatorProvider().ready()).toBe(false);
   });
-  it("uses stateless Responses with bounded context and no executable tools", async () => {
+  it("uses stateless Responses without silent truncation or executable tools", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         status: "completed",
@@ -70,12 +75,48 @@ describe("OpenAI coordinator transport", () => {
     expect(body).toMatchObject({
       store: false,
       model: "gpt-4.1-mini-2025-04-14",
+      truncation: "disabled",
       text: { format: { type: "json_schema", strict: true } },
     });
     expect(body["tools"]).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("test-secret");
   });
-  it("rejects oversized requests before contacting OpenAI", async () => {
+  it("sends complete instructions and coordinator history beyond eight exchanges", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify(reply) }],
+          },
+        ],
+      }),
+    );
+    const provider = createOpenAiCoordinatorProvider({
+      apiKey: "test",
+      fetch: fetcher,
+    });
+    const conversation = Array.from({ length: 70 }, (_, i) => ({
+      role: "user" as const,
+      text: `Turn ${String(i)}: ${"detail ".repeat(200)} keep this ending`,
+    }));
+    const first = conversation[0];
+    assert(first);
+    await provider.respond(
+      { ...input, text: first.text, conversation },
+      new AbortController().signal,
+    );
+    const payload = fetcher.mock.calls[0]?.[1]?.body;
+    assert(typeof payload === "string");
+    const body = JSON.parse(payload) as { input: { content: string }[] };
+    const content = body.input[0]?.content;
+    assert(content);
+    const sent = JSON.parse(content) as CoordinatorInput;
+    expect(sent.text).toBe(first.text);
+    expect(sent.conversation).toEqual(conversation);
+  });
+  it("rejects oversized WebRTC offers before contacting OpenAI", async () => {
     const fetcher = vi.fn<typeof fetch>();
     const provider = createOpenAiCoordinatorProvider({
       apiKey: "test-secret",
@@ -86,8 +127,9 @@ describe("OpenAI coordinator transport", () => {
         "x".repeat(80001),
         vi.fn(),
         new AbortController().signal,
+        input,
       ),
-    ).rejects.toThrow("exceeds this trial's size limit");
+    ).rejects.toThrow("Invalid WebRTC offer");
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -140,6 +182,20 @@ describe("OpenAI coordinator transport", () => {
       "offer",
       (event) => events.push(event),
       new AbortController().signal,
+      {
+        ...input,
+        conversation: [
+          ...Array.from({ length: 20 }, (_, i) => ({
+            role: "user" as const,
+            text: `Older turn ${String(i)}: ${"🙂".repeat(200)}`,
+          })),
+          {
+            role: "user",
+            text: `We discussed the login fix. ${"Keep the full instruction. ".repeat(50)}`,
+          },
+        ],
+        question: "Which login session?",
+      },
     );
     const bodyText = fetcher.mock.calls[0]?.[1]?.body;
     assert(typeof bodyText === "string");
@@ -150,6 +206,23 @@ describe("OpenAI coordinator transport", () => {
       delegation: { type: "client" },
       client: { data_channel: { allowed_client_events: ["session.close"] } },
     });
+    const startup = JSON.stringify(body["session"]);
+    expect(startup).toContain("We discussed the login fix.");
+    expect(startup).toContain("Which login session?");
+    expect(startup).toContain("historyOnly");
+    expect(startup).toContain("never replay historical actions");
+    expect(startup.match(/Keep the full instruction/g)).toHaveLength(50);
+    const seed = (
+      body["session"] as { input: { content: { text: string }[] }[] }
+    ).input[0]?.content[0]?.text;
+    assert(seed);
+    expect(new TextEncoder().encode(seed).length).toBeLessThanOrEqual(7600);
+    expect(seed).not.toContain("Older turn 0:");
+    expect(seed).toContain("Older turn 19:");
+    const recap = JSON.parse(seed) as { conversation: { text: string }[] };
+    expect(recap.conversation.at(-1)?.text).toBe(
+      `We discussed the login fix. ${"Keep the full instruction. ".repeat(50)}`,
+    );
     expect(socket.mock.calls[0]).toMatchObject([
       "wss://api.openai.com/v1/live/sessions/live_test/attach",
       { headers: { Authorization: "Bearer test-secret" } },

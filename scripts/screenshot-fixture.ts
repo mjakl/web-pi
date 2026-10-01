@@ -326,6 +326,8 @@ const coordinator = createCoordinator(
           text: "Offline fixture: S1 has a new result. Read its session for the exact text.",
           speech: "S1 has a new result.",
           instruction: "",
+          targetId: null,
+          question: null,
         });
       if (!input.target || /list/i.test(input.text))
         return Promise.resolve({
@@ -333,11 +335,15 @@ const coordinator = createCoordinator(
           text: `Offline fixture — no OpenAI calls.\n${input.sessions.map((session) => `${session.handle}: ${session.task.slice(0, 100)}`).join("\n")}`,
           speech: "The session list is displayed.",
           instruction: "",
+          targetId: null,
+          question: null,
         });
       return Promise.resolve({
         kind: "prompt",
         text: "Offline fixture: review this sample instruction before sending.",
         speech: "Review the sample instruction.",
+        targetId: input.explicitTargetId ?? input.target.id,
+        question: null,
         instruction:
           "Review the release checklist changes discussed in this session. Report findings without changing files.",
       });

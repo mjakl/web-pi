@@ -7,20 +7,41 @@ export type CoordinatorSession = Awaited<
 export type CoordinatorContext = Awaited<
   ReturnType<Workspace["coordinatorContext"]>
 >;
-export type CoordinatorExchange = { role: "user" | "assistant"; text: string };
-export type CoordinatorInput = {
-  purpose: "request" | "updates";
+export type CoordinatorExchange = {
+  role: "user" | "assistant";
   text: string;
+  event?:
+    | "focus"
+    | "request"
+    | "reply"
+    | "proposal"
+    | "submission"
+    | "result"
+    | "update"
+    | "speech";
+  sessionIds?: string[];
+  proposal?: CoordinatorProposal;
+};
+export type CoordinatorMemory = {
   sessions: CoordinatorSession[];
   target: CoordinatorSession | null;
   context: CoordinatorContext | null;
   conversation: CoordinatorExchange[];
+  proposal: CoordinatorProposal | null;
+  question: string | null;
+};
+export type CoordinatorInput = CoordinatorMemory & {
+  purpose: "request" | "updates";
+  text: string;
+  explicitTargetId: string | null;
 };
 export type CoordinatorReply = {
   kind: "reply" | "prompt";
   text: string;
   speech: string;
   instruction: string;
+  targetId: string | null;
+  question: string | null;
 };
 export type VoiceEvent =
   | { type: "input" | "output"; id: string; text: string }
@@ -43,6 +64,7 @@ export type CoordinatorProvider = {
     offer: string,
     onEvent: (event: VoiceEvent) => void,
     signal: AbortSignal,
+    memory: CoordinatorMemory,
   ) => Promise<CoordinatorVoice>;
 };
 export type CoordinatorProposal = {
@@ -60,6 +82,7 @@ export type CoordinatorState = {
   target: string;
   context: CoordinatorContext | null;
   proposal: CoordinatorProposal | null;
+  question: string | null;
   conversation: CoordinatorExchange[];
   inputCaption: string;
   outputCaption: string;

@@ -183,15 +183,19 @@ server-side. This prototype uses `gpt-live-1` with client delegation and a
 server-owned `gpt-4.1-mini-2025-04-14` Responses coordinator. Both requests
 explicitly use `store:false`. This disables requested application-state storage,
 not ordinary abuse-monitoring retention. Enabling the coordinator sends bounded
-session metadata and conversation text to OpenAI. API billing is separate from
-ChatGPT subscriptions: Live costs $0.05 per active minute, including silence,
-plus text-model and coding usage. Missing credentials and provider failures are
-reported; there is no fallback to another voice product.
+coding-session context and the enabled coordinator conversation to OpenAI. API
+billing is separate from ChatGPT subscriptions: Live costs $0.05 per active
+minute, including silence, plus text-model and coding usage. Missing credentials
+and provider failures are reported; there is no fallback to another voice
+product.
 
-- Ask to list sessions, then use their `S1`, `S2` handles or displayed short
-  labels. Handles remain stable until **End**. Duplicate labels and conflicting
-  targets require clarification. **Current target** is separate from the coding
-  session displayed behind the panel.
+- Ask to list sessions, then refer to their tasks, previous choices, or `S1`,
+  `S2` handles. Reasoning receives current requests and recent outcomes as well
+  as the coordinator's history. It can resolve references such as “the login fix
+  we discussed” or ask one short question when the evidence is ambiguous.
+  Handles remain stable until **End**. Explicit handles constrain the target;
+  the current selection is context, not a fallback for an unclear reference.
+  **Current target** is separate from the coding session behind the panel.
 - The coordinator rewrites indirect requests into direct, contextualized
   proposals. Review the target and exact instruction, then choose **Confirm and
   send this instruction**. A busy session receives ordinary requests after its
@@ -214,21 +218,31 @@ reported; there is no fallback to another voice product.
 
 The trial is bounded to one coordinator per server and 50 recent root sessions.
 Backend reasoning and proactive summaries have no fixed request-count cutoff;
-each request remains bounded and only one runs at a time. Their usage is billed
-separately from voice. Text-only coordination ends 90 minutes after **Start text
-only**. The first successful provider voice connection starts a fresh 90-minute
-window for the conversation; text-only preparation does not consume that voice
-window. Stopping and restarting voice does not extend it again. Browser audio
-negotiation follows the provider connection. At
-$0.05 per connected minute, 90 minutes costs $4.50 for voice, including silence,
-plus coordinator and coding usage. It keeps only bounded in-memory coordinator
-context, not another persistent coding history. It does not create sessions,
-grant project trust, orchestrate worktrees or merge work. Sending requires a
-runtime already activated in this server; saved or external sessions are not
-silently opened. Stop an external writer before activating its session.
-Coordinator work conservatively excludes concurrent work in the same project,
-including sibling worktrees, through the web server's prompt and shell admission
-paths. It cannot coordinate writers in another process.
+only one request runs at a time. Coordinator messages are no longer trimmed to
+1,000 characters or eight exchanges; Responses receives full substantive
+history, explicit focus, pending proposal/question, and the three latest
+background summaries. Full original records remain in memory. The provider's
+context limit is enforced without silent truncation; an oversized request fails
+without sending work. The existing 6,000-character instruction limit remains.
+Their usage is billed separately from voice. Text-only coordination ends 90
+minutes after **Start text only**. The first successful provider voice
+connection starts a fresh 90-minute window for the conversation; text-only
+preparation does not consume that voice window. Stopping and restarting voice
+does not extend it again. Browser audio negotiation follows the provider
+connection. At $0.05 per connected minute, 90 minutes costs $4.50 for voice,
+including silence, plus coordinator and coding usage. Coordinator history exists
+only for this enabled conversation, not across End, reload or server restart. A
+voice-only restart keeps it and seeds Live with a selected history/state recap
+within Live's smaller startup limit; it does not replay requests. Captured
+speech used in delegation becomes coordinator history, but captions are not a
+complete or verbatim audio transcript. No new persistent coding history is
+created. It does not create sessions, grant project trust, orchestrate worktrees
+or merge work. Sending requires a runtime already activated in this server;
+saved or external sessions are not silently opened. Stop an external writer
+before activating its session. Coordinator work conservatively excludes
+concurrent work in the same project, including sibling worktrees, through the
+web server's prompt and shell admission paths. It cannot coordinate writers in
+another process.
 
 Ordinary in-app navigation preserves the panel. Reload, owner removal or stream
 failure ends the conversation instead of reconnecting speech or retrying work.

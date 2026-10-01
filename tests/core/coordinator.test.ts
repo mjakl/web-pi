@@ -47,9 +47,11 @@ async function fixture(
   };
   const provider: CoordinatorProvider = {
     ready: () => true,
-    respond: vi.fn<CoordinatorProvider["respond"]>(() =>
+    respond: vi.fn<CoordinatorProvider["respond"]>((input) =>
       Promise.resolve({
         kind: "prompt",
+        targetId: input.explicitTargetId ?? input.target?.id ?? null,
+        question: null,
         text: "Review this instruction.",
         speech: "Review the instruction below.",
         instruction:
@@ -82,6 +84,334 @@ async function fixture(
 }
 
 describe("app-level coordinator", () => {
+  it("routes a task choice, pronoun follow-up and session shift from shared history, then pins confirmation", async () => {
+    const { coordinator, token, live, provider, workspace, world } =
+      await fixture(["Login", "API"]);
+    await workspace.activate("task1");
+    const other = world.runtime.get("task1");
+    assert(other);
+    const firstPrompt = vi.spyOn(live, "prompt");
+    const otherPrompt = vi.spyOn(other, "prompt");
+    const response = {
+      kind: "reply" as const,
+      targetId: null,
+      question: null,
+      text: "S1 fixes login; S2 handles the API.",
+      speech: "Two sessions.",
+      instruction: "",
+    };
+    vi.mocked(provider.respond).mockResolvedValueOnce(response);
+    try {
+      await coordinator.request(token, "List the sessions", "");
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        ...response,
+        kind: "prompt",
+        targetId: "task0",
+        instruction: "Review the login fix.",
+      });
+      await coordinator.request(
+        token,
+        "Ask the login fix we discussed to review its changes",
+        "",
+      );
+      expect(coordinator.state(token).proposal?.target).toBe("task0");
+      const pending = coordinator.state(token).proposal;
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        ...response,
+        kind: "prompt",
+        targetId: "task0",
+        instruction: "Review the login fix, including tests.",
+      });
+      await coordinator.request(token, "Ask that one to include tests", "S1");
+      const followup = vi.mocked(provider.respond).mock.calls.at(-1)?.[0];
+      expect(followup?.proposal).toEqual(pending);
+      expect(followup?.target?.id).toBe("task0");
+      expect(followup?.conversation).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "proposal",
+            sessionIds: ["task0"],
+            proposal: pending,
+          }),
+        ]),
+      );
+      const old = coordinator.state(token).proposal;
+      assert(old);
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        ...response,
+        kind: "prompt",
+        targetId: "task1",
+        instruction: "Review the API changes.",
+      });
+      await coordinator.request(
+        token,
+        "Now ask the API session to review its changes",
+        "S1",
+      );
+      const shifted = coordinator.state(token).proposal;
+      assert(shifted);
+      expect(coordinator.state(token).target).toBe("S2");
+      expect(shifted.target).toBe("task1");
+      expect(firstPrompt).not.toHaveBeenCalled();
+      expect(otherPrompt).not.toHaveBeenCalled();
+      await expect(coordinator.confirm(token, old.id)).rejects.toThrow(
+        /expired|changed/,
+      );
+      await coordinator.confirm(token, shifted.id);
+      expect(otherPrompt).toHaveBeenCalledExactlyOnceWith(
+        "Review the API changes.",
+        { literal: true },
+      );
+      expect(firstPrompt).not.toHaveBeenCalled();
+      expect(coordinator.state(token).conversation).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "submission",
+            sessionIds: ["task1"],
+            proposal: shifted,
+          }),
+          expect.objectContaining({
+            event: "result",
+            sessionIds: ["task1"],
+            proposal: shifted,
+          }),
+        ]),
+      );
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+      await other.stop();
+    }
+  });
+
+  it("carries a disambiguation question instead of falling back to the current session", async () => {
+    const { coordinator, token, live, provider, workspace } = await fixture([
+      "Login",
+      "Login",
+    ]);
+    await workspace.activate("task1");
+    const question = "The browser login or the API login?";
+    try {
+      await coordinator.select(token, "S1");
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        kind: "reply",
+        targetId: null,
+        question,
+        text: question,
+        speech: question,
+        instruction: "",
+      });
+      await coordinator.request(
+        token,
+        "Ask the login session to check it",
+        "S1",
+      );
+      expect(coordinator.state(token).proposal).toBeNull();
+      expect(coordinator.state(token).question).toBe(question);
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        kind: "prompt",
+        targetId: "task1",
+        question: null,
+        text: "API login",
+        speech: "Review below",
+        instruction: "Check the API login.",
+      });
+      await coordinator.request(token, "The other one, the API login", "S1");
+      expect(vi.mocked(provider.respond).mock.calls.at(-1)?.[0].question).toBe(
+        question,
+      );
+      expect(coordinator.state(token).proposal?.target).toBe("task1");
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+      await workspace.stop("task1");
+    }
+  });
+
+  it("validates model identities and explicit overrides without trusting the model for access", async () => {
+    const { coordinator, token, live, provider } = await fixture();
+    const reply = {
+      kind: "prompt" as const,
+      question: null,
+      text: "Review",
+      speech: "Review",
+      instruction: "Review changes.",
+    };
+    try {
+      await coordinator.select(token, "S1");
+      for (const targetId of ["missing", "subagent.child", "task1"]) {
+        vi.mocked(provider.respond).mockResolvedValueOnce({
+          ...reply,
+          targetId,
+        });
+        await coordinator.request(
+          token,
+          "Ask the other session to review",
+          "S1",
+        );
+        expect(coordinator.state(token).proposal).toBeNull();
+      }
+      vi.mocked(provider.respond).mockResolvedValueOnce({
+        ...reply,
+        targetId: "task0",
+      });
+      await coordinator.request(token, "Ask S2 to review", "S1");
+      expect(
+        vi.mocked(provider.respond).mock.calls.at(-1)?.[0].explicitTargetId,
+      ).toBe("task1");
+      expect(coordinator.state(token).proposal).toBeNull();
+      expect(coordinator.state(token).error).toContain("conflicts");
+      await coordinator.select(token, "S2");
+      await coordinator.request(token, "Ask S1 to review", "S2");
+      expect(coordinator.state(token).proposal?.target).toBe("task0");
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+    }
+  });
+
+  it("retains the current task through observation and refresh after a long coding turn", async () => {
+    const changed = new Map<string, () => void>();
+    const { coordinator, token, live, world, provider } = await fixture(
+      ["Timer", "Review"],
+      (workspace) => {
+        vi.spyOn(workspace, "coordinatorWatch").mockImplementation(
+          (id, notify) => {
+            changed.set(id, () => {
+              notify();
+            });
+            return Promise.resolve(() => {
+              changed.delete(id);
+            });
+          },
+        );
+      },
+    );
+    try {
+      const saved = world.store.get("task1");
+      assert(saved);
+      saved.entries.push(
+        userEntry("api-request", "a1", "Fix the API login timeout"),
+      );
+      saved.leafId = "api-request";
+      for (let i = 1; i <= 12; i++) {
+        const id = `progress${String(i)}`;
+        saved.entries.push(
+          assistantEntry(id, saved.leafId, `Progress step ${String(i)}`, 20),
+        );
+        saved.leafId = id;
+      }
+      changed.get("task1")?.();
+      await vi.waitFor(() => {
+        expect(
+          coordinator.state(token).sessions.find((s) => s.id === "task1"),
+        ).toMatchObject({
+          currentRequest: "Fix the API login timeout",
+          latestOutcome: "Progress step 12",
+        });
+      });
+      await coordinator.request(token, "Which task is the API login fix?", "");
+      const input = vi.mocked(provider.respond).mock.calls.at(-1)?.[0];
+      expect(input?.sessions.find((s) => s.id === "task1")).toMatchObject({
+        currentRequest: "Fix the API login timeout",
+        latestOutcome: "Progress step 12",
+      });
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+    }
+  });
+
+  it("rejects a changed candidate even when it was not the current target during reasoning", async () => {
+    const { coordinator, token, live, provider, world } = await fixture();
+    const pending =
+      Promise.withResolvers<
+        Awaited<ReturnType<CoordinatorProvider["respond"]>>
+      >();
+    vi.mocked(provider.respond).mockImplementationOnce(() => pending.promise);
+    try {
+      const request = coordinator.request(
+        token,
+        "Ask the API task to review",
+        "S1",
+      );
+      await vi.waitFor(() => {
+        expect(provider.respond).toHaveBeenCalledOnce();
+      });
+      const saved = world.store.get("task1");
+      assert(saved);
+      saved.entries.push(userEntry("changed", "a1", "A different task now"));
+      saved.leafId = "changed";
+      pending.resolve({
+        kind: "prompt",
+        targetId: "task1",
+        question: null,
+        text: "Old task",
+        speech: "Review",
+        instruction: "Review the old task.",
+      });
+      await request;
+      expect(coordinator.state(token).proposal).toBeNull();
+      expect(coordinator.state(token).error).toContain("session changed");
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+    }
+  });
+
+  it("captures each delegated speech request once and seeds voice restart without replaying work", async () => {
+    const { coordinator, token, live, provider, emit } = await fixture();
+    const prompt = vi.spyOn(live, "prompt");
+    const instruction = `Review the login fix. ${"Preserve this detail. ".repeat(75)} Include the final constraint.`;
+    try {
+      await coordinator.select(token, "S1");
+      await coordinator.connect(token, "offer");
+      emit({ type: "input", id: "part1", text: instruction.slice(0, 700) });
+      emit({ type: "input", id: "part2", text: instruction.slice(700) });
+      expect(provider.respond).not.toHaveBeenCalled();
+      emit({ type: "delegate", id: "delegate1" });
+      await vi.waitFor(() => {
+        expect(coordinator.state(token).proposal).not.toBeNull();
+      });
+      emit({ type: "delegate", id: "delegate1" });
+      emit({ type: "delegate", id: "delegate-with-no-new-words" });
+      expect(provider.respond).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(provider.respond).mock.calls[0]?.[0].text).toBe(
+        instruction,
+      );
+      expect(
+        coordinator.state(token).conversation.filter((m) => m.role === "user"),
+      ).toEqual([expect.objectContaining({ text: instruction })]);
+      await coordinator.endVoice(token);
+      await coordinator.connect(token, "restart");
+      const recap = vi.mocked(provider.connect).mock.calls.at(-1)?.[3];
+      expect(recap?.target?.id).toBe("task0");
+      expect(recap?.sessions).toHaveLength(2);
+      expect(recap?.proposal?.target).toBe("task0");
+      expect(recap?.conversation).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: instruction }),
+        ]),
+      );
+      expect(prompt).not.toHaveBeenCalled();
+      expect(provider.respond).toHaveBeenCalledTimes(1);
+      emit({
+        type: "input",
+        id: "new-words",
+        text: "Ask that one to include tests",
+      });
+      emit({ type: "delegate", id: "delegate2" });
+      await vi.waitFor(() => {
+        expect(provider.respond).toHaveBeenCalledTimes(2);
+      });
+      expect(vi.mocked(provider.respond).mock.calls[1]?.[0].text).toBe(
+        "Ask that one to include tests",
+      );
+    } finally {
+      await coordinator.end(token);
+      await live.stop();
+    }
+  });
   it("does not exhaust a 90-minute conversation after 40 backend requests", async () => {
     const { coordinator, token, provider, live } = await fixture();
     try {
@@ -90,9 +420,12 @@ describe("app-level coordinator", () => {
       }
       expect(provider.respond).toHaveBeenCalledTimes(45);
       expect(coordinator.state(token).proposal).not.toBeNull();
-      expect(coordinator.state(token).conversation.length).toBeLessThanOrEqual(
-        16,
-      );
+      expect(
+        coordinator.state(token).conversation.filter((m) => m.role === "user"),
+      ).toHaveLength(45);
+      expect(
+        vi.mocked(provider.respond).mock.calls.at(-1)?.[0].conversation.length,
+      ).toBeGreaterThan(80);
     } finally {
       await coordinator.end(token);
       await live.stop();
@@ -374,6 +707,8 @@ describe("app-level coordinator", () => {
     emit({ type: "input", id: "correction", text: "No, wait" });
     resolve({
       kind: "prompt",
+      targetId: "task0",
+      question: null,
       instruction: "Wrong stale instruction",
       speech: "Ready",
       text: "Ready",
@@ -413,6 +748,8 @@ describe("app-level coordinator", () => {
     });
     reply.resolve({
       kind: "prompt",
+      targetId: "task0",
+      question: null,
       text: "Old proposal",
       speech: "Ready",
       instruction: "Review the old branch",
@@ -455,6 +792,8 @@ describe("app-level coordinator", () => {
       >();
     const final = {
       kind: "reply" as const,
+      targetId: null,
+      question: null,
       text: "A1, A2, A3 and B1",
       speech: "All new results",
       instruction: "",
@@ -553,8 +892,11 @@ describe("app-level coordinator", () => {
   it("does not announce historical answers and does announce new assistant text", async () => {
     const { coordinator, token, workspace, provider, live } = await fixture();
     expect(provider.respond).not.toHaveBeenCalled();
+    await coordinator.select(token, "S2");
     vi.mocked(provider.respond).mockResolvedValue({
       kind: "reply",
+      targetId: "task0",
+      question: "Should I switch focus?",
       text: "S1 finished the timer work.",
       speech: "S1 finished the timer work.",
       instruction: "",
@@ -562,6 +904,15 @@ describe("app-level coordinator", () => {
     await workspace.send("task0", "continue");
     await vi.waitFor(() => {
       expect(provider.respond).toHaveBeenCalled();
+    });
+    await vi.waitFor(() => {
+      expect(coordinator.state(token).busy).toBe(false);
+    });
+    expect(coordinator.state(token).target).toBe("S2");
+    expect(coordinator.state(token).question).toBeNull();
+    expect(coordinator.state(token).conversation.at(-1)).toMatchObject({
+      event: "update",
+      sessionIds: ["task0"],
     });
     const calls = vi.mocked(provider.respond).mock.calls;
     expect(

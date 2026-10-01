@@ -52,6 +52,48 @@ describe("coordinator workspace boundary", () => {
     await expect(workspace.coordinatorContext("child")).rejects.toThrow();
   });
 
+  it("describes the current request and latest outcome rather than only the first task", async () => {
+    const { world, workspace } = fixture();
+    const stored = world.store.get("one");
+    assert(stored);
+    stored.entries.push(
+      userEntry("u3", "a1", "Now fix the API login timeout"),
+      assistantEntry(
+        "a3",
+        "u3",
+        "The API login fix passes its focused test",
+        20,
+      ),
+    );
+    stored.leafId = "a3";
+    for (let i = 1; i <= 12; i++) {
+      const id = `progress${String(i)}`;
+      stored.entries.push(
+        assistantEntry(id, stored.leafId, `Progress step ${String(i)}`, 20),
+      );
+      stored.leafId = id;
+    }
+    const saved = (await workspace.coordinatorSessions()).find(
+      (s) => s.id === "one",
+    );
+    expect(saved).toMatchObject({
+      task: "Fix the timer test",
+      currentRequest: "Now fix the API login timeout",
+      latestOutcome: "Progress step 12",
+      root: true,
+      writable: false,
+      available: true,
+    });
+    await workspace.activate("one");
+    expect(
+      (await workspace.coordinatorSessions()).find((s) => s.id === "one"),
+    ).toMatchObject({
+      writable: true,
+      revision: (await workspace.coordinatorContext("one")).revision,
+    });
+    await workspace.stop("one");
+  });
+
   it("admits a literal prompt only to the reviewed live session, once its context is current", async () => {
     const { world, workspace } = fixture();
     await workspace.activate("one");

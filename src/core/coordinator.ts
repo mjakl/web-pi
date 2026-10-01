@@ -2,6 +2,8 @@ import type { DialogAnswer } from "@core/extension-ui";
 import type { Workspace } from "@core/workspace";
 import type { CoordinatorMode } from "@core/workspace/coordinator";
 import type {
+  CoordinatorExchange,
+  CoordinatorMemory,
   CoordinatorProvider,
   CoordinatorSession,
   CoordinatorState,
@@ -25,6 +27,8 @@ export function createCoordinator(
   let voice: CoordinatorVoice | undefined;
   let voiceEpoch = 0;
   let voiceWindowStarted = false;
+  let voiceInput = "";
+  let voiceOutput = "";
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopGlobal: (() => void) | undefined;
   const observers = new Map<string, () => void>();
@@ -47,6 +51,7 @@ export function createCoordinator(
       target: "",
       context: null,
       proposal: null,
+      question: null,
       conversation: [],
       inputCaption: "",
       outputCaption: "",
@@ -63,11 +68,56 @@ export function createCoordinator(
   function publish() {
     for (const listener of listeners) listener(structuredClone(state));
   }
-  function say(text: string, speech = text, delegationId?: string) {
-    state.conversation.push({ role: "assistant", text: text.slice(0, 8000) });
-    state.conversation = state.conversation.slice(-16);
+  function memory(): CoordinatorMemory {
+    // Keep every local record; only repetitive background summaries are selected
+    // for model context. They never establish conversational focus.
+    const recentUpdates = new Set(
+      state.conversation.filter((m) => m.event === "update").slice(-3),
+    );
+    return structuredClone({
+      sessions: state.sessions,
+      target: state.sessions.find((s) => s.handle === state.target) ?? null,
+      context: state.context,
+      proposal: state.proposal,
+      question: state.question,
+      conversation: state.conversation.filter(
+        (m) => m.event !== "update" || recentUpdates.has(m),
+      ),
+    });
+  }
+  function say(
+    text: string,
+    speech = text,
+    delegationId?: string,
+    record: Partial<CoordinatorExchange> = {},
+  ) {
+    state.conversation.push({
+      role: "assistant",
+      text,
+      event: "reply",
+      ...record,
+    });
     voice?.context(speech, true, delegationId);
     publish();
+  }
+  function focus(
+    session: CoordinatorSession | null,
+    context: CoordinatorState["context"],
+  ) {
+    if (state.target !== (session?.handle ?? "")) {
+      state.conversation.push({
+        role: "assistant",
+        event: "focus",
+        sessionIds: session ? [session.id] : [],
+        text: `Current target: ${session ? `${session.handle} — ${session.label}` : "none"}. Previous proposals are invalid.`,
+      });
+    }
+    state.target = session?.handle ?? "";
+    state.context = context;
+    voice?.context(
+      `Current target: ${session ? `${session.handle} (${session.id}) — ${session.label}` : "none"}. Previous proposals are invalid.`,
+      false,
+    );
   }
   async function refreshSessions() {
     const key = token;
@@ -93,10 +143,7 @@ export function createCoordinator(
       }
     await Promise.all(state.sessions.map(attach));
   }
-  function targetFor(
-    text: string,
-    selected: string,
-  ): CoordinatorSession | null {
+  function explicitTarget(text: string): CoordinatorSession | null {
     const mentioned = [...new Set(text.toUpperCase().match(/\bS\d+\b/g) ?? [])];
     if (mentioned.length > 1)
       throw new Error(
@@ -108,36 +155,9 @@ export function createCoordinator(
         throw new Error(
           "That session handle is unknown. Select a current target.",
         );
-      if (selected && selected !== target.handle)
-        throw new Error(
-          "The spoken handle differs from the selected target. Select the intended session and review again.",
-        );
       return target;
     }
-    const lower = text.toLowerCase().trim();
-    const aliases = state.sessions.filter((s) => {
-      const label = s.label.toLowerCase();
-      return (
-        label &&
-        (lower === label ||
-          lower.includes(`tell ${label} `) ||
-          lower.includes(`ask ${label} `) ||
-          lower.includes(`${label} session`))
-      );
-    });
-    if (aliases.length > 1)
-      throw new Error(
-        "That short label names several sessions. Select a unique session handle.",
-      );
-    const [alias] = aliases;
-    if (aliases.length === 1 && alias) {
-      if (selected && selected !== alias.handle)
-        throw new Error(
-          "The label differs from the selected target. Select the intended session.",
-        );
-      return alias;
-    }
-    return state.sessions.find((s) => s.handle === selected) ?? null;
+    return null;
   }
   async function observe(id: string, baseline = false) {
     if (!state.enabled) return;
@@ -158,6 +178,11 @@ export function createCoordinator(
       cursors.set(id, latest);
       const session = state.sessions.find((s) => s.id === id);
       if (!session) return;
+      session.revision = context.revision;
+      session.running = context.running;
+      session.writable = session.available && context.writable;
+      session.currentRequest = context.currentRequest;
+      session.latestOutcome = context.latestOutcome;
       if (baseline || (previous !== "" && index === -1)) updates.delete(id);
       // Missing cursor means a branch changed or the bounded window moved;
       // establish a baseline instead of replaying unrelated history.
@@ -188,6 +213,8 @@ export function createCoordinator(
         say(
           `${session.handle} — ${context.dialog.title}\n${context.dialog.message ?? ""}\nThis is a typed dialog. Select this session and answer the exact question below.`,
           `${session.handle} has a pending question. Select it to see the exact question and answer.`,
+          undefined,
+          { event: "update", sessionIds: [id] },
         );
       }
       dialogs.set(id, dialog);
@@ -232,7 +259,7 @@ export function createCoordinator(
   async function flushUpdates() {
     if (!state.enabled || state.busy || !updates.size) return;
     const key = token;
-    // Three bounded session windows fit the provider's 24,000-character input.
+    // Coalesce a few session updates without displacing conversational focus.
     const batch = [...updates.entries()].slice(0, 3);
     const versions = new Map(batch.map(([id]) => [id, cursors.get(id)]));
     state.busy = true;
@@ -242,10 +269,8 @@ export function createCoordinator(
         {
           purpose: "updates",
           text: batch.map(([, text]) => text).join("\n\n"),
-          sessions: state.sessions,
-          target: null,
-          context: null,
-          conversation: [],
+          ...memory(),
+          explicitTargetId: null,
         },
         controller.signal,
       );
@@ -256,7 +281,10 @@ export function createCoordinator(
       ) {
         for (const [id, text] of batch)
           if (updates.get(id) === text) updates.delete(id);
-        say(reply.text, reply.speech);
+        say(reply.text, reply.speech, undefined, {
+          event: "update",
+          sessionIds: batch.map(([id]) => id),
+        });
       }
     } catch (error) {
       if (key === token && state.enabled) {
@@ -287,53 +315,92 @@ export function createCoordinator(
       );
     if (!text.trim() || text.length > 6000)
       throw new Error("Use an instruction of 1–6000 characters.");
+    const pending = state.proposal;
     state.proposal = null;
     state.error = "";
+    const exchange: CoordinatorExchange = {
+      role: "user",
+      text,
+      event: "request",
+      sessionIds: [],
+    };
+    state.conversation.push(exchange);
     const version = ++epoch;
     state.busy = true;
     try {
       await refreshSessions();
-      const target = targetFor(text, selected);
-      state.target = target?.handle ?? "";
+      const explicit = explicitTarget(text);
+      const current =
+        state.sessions.find((s) => s.handle === (selected || state.target)) ??
+        null;
+      if (selected && !current)
+        throw new Error(
+          "That session is no longer in the inventory. Select a current target.",
+        );
+      const currentContext = current
+        ? await workspace.coordinatorContext(current.id)
+        : null;
+      if (key !== token || !state.enabled || version !== epoch) return;
+      if (current?.handle !== state.target) focus(current, currentContext);
+      else state.context = currentContext;
+      exchange.sessionIds = explicit ? [explicit.id] : [];
+      const input = {
+        ...memory(),
+        proposal: pending,
+        purpose: "request" as const,
+        text,
+        explicitTargetId: explicit?.id ?? null,
+      };
+      publish();
+      const reply = await provider.respond(input, controller.signal);
+      if (key !== token || !state.enabled || version !== epoch) return;
+      const target = reply.targetId
+        ? input.sessions.find((s) => s.id === reply.targetId)
+        : null;
+      if (reply.targetId && !target)
+        throw new Error(
+          "The proposed session is not in the authorized inventory. Which session did you mean?",
+        );
+      if (explicit && target && explicit.id !== target.id)
+        throw new Error(
+          "The proposed target conflicts with your explicit handle. Which session should receive the request?",
+        );
       const context = target
         ? await workspace.coordinatorContext(target.id)
         : null;
       if (key !== token || !state.enabled || version !== epoch) return;
-      state.context = context;
-      state.conversation.push({ role: "user", text });
-      state.conversation = state.conversation.slice(-16);
-      publish();
-      const reply = await provider.respond(
-        {
-          purpose: "request",
-          text,
-          sessions: state.sessions,
-          target,
-          context,
-          conversation: state.conversation.slice(-8),
-        },
-        controller.signal,
-      );
-      if (
-        key !== token ||
-        !state.enabled ||
-        version !== epoch ||
-        context?.revision !== state.context?.revision
-      )
-        return;
+      if (target && context?.revision !== target.revision)
+        throw new Error(
+          "The session changed while preparing this reply. Review a fresh request.",
+        );
+      exchange.sessionIds = target ? [target.id] : [];
+      state.question = reply.question;
       if (reply.kind === "prompt") {
-        if (!target) {
-          say(
-            "Which session should receive this request? Select a target or use its unique handle.",
-          );
+        if (!target || reply.question) {
+          state.question =
+            reply.question ?? "Which session should receive this request?";
+          say(state.question, state.question, delegationId);
           return;
         }
-        if (!context?.writable) {
+        const available = (await workspace.coordinatorSessions()).find(
+          (s) => s.id === target.id,
+        );
+        if (key !== token || !state.enabled || version !== epoch) return;
+        if (
+          !available?.root ||
+          !available.available ||
+          !available.writable ||
+          !context?.writable
+        ) {
           say(
             `${target.handle} is not an available local writer. Open and activate it in web-pi first; stop any external writer before doing so.`,
           );
           return;
         }
+        if (available.revision !== context.revision)
+          throw new Error(
+            "The session changed while preparing this reply. Review a fresh request.",
+          );
         if (context.dialog) {
           say(
             `${target.handle} has a typed dialog. Answer the exact question using the visible controls; spoken assent cannot approve it.`,
@@ -342,6 +409,8 @@ export function createCoordinator(
         }
         if (!reply.instruction.trim() || reply.instruction.length > 6000)
           throw new Error("The provider returned an invalid instruction.");
+        focus(target, context);
+        state.question = null;
         state.proposal = {
           id: newId(),
           target: target.id,
@@ -354,15 +423,29 @@ export function createCoordinator(
           `${reply.text}\nProposed for ${target.handle}; not sent.`,
           `${target.handle}: an instruction is ready for your review. It has not been sent.`,
           delegationId,
+          {
+            event: "proposal",
+            sessionIds: [target.id],
+            proposal: structuredClone(state.proposal),
+          },
         );
-      } else say(reply.text, reply.speech, delegationId);
+      } else {
+        if (target && !reply.question) focus(target, context);
+        say(
+          reply.question ?? reply.text,
+          reply.question ?? reply.speech,
+          delegationId,
+          { sessionIds: target ? [target.id] : [] },
+        );
+      }
     } catch (error) {
       if (key === token && state.enabled && version === epoch) {
         state.error =
           error instanceof Error
             ? error.message
             : "The coordinator request failed.";
-        say(state.error);
+        state.question = state.error;
+        say(state.error, state.error, delegationId);
       }
     } finally {
       if (key === token && state.enabled) {
@@ -382,22 +465,37 @@ export function createCoordinator(
     }
     if (event.type === "input") {
       state.inputCaption = (state.inputCaption + event.text).slice(-6000);
+      voiceInput += event.text;
       state.proposal = null;
       epoch++;
-    } else if (event.type === "output")
+    } else if (event.type === "output") {
       state.outputCaption = (state.outputCaption + event.text).slice(-6000);
-    else if (event.type === "delegate") {
+      voiceOutput += event.text;
+    } else if (event.type === "delegate") {
       // Metadata is only a request to reason about captured context. It never
       // authorizes a tool or marks an utterance complete.
-      if (!state.busy && state.inputCaption.trim())
-        void request(
-          key,
-          state.inputCaption,
-          state.target,
-          undefined,
-          event.id,
+      if (!state.busy && voiceInput.trim()) {
+        const text = voiceInput;
+        voiceInput = "";
+        if (voiceOutput.trim())
+          state.conversation.push({
+            role: "assistant",
+            text: voiceOutput,
+            event: "speech",
+          });
+        voiceOutput = "";
+        void request(key, text, state.target, undefined, event.id).catch(
+          (error: unknown) => {
+            if (key === token && state.enabled) {
+              state.error =
+                error instanceof Error
+                  ? error.message
+                  : "Review the captured words before trying again.";
+              say(state.error, state.error, event.id);
+            }
+          },
         );
-      else
+      } else
         voice?.context(
           "Ask the user to review the captured words in the coordinator panel before preparing an instruction.",
           true,
@@ -524,13 +622,9 @@ export function createCoordinator(
           ? await workspace.coordinatorContext(session.id)
           : null;
         check(key);
-        state.target = session?.handle ?? "";
-        state.context = context;
+        focus(session ?? null, context);
+        state.question = null;
         state.inputCaption = "";
-        voice?.context(
-          `Selected target: ${state.target || "none"}. Previous proposals are invalid.`,
-          false,
-        );
       } finally {
         if (key === token) {
           state.busy = false;
@@ -547,6 +641,13 @@ export function createCoordinator(
         throw new Error("The proposal expired or changed. Review it again.");
       state.proposal = null;
       state.busy = true;
+      state.conversation.push({
+        role: "user",
+        event: "submission",
+        text: `Confirmed instruction for ${proposal.label}.`,
+        sessionIds: [proposal.target],
+        proposal: structuredClone(proposal),
+      });
       publish();
       try {
         await workspace.coordinatorSend(
@@ -565,8 +666,28 @@ export function createCoordinator(
                 : "";
           say(
             `${proposal.label}: instruction submitted${timing}. This acknowledges admission, not completion.`,
+            undefined,
+            undefined,
+            {
+              event: "result",
+              sessionIds: [proposal.target],
+              proposal: structuredClone(proposal),
+            },
           );
         }
+      } catch (error) {
+        if (key === token)
+          say(
+            `${proposal.label}: admission failed. ${error instanceof Error ? error.message : "Review a fresh request."}`,
+            undefined,
+            undefined,
+            {
+              event: "result",
+              sessionIds: [proposal.target],
+              proposal: structuredClone(proposal),
+            },
+          );
+        throw error;
       } finally {
         if (key === token) {
           state.busy = false;
@@ -594,7 +715,13 @@ export function createCoordinator(
           requestId,
           answer,
         );
-        if (key === token) say(`${session.handle}: dialog answer accepted.`);
+        if (key === token)
+          say(
+            `${session.handle}: dialog answer accepted for ${requestId}: ${JSON.stringify(answer)}.`,
+            undefined,
+            undefined,
+            { event: "result", sessionIds: [session.id] },
+          );
       } finally {
         if (key === token) {
           state.busy = false;
@@ -611,6 +738,8 @@ export function createCoordinator(
       state.voice = "connecting";
       state.inputCaption = "";
       state.outputCaption = "";
+      voiceInput = "";
+      voiceOutput = "";
       publish();
       try {
         const connected = await provider.connect(
@@ -619,6 +748,7 @@ export function createCoordinator(
             if (generation === voiceEpoch) voiceEvent(key, event);
           },
           controller.signal,
+          memory(),
         );
         if (key !== token || !state.enabled || generation !== voiceEpoch) {
           await connected.close();

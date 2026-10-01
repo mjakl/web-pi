@@ -158,15 +158,20 @@ by itself an HTTPS solution. Use only an already authorized private HTTPS route,
 or arrange one separately without changing the current live proxy. Do not enable
 Funnel or a public tunnel for this trial.
 
-The coordinator does not persist audio or its small conversation window. Both
-OpenAI requests set `store:false`, but ordinary abuse-monitoring retention can
-still apply. Text-only mode expires 90 minutes after Start text only. The first
-successful provider voice connection starts a fresh 90-minute conversation
+The coordinator does not persist audio or its in-memory conversation history.
+Responses receives full substantive coordinator records; Live receives a
+selected startup recap within its smaller context limit. A voice-only restart
+preserves app history, but End, reload and server restart do not recover it.
+Both OpenAI requests set `store:false`, but ordinary abuse-monitoring retention
+can still apply. Text-only mode expires 90 minutes after Start text only. The
+first successful provider voice connection starts a fresh 90-minute conversation
 window; stopping and restarting voice does not extend it. Browser audio
 negotiation follows the provider connection. The original ten-minute cutoff was
 an app-level prototype budget, not a documented vendor requirement. Backend
-reasoning and proactive summaries have no fixed request-count cutoff; each call
-remains bounded and single-flight, with separate model usage charges.
+reasoning and proactive summaries have no fixed request-count cutoff; calls
+remain single-flight, with separate model usage charges. Growing history can
+increase text usage. Provider context-capacity errors fail visibly without
+silent truncation or automatic retry.
 
 Muting the microphone or playback does not stop billing. Ninety connected
 minutes at the documented $0.05/minute rate cost $4.50 for voice, plus

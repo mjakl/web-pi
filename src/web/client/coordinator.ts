@@ -77,8 +77,12 @@ export function setUpCoordinator(): void {
       const busy = !!pending || state.dataset["busy"] === "true";
       const capturing = voice && current(voice);
       button("begin").disabled = active || !!pending;
-      button("voice").disabled = !active || !!pending || !!voice;
+      button("voice").disabled = !!pending || !!voice;
+      button("voice").hidden = !!capturing;
+      button("mute").hidden = !capturing;
       button("end").disabled = !active;
+      button("end").hidden = !active;
+      button("begin").hidden = active;
       button("mute").disabled =
         !capturing || !voice?.microphone || !!voice.requests.size;
       button("speech").disabled = !capturing || !voice?.peer;
@@ -95,10 +99,14 @@ export function setUpCoordinator(): void {
           ? "Draft changed. Review the instruction again before confirming."
           : "";
       query(".coordinator-indicator").textContent = capturing
-        ? "voice on"
-        : active
-          ? "text on"
-          : "off";
+        ? voice?.muted
+          ? "muted"
+          : "voice on"
+        : voice
+          ? "ending"
+          : active
+            ? "text on"
+            : "off";
     }
     async function request(
       action: string,
@@ -188,7 +196,7 @@ export function setUpCoordinator(): void {
           outcomes.some((outcome) => outcome.status === "rejected")
         )
           throw new Error(
-            "Voice stopped locally; remote shutdown is unconfirmed. End coordinator before starting voice again.",
+            "Voice stopped locally; remote shutdown is unconfirmed. Use End before starting voice again.",
           );
         voice = undefined;
         playback.textContent = "Microphone off. Speech off.";
@@ -198,7 +206,7 @@ export function setUpCoordinator(): void {
         playback.textContent = "Microphone off. Remote shutdown unconfirmed.";
         showError(
           new Error(
-            "Voice stopped locally; remote shutdown is unconfirmed. End coordinator before starting voice again.",
+            "Voice stopped locally; remote shutdown is unconfirmed. Use End before starting voice again.",
           ),
         );
         controls();
@@ -301,13 +309,13 @@ export function setUpCoordinator(): void {
         controls();
         showError(
           new Error(
-            "Coordinator disconnected. Voice stopped; enable again explicitly. No instructions were retried.",
+            "Coordinator disconnected. Voice stopped; start again explicitly. No instructions were retried.",
           ),
         );
         void post("end").catch(() => {});
       });
     }
-    async function startVoice() {
+    function requireMicrophoneSupport() {
       if (
         !window.isSecureContext ||
         !navigator.mediaDevices?.getUserMedia ||
@@ -316,6 +324,9 @@ export function setUpCoordinator(): void {
         throw new Error(
           "Microphone capture requires HTTPS or localhost and browser WebRTC support. Plain remote HTTP is text-only.",
         );
+    }
+    async function startVoice(startedCoordinator: boolean) {
+      requireMicrophoneSupport();
       if (voice) return;
       const attempt: VoiceAttempt = {
         epoch: ++mediaEpoch,
@@ -325,7 +336,16 @@ export function setUpCoordinator(): void {
         speechStopped: false,
       };
       voice = attempt;
+      playback.textContent =
+        "Connecting voice… Allow microphone access when asked.";
       controls();
+      // SDP setup is not readiness: the provider must also start the session.
+      async function failedStart(reason: unknown) {
+        if (!current(attempt)) return;
+        showError(reason);
+        if (startedCoordinator) await endCoordinator();
+        else await endVoice(attempt);
+      }
       try {
         const capture = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
@@ -356,7 +376,7 @@ export function setUpCoordinator(): void {
             if (!current(attempt)) return;
             showError(
               new Error(
-                "Audio playback was blocked. End voice and start it again from its button.",
+                "Audio playback was blocked. Use End, then Start voice again.",
               ),
             );
           });
@@ -403,11 +423,12 @@ export function setUpCoordinator(): void {
             capture.getAudioTracks().forEach((track) => {
               track.enabled = !attempt.muted;
             });
+            playback.textContent = "Listening. Voice ready.";
           } else if (data.type === "session.closed") void endVoice(attempt);
           else if (data.type === "error")
             showError(
               new Error(
-                "OpenAI voice reported an error. End voice and try again explicitly.",
+                "OpenAI voice reported an error. Use End before trying again.",
               ),
             );
         });
@@ -456,10 +477,11 @@ export function setUpCoordinator(): void {
         if (!current(attempt)) return;
         attempt.timer = setTimeout(() => {
           if (!current(attempt)) return;
-          void endVoice(attempt);
-          showError(
-            new Error(
-              "OpenAI voice did not become ready. No connection was retried.",
+          run(() =>
+            failedStart(
+              new Error(
+                "OpenAI voice did not become ready. No connection was retried.",
+              ),
             ),
           );
         }, 15000);
@@ -468,29 +490,49 @@ export function setUpCoordinator(): void {
           sdp: result.answer,
         });
       } catch (reason) {
-        if (!current(attempt)) return;
-        showError(reason);
-        await endVoice(attempt);
+        await failedStart(reason);
       }
       if (voice === attempt) controls();
     }
-    async function action(name: string, source: HTMLElement) {
-      error.textContent = "";
-      if (name === "end") {
-        ownsConversation = false;
-        closeMedia();
-        stream?.close();
-        stream = undefined;
-        query(".coordinator-state").dataset["enabled"] = "false";
-        controls();
+    async function begin() {
+      disposed = false;
+      await post("begin");
+      ownsConversation = true;
+      if (disposed || signal.aborted) {
+        dispose();
+        return false;
+      }
+      query(".coordinator-state").dataset["enabled"] = "true";
+      controls();
+      listen();
+      return true;
+    }
+    async function endCoordinator() {
+      ownsConversation = false;
+      closeMedia();
+      stream?.close();
+      stream = undefined;
+      query(".coordinator-state").dataset["enabled"] = "false";
+      playback.textContent = "Microphone off. Ending…";
+      controls();
+      try {
         const result = await post("end");
+        playback.textContent = "Microphone off. Speech off.";
         if (result.finalized === false)
           showError(
             new Error(
               "Coordinator ended locally; provider finalization is unconfirmed.",
             ),
           );
-      } else if (name === "end-voice") await endVoice();
+      } catch (reason) {
+        playback.textContent = "Microphone off. Remote shutdown unconfirmed.";
+        throw reason;
+      }
+    }
+    async function action(name: string, source: HTMLElement) {
+      error.textContent = "";
+      if (name === "end") await endCoordinator();
+      else if (name === "end-voice") await endVoice();
       else if (name === "speech") {
         const attempt = voice;
         if (!attempt || !current(attempt)) return;
@@ -515,6 +557,9 @@ export function setUpCoordinator(): void {
           button("mute").textContent = attempt.muted
             ? "Unmute microphone"
             : "Mute microphone";
+          playback.textContent = attempt.muted
+            ? "Microphone muted."
+            : "Listening. Voice ready.";
         } catch (reason) {
           if (!current(attempt)) return;
           showError(reason);
@@ -528,16 +573,13 @@ export function setUpCoordinator(): void {
         draft.focus();
       } else if (name === "confirm")
         await post("confirm", { proposal: source.dataset["proposal"] });
-      else if (name === "voice") await startVoice();
-      else if (name === "begin") {
-        disposed = false;
-        await post("begin");
-        ownsConversation = true;
-        if (disposed || signal.aborted) {
-          dispose();
-          return;
-        }
-        listen();
+      else if (name === "voice") {
+        requireMicrophoneSupport();
+        const startedCoordinator = !active;
+        if (startedCoordinator && !(await begin())) return;
+        await startVoice(startedCoordinator);
+      } else if (name === "begin") {
+        if (await begin()) playback.textContent = "Text ready. Microphone off.";
       }
       controls();
     }
@@ -593,7 +635,6 @@ export function setUpCoordinator(): void {
             target:
               owner.querySelector<HTMLSelectElement>("#coordinator-target")
                 ?.value ?? "",
-            mode: data.get("mode"),
           });
         } else if (submitted.matches(".coordinator-dialog")) {
           const submitter = event.submitter as HTMLButtonElement | null;

@@ -77,6 +77,35 @@ describe("coordinator HTTP boundary", () => {
     ).toBe(400);
     await post("end", {}, cookie);
   });
+  it("accepts omitted delivery and explicit modes, but rejects invalid supplied modes", async () => {
+    const { post, provider, coordinator } = fixture();
+    const begin = await post("begin");
+    const cookie = begin.headers.get("Set-Cookie") ?? "";
+    try {
+      const request = { text: "List active sessions", target: "" };
+      expect((await post("request", request, cookie)).status).toBe(200);
+      expect(provider.respond).toHaveBeenCalledOnce();
+      expect(
+        coordinator.state("private-coordinator-token-1").proposal,
+      ).toBeNull();
+      for (const mode of ["prompt", "followUp", "steer"]) {
+        expect(
+          (await post("request", { ...request, mode }, cookie)).status,
+        ).toBe(200);
+      }
+      expect(provider.respond).toHaveBeenCalledTimes(4);
+      for (const mode of ["", "interrupt", null, 1]) {
+        expect(
+          (await post("request", { ...request, mode }, cookie)).status,
+        ).toBe(400);
+      }
+      expect(provider.respond).toHaveBeenCalledTimes(4);
+      expect(provider.connect).not.toHaveBeenCalled();
+    } finally {
+      await coordinator.shutdown();
+    }
+  });
+
   it("returns the core voice generation in startup JSON", async () => {
     const { post, provider, coordinator } = fixture();
     vi.mocked(provider.connect).mockResolvedValue({
@@ -180,10 +209,14 @@ describe("coordinator HTTP boundary", () => {
     const { app } = fixture();
     const full = await (await app.request("/new")).text();
     expect(full).toContain('id="coordinator"');
-    expect(full).toContain("Start microphone &amp; voice");
-    expect(full).toContain("No model can approve or send work by itself");
+    expect(full).toContain("Start voice");
+    expect(full).not.toContain("Enable text coordinator");
+    expect(full).not.toContain('id="coordinator-mode"');
+    expect(full).toContain(
+      "Instructions and approval answers always need visible confirmation",
+    );
     expect(full).toContain("90-minute window");
-    expect(full).toContain("Live provider and phone use are unverified");
+    expect(full).toContain("There is no automatic reconnect");
     const fragment = await (
       await app.request("/new", { headers: { "HX-Request": "true" } })
     ).text();

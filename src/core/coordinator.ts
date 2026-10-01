@@ -277,7 +277,7 @@ export function createCoordinator(
     key: string,
     text: string,
     selected: string,
-    mode: CoordinatorMode,
+    mode?: CoordinatorMode,
     delegationId?: string,
   ) {
     check(key);
@@ -347,7 +347,7 @@ export function createCoordinator(
           target: target.id,
           label: `${target.handle} — ${target.label}`,
           text: reply.instruction,
-          mode,
+          mode: mode ?? (context.running ? "followUp" : "prompt"),
           revision: context.revision,
         };
         say(
@@ -390,7 +390,13 @@ export function createCoordinator(
       // Metadata is only a request to reason about captured context. It never
       // authorizes a tool or marks an utterance complete.
       if (!state.busy && state.inputCaption.trim())
-        void request(key, state.inputCaption, state.target, "prompt", event.id);
+        void request(
+          key,
+          state.inputCaption,
+          state.target,
+          undefined,
+          event.id,
+        );
       else
         voice?.context(
           "Ask the user to review the captured words in the coordinator panel before preparing an instruction.",
@@ -550,10 +556,17 @@ export function createCoordinator(
           proposal.mode,
         );
         if (key === token) state.inputCaption = "";
-        if (key === token)
+        if (key === token) {
+          const timing =
+            proposal.mode === "followUp"
+              ? "; will run after current work"
+              : proposal.mode === "steer"
+                ? "; will interrupt current work"
+                : "";
           say(
-            `${proposal.label}: instruction accepted (${proposal.mode}). This acknowledges admission, not completion.`,
+            `${proposal.label}: instruction submitted${timing}. This acknowledges admission, not completion.`,
           );
+        }
       } finally {
         if (key === token) {
           state.busy = false;

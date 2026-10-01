@@ -79,6 +79,16 @@
 .coordinator button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
+.coordinator button[data-coordinator="voice"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.coordinator button[data-coordinator="voice"]:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--accent);
+}
 .coordinator button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -106,12 +116,13 @@
 .coordinator textarea {
   resize: vertical;
 }
-.coordinator-state > details {
+.coordinator-state > details,
+.coordinator-options {
   margin: var(--space-6) 0;
   padding: var(--space-4) 0;
   border-block: 1px solid var(--border);
 }
-.coordinator-state summary {
+.coordinator :is(.coordinator-state, .coordinator-options) summary {
   cursor: pointer;
 }
 .coordinator-sessions ul {

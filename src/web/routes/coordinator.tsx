@@ -77,14 +77,18 @@ export function coordinatorRoutes(app: WebApp, { deps }: RouteContext) {
       } else if (action === "select")
         await coordinator.select(key, text("target"));
       else if (action === "request") {
-        const mode = text("mode");
-        if (!["prompt", "steer", "followUp"].includes(mode))
+        const mode = data["mode"];
+        if (
+          mode !== undefined &&
+          (typeof mode !== "string" ||
+            !["prompt", "steer", "followUp"].includes(mode))
+        )
           throw new Error("Choose a delivery mode.");
         await coordinator.request(
           key,
           text("text"),
           text("target"),
-          mode as CoordinatorMode,
+          mode as CoordinatorMode | undefined,
         );
       } else if (action === "confirm")
         await coordinator.confirm(key, text("proposal"));

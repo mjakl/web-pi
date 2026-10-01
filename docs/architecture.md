@@ -199,6 +199,14 @@ confirmation. Workspace checks fresh state immediately before dispatch. Typed
 dialog answers additionally check method, offered options and deadline; a model
 has no answer capability.
 
+Requests may omit delivery mode. Text requests and voice delegation both default
+from the captured target context: idle sessions use `prompt`, and running
+sessions use `followUp` so ordinary requests do not interrupt current work.
+Explicit API modes (`prompt`, `followUp`, `steer`) remain supported. The
+resolved mode is bound to the proposal, not recomputed at confirmation.
+Confirmation acknowledges instruction submission and whether it will run after
+or interrupt current work; it does not claim completion.
+
 Coordinator prompts use Pi's literal-input option to bypass slash commands,
 skill commands and prompt templates, and never enter the web shell classifier.
 Existing extension input hooks still apply. A shared admission boundary makes
@@ -212,17 +220,21 @@ activated in web-pi.
 The shell owns the panel outside the replaceable session region. A separate SSE
 stream delivers server-rendered coordinator state, not a browser-maintained
 transcript. Drafts, microphone tracks and playback belong to that panel's client
-lifecycle. A late Enable response is ended rather than attaching a stream to a
-removed owner. End immediately revokes the server token; only Begin writes the
-browser cookie. Its three-hour lifetime covers the initial text window and a
-first voice connection near that window's end; the server deadline remains
-authoritative. The obsolete cookie grants no access and expires or is replaced,
-so a late End response cannot delete a newer conversation's cookie. Voice is
-explicitly enabled using WebRTC; a server-owned sideband receives transcripts
-and sends short verified commentary. The browser's provider data channel can
-only close the voice session. Transcript deltas are not turn boundaries, and
-commentary receipt does not establish playback. Stop-speaking mutes local
-playback; it neither retracts provider context nor stops coding.
+lifecycle. Start voice uses the existing Begin authority before microphone
+startup, without a separate enable step. Text-only startup and playback controls
+remain in a secondary disclosure. Failed one-click voice startup ends the newly
+started coordinator; a deliberately started text conversation remains available
+if adding voice fails. A late Begin response is ended rather than attaching a
+stream to a removed owner. End immediately revokes the server token; only Begin
+writes the browser cookie. Its three-hour lifetime covers the initial text
+window and a first voice connection near that window's end; the server deadline
+remains authoritative. The obsolete cookie grants no access and expires or is
+replaced, so a late End response cannot delete a newer conversation's cookie.
+Voice is explicitly enabled using WebRTC; a server-owned sideband receives
+transcripts and sends short verified commentary. The browser's provider data
+channel can only close the voice session. Transcript deltas are not turn
+boundaries, and commentary receipt does not establish playback. Stop-speaking
+mutes local playback; it neither retracts provider context nor stops coding.
 
 Each browser voice attempt owns its media, callbacks and outstanding voice HTTP
 requests. The existing media epoch invalidates permission and startup outcomes
@@ -233,7 +245,7 @@ an unknown remote outcome and blocks restart, even if a later cleanup request
 succeeds. An unsolicited provider-side close retains its uncertainty warning,
 but currently drops the core voice object; a subsequent no-voice cleanup can
 therefore permit an explicit restart. That prototype limitation does not
-establish provider finalization. End coordinator remains available to revoke the
+establish provider finalization. End remains available to revoke the
 conversation and is the advised next step. UI pending operations also own their
 completion, so obsolete work cannot unlock a newer operation. The existing
 server voice generation identifies both the startup response and rendered voice
@@ -245,7 +257,7 @@ before the startup response.
 Both provider requests set `store:false`; client delegation was chosen because
 managed Live Responses configuration does not expose that backend setting.
 Ordinary abuse monitoring remains separate. Text-only coordination has a
-90-minute deadline from Enable. The first successful provider connection resets
+90-minute deadline from Begin. The first successful provider connection resets
 that deadline once to 90 minutes from connection; later voice restarts do not
 extend it. Browser audio negotiation follows that server connection. The former
 ten-minute value was a prototype trial budget, not an established vendor cap.

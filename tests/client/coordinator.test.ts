@@ -63,7 +63,7 @@ async function enable() {
   await Events.last.state(enabled());
 }
 
-function mediaFixture() {
+function mediaFixture(started = true) {
   const tracks: { enabled: boolean; stop: ReturnType<typeof vi.fn> }[] = [];
   const peers: Peer[] = [];
   const capture = () => {
@@ -99,11 +99,12 @@ function mediaFixture() {
     async setRemoteDescription() {
       await this.remote;
       this.connectionState = "connected";
-      this.channel.dispatchEvent(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "session.started" }),
-        }),
-      );
+      if (started)
+        this.channel.dispatchEvent(
+          new MessageEvent("message", {
+            data: JSON.stringify({ type: "session.started" }),
+          }),
+        );
     }
   }
   const getUserMedia = vi.fn(() => Promise.resolve(capture()));
@@ -140,6 +141,208 @@ async function startPendingVoice() {
 }
 
 describe("coordinator browser owner", () => {
+  it("starts the coordinator and microphone with one Start voice click", async () => {
+    const fetcher = await mount();
+    const media = mediaFixture();
+    click("voice");
+    await flush();
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "/coordinator/begin",
+      "/coordinator/voice",
+    ]);
+    expect(media.tracks[0]?.enabled).toBe(true);
+    expect(
+      query('[data-coordinator="begin"]').closest("details")?.className,
+    ).toBe("coordinator-options");
+    expect(document.querySelector("#coordinator-mode")).toBeNull();
+    expect(query('[data-coordinator="voice"]').hidden).toBe(true);
+    expect(query('[data-coordinator="mute"]').hidden).toBe(false);
+    click("end");
+    await flush();
+    expect(media.tracks[0]?.stop).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls.at(-1)?.[0]).toBe("/coordinator/end");
+  });
+
+  it("releases the microphone before full End settles and reports unconfirmed transport shutdown", async () => {
+    const fetcher = await mount();
+    const media = mediaFixture();
+    click("voice");
+    await flush();
+    const ending = Promise.withResolvers<Response>();
+    fetcher.mockImplementationOnce(() => ending.promise);
+    click("end");
+    await flush();
+    expect(media.tracks[0]?.stop).toHaveBeenCalledOnce();
+    expect(query(".coordinator-playback").textContent).toContain(
+      "Microphone off. Ending",
+    );
+    expect(
+      (query('[data-coordinator="voice"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    ending.reject(new Error("Server connection failed"));
+    await flush();
+    expect(query(".coordinator-playback").textContent).toContain(
+      "Remote shutdown unconfirmed",
+    );
+    expect(
+      query(".coordinator-panel > .coordinator-error").textContent,
+    ).toContain("Server connection failed");
+  });
+
+  it.each(["permission", "provider"])(
+    "ends a newly started coordinator after %s startup failure",
+    async (failure) => {
+      const fetcher = await mount();
+      const media = mediaFixture();
+      if (failure === "permission")
+        media.getUserMedia.mockRejectedValueOnce(
+          new Error("Microphone permission denied"),
+        );
+      else
+        fetcher.mockImplementation((url) =>
+          Promise.resolve(
+            url === "/coordinator/voice"
+              ? Response.json(
+                  { error: "Check API quota and billing" },
+                  { status: 400 },
+                )
+              : response(),
+          ),
+        );
+      click("voice");
+      await flush();
+      await vi.waitFor(() => {
+        expect(fetcher.mock.calls.at(-1)?.[0]).toBe("/coordinator/end");
+      });
+      await flush();
+      expect(query(".coordinator-state").dataset["enabled"]).toBe("false");
+      expect(
+        query(".coordinator-panel > .coordinator-error").textContent,
+      ).toContain(
+        failure === "permission" ? "permission denied" : "quota and billing",
+      );
+      expect(
+        (query('[data-coordinator="voice"]') as HTMLButtonElement).disabled,
+      ).toBe(false);
+      expect(Events.last.close).toHaveBeenCalled();
+    },
+  );
+
+  it("leaves Start voice available when the server key is missing, without capturing audio", async () => {
+    const fetcher = await mount();
+    const media = mediaFixture();
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        { error: "Set OPENAI_API_KEY on the server, then restart" },
+        { status: 400 },
+      ),
+    );
+    click("voice");
+    await flush();
+    expect(media.getUserMedia).not.toHaveBeenCalled();
+    expect(query(".coordinator-state").dataset["enabled"]).toBe("false");
+    expect(
+      query(".coordinator-panel > .coordinator-error").textContent,
+    ).toContain("OPENAI_API_KEY");
+    expect(
+      (query('[data-coordinator="voice"]') as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it.each([false, true])(
+    "cleans up a voice readiness timeout without stranding a one-click start (existing text: %s)",
+    async (textOnly) => {
+      const fetcher = await mount();
+      const media = mediaFixture(false);
+      vi.useFakeTimers();
+      try {
+        if (textOnly) await enable();
+        click("voice");
+        await flush();
+        expect(media.peers[0]?.connectionState).toBe("connected");
+        expect(media.tracks[0]?.enabled).toBe(false);
+        const ending = Promise.withResolvers<Response>();
+        fetcher.mockImplementationOnce(() => ending.promise);
+        await vi.advanceTimersByTimeAsync(15000);
+        await flush();
+        expect(media.tracks[0]?.stop).toHaveBeenCalledOnce();
+        expect(fetcher.mock.calls.at(-1)?.[0]).toBe(
+          textOnly ? "/coordinator/end-voice" : "/coordinator/end",
+        );
+        expect(
+          (query('[data-coordinator="voice"]') as HTMLButtonElement).disabled,
+        ).toBe(true);
+        ending.resolve(response());
+        await flush();
+        expect(query(".coordinator-state").dataset["enabled"]).toBe(
+          String(textOnly),
+        );
+        expect(
+          query(".coordinator-panel > .coordinator-error").textContent,
+        ).toContain("did not become ready");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("starts voice without enabling again when text is already active", async () => {
+    const fetcher = await mount();
+    mediaFixture();
+    await enable();
+    click("voice");
+    await flush();
+    expect(
+      fetcher.mock.calls.filter(([url]) => url === "/coordinator/begin"),
+    ).toHaveLength(1);
+    expect(
+      fetcher.mock.calls.filter(([url]) => url === "/coordinator/voice"),
+    ).toHaveLength(1);
+  });
+
+  it("reviews a typed request without a delivery setting and preserves target selection", async () => {
+    const fetcher = await mount();
+    await enable();
+    await Events.last.state({
+      ...enabled(),
+      sessions: [
+        {
+          id: "one",
+          handle: "S1",
+          label: "Release",
+          name: "Release",
+          task: "Review release changes",
+          cwd: "/project",
+          project: "/project",
+          live: true,
+          running: true,
+          available: true,
+        },
+      ],
+    });
+    const target = query("#coordinator-target") as HTMLSelectElement;
+    target.value = "S1";
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    const selectionBody = fetcher.mock.calls.at(-1)?.[1]?.body;
+    assert(typeof selectionBody === "string");
+    expect(JSON.parse(selectionBody) as unknown).toEqual({ target: "S1" });
+    (query("#coordinator-draft") as HTMLTextAreaElement).value =
+      "Ask it to review the changes";
+    query(".coordinator-compose").dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true }),
+    );
+    await flush();
+    const requestBody = fetcher.mock.calls.at(-1)?.[1]?.body;
+    assert(typeof requestBody === "string");
+    expect(JSON.parse(requestBody) as unknown).toEqual({
+      text: "Ask it to review the changes",
+      target: "S1",
+    });
+    expect(
+      fetcher.mock.calls.some(([url]) => url === "/coordinator/confirm"),
+    ).toBe(false);
+  });
   it.each(["before", "after"])(
     "ignores old voice-off frames but honors current shutdown delivered %s the startup response",
     async (ordering) => {
@@ -384,7 +587,7 @@ describe("coordinator browser owner", () => {
       ).toBe(true);
       expect(
         query(".coordinator-panel > .coordinator-error").textContent,
-      ).toContain("End coordinator before starting voice again");
+      ).toContain("Use End before starting voice again");
       expect(
         (query('[data-coordinator="end"]') as HTMLButtonElement).disabled,
       ).toBe(false);
@@ -546,7 +749,7 @@ describe("coordinator browser owner", () => {
     expect(fetcher).not.toHaveBeenCalled();
     expect(
       (query('[data-coordinator="voice"]') as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
   });
   it("keeps an edited text draft separate from late captions and stops on stream failure", async () => {
     const fetcher = await mount();
@@ -566,7 +769,7 @@ describe("coordinator browser owner", () => {
       true,
     );
     expect(document.querySelector(".coordinator-error")?.textContent).toContain(
-      "enable again explicitly",
+      "start again explicitly",
     );
     expect(draft.value).toContain("selected timer");
   });

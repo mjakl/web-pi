@@ -12,80 +12,80 @@ export function CoordinatorPanel() {
           <p>Coordinate tasks across sessions. Coding stays in Pi.</p>
         </header>
         <p class="coordinator-consent">
-          Opt-in trial · Enabling sends session labels and bounded conversation
-          text to OpenAI. OpenAI API billing is separate. Voice costs $0.05 per
-          active minute, including silence ($4.50 for 90 connected minutes),
-          plus text and coding usage. The first provider voice connection starts
-          a 90-minute window; restarting voice does not extend it. Text-only
-          mode ends 90 minutes after Enable. No audio recording is requested;
-          ordinary provider abuse monitoring may retain content up to 30 days.
+          Starting sends session labels, bounded conversation text and
+          microphone audio to OpenAI. Voice costs $0.05 per connected minute,
+          including silence ($4.50 for 90 minutes), plus text and coding usage.
+          API billing is separate from subscriptions.
         </p>
         <p class="coordinator-note">
-          Live provider and phone use are unverified. Screen lock,
-          backgrounding, headset changes or network loss may interrupt voice;
-          there is no automatic reconnect. While unmuted, nearby audio is sent
-          continuously, even with this panel collapsed. Open the page to confirm
-          instructions or answer an approval question.
+          Nearby audio is sent while unmuted, even with this panel collapsed.
+          Instructions and approval answers always need visible confirmation.
         </p>
         <div class="coordinator-actions">
-          <button type="button" data-coordinator="begin">
-            Enable text coordinator
+          <button type="button" data-coordinator="voice">
+            Start voice
           </button>
-          <button type="button" data-coordinator="voice" disabled>
-            Start microphone &amp; voice
-          </button>
-          <button type="button" data-coordinator="mute" disabled>
+          <button type="button" data-coordinator="mute" disabled hidden>
             Mute microphone
           </button>
-          <button type="button" data-coordinator="speech" disabled>
-            Stop speaking
-          </button>
-          <button type="button" data-coordinator="end-voice" disabled>
-            End voice
-          </button>
-          <button type="button" data-coordinator="end" disabled>
-            End coordinator
+          <button type="button" data-coordinator="end" disabled hidden>
+            End
           </button>
         </div>
         <p class="coordinator-playback" role="status">
           Microphone off. Speech off.
         </p>
         <p class="coordinator-error" role="alert"></p>
+        <p class="coordinator-draft-state coordinator-note" role="status"></p>
         <div class="coordinator-state" data-enabled="false"></div>
-        <form class="coordinator-compose">
-          <label for="coordinator-draft">
-            Instruction or question{" "}
-            <span>(review captured words before sending)</span>
-          </label>
-          <textarea
-            id="coordinator-draft"
-            name="text"
-            maxlength={6000}
-            rows={3}
-            placeholder="List active sessions, or select a target and ask it to review…"
-          ></textarea>
-          <label for="coordinator-mode">Delivery when you confirm</label>
-          <select id="coordinator-mode" name="mode">
-            <option value="prompt">Prompt an idle session</option>
-            <option value="steer">Steer the running turn</option>
-            <option value="followUp">Queue a follow-up</option>
-          </select>
+        <details class="coordinator-options">
+          <summary>Text fallback and voice details</summary>
           <div class="coordinator-actions">
-            <button type="submit" disabled>
-              Review instruction
+            <button type="button" data-coordinator="begin">
+              Start text only
             </button>
-            <button type="button" data-coordinator="captions" disabled>
-              Use captured words
+            <button type="button" data-coordinator="speech" disabled>
+              Stop speaking
+            </button>
+            <button type="button" data-coordinator="end-voice" disabled>
+              Switch to text
             </button>
           </div>
-          <p class="coordinator-draft-state coordinator-note" role="status"></p>
-        </form>
-        <p class="coordinator-note">
-          No model can approve or send work by itself. Confirm the exact target
-          and wording below. Stop speaking mutes playback only; it does not stop
-          coding. Saved external sessions must be activated deliberately in
-          web-pi before receiving work.
-        </p>
+          <form class="coordinator-compose">
+            <label for="coordinator-draft">
+              Instruction or question{" "}
+              <span>(review captured words before sending)</span>
+            </label>
+            <textarea
+              id="coordinator-draft"
+              name="text"
+              maxlength={6000}
+              rows={3}
+              placeholder="List active sessions, or select a target and ask it to review…"
+            ></textarea>
+            <div class="coordinator-actions">
+              <button type="submit" disabled>
+                Review instruction
+              </button>
+              <button type="button" data-coordinator="captions" disabled>
+                Use captured words
+              </button>
+            </div>
+          </form>
+          <p class="coordinator-note">
+            The first provider voice connection starts a 90-minute window;
+            restarting voice does not extend it. Text-only mode ends 90 minutes
+            after Start text only. No audio recording is requested; ordinary
+            provider abuse monitoring may retain content up to 30 days.
+          </p>
+          <p class="coordinator-note">
+            Screen lock, backgrounding, headset changes or network loss may
+            interrupt voice. There is no automatic reconnect. Stop speaking
+            mutes playback only; it does not stop coding. Saved sessions must be
+            activated in web-pi before receiving work; stop any external writer
+            first.
+          </p>
+        </details>
         <noscript>
           The conversational coordinator needs JavaScript. Ordinary session
           pages and forms remain available.
@@ -98,6 +98,7 @@ export function CoordinatorPanel() {
 export function CoordinatorState({ state }: { state: State }) {
   const context = state.context;
   const dialog = context?.dialog;
+  const target = state.sessions.find((s) => s.handle === state.target);
   return (
     <div
       class="coordinator-state"
@@ -107,21 +108,11 @@ export function CoordinatorState({ state }: { state: State }) {
       data-voice-generation={state.voiceGeneration}
       data-muted={String(state.muted)}
     >
-      <p class="coordinator-status" role="status">
-        {state.enabled
-          ? state.busy
-            ? "Preparing a reply…"
-            : "Coordinator ready"
-          : "Coordinator ended"}{" "}
-        ·{" "}
-        {state.voice === "connected"
-          ? state.muted
-            ? "Microphone muted"
-            : "Listening"
-          : state.voice === "connecting"
-            ? "Connecting voice…"
-            : "Text only"}
-      </p>
+      {state.busy && (
+        <p class="coordinator-status" role="status">
+          Preparing a reply…
+        </p>
+      )}
       {state.error && (
         <p class="coordinator-error" role="alert">
           {state.error}
@@ -139,6 +130,7 @@ export function CoordinatorState({ state }: { state: State }) {
           </option>
         ))}
       </select>
+      {target && <p class="coordinator-task">{target.task}</p>}
       <details class="coordinator-sessions">
         <summary>Known sessions ({state.sessions.length}, up to 50)</summary>
         <ul>
@@ -175,21 +167,23 @@ export function CoordinatorState({ state }: { state: State }) {
         ))}
       </div>
       {state.voice !== "off" && (
-        <details class="coordinator-captions" open>
-          <summary>Live captions (approximate, not final turns)</summary>
+        <section class="coordinator-captions" aria-label="Live captions">
+          <p class="coordinator-note">
+            Live captions are approximate, not final turns.
+          </p>
           <h3>You</h3>
           <pre data-coordinator-input>
             {state.inputCaption || "Waiting for speech…"}
           </pre>
           <h3>Voice reply</h3>
           <pre>{state.outputCaption || "No speech yet."}</pre>
-        </details>
+        </section>
       )}
       {state.proposal && (
         <section class="coordinator-proposal">
           <h3>Review before sending</h3>
           <p>
-            <strong>{state.proposal.label}</strong> · {state.proposal.mode}
+            <strong>{state.proposal.label}</strong>
           </p>
           <pre>{state.proposal.text}</pre>
           <button

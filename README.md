@@ -173,9 +173,10 @@ without touching Pi data. Browsers then need to confirm enrollment again.
 ## Conversational coordinator prototype
 
 Open **Coordinator** to talk about tasks across sessions, independently of the
-coding session on screen. **Enable text coordinator** starts the conversation;
-**Start microphone & voice** separately requests microphone consent. Nothing
-listens or speaks automatically on page load.
+coding session on screen. **Start voice** starts the conversation and requests
+microphone consent in one action. **End** stops both. Nothing listens or speaks
+automatically on page load. **Text fallback and voice details** contains **Start
+text only**, an editable draft, and independent playback controls.
 
 Set `OPENAI_API_KEY` in the server's environment before startup. The key stays
 server-side. This prototype uses `gpt-live-1` with client delegation and a
@@ -188,13 +189,15 @@ plus text-model and coding usage. Missing credentials and provider failures are
 reported; there is no fallback to another voice product.
 
 - Ask to list sessions, then use their `S1`, `S2` handles or displayed short
-  labels. Handles remain stable until **End coordinator**. Duplicate labels and
-  conflicting targets require clarification. **Current target** is separate from
-  the coding session displayed behind the panel.
+  labels. Handles remain stable until **End**. Duplicate labels and conflicting
+  targets require clarification. **Current target** is separate from the coding
+  session displayed behind the panel.
 - The coordinator rewrites indirect requests into direct, contextualized
-  proposals. Review the target, exact instruction and delivery mode, then choose
-  **Confirm and send this instruction**. Nothing is sent by the model alone.
-  Acceptance means Pi admitted the prompt, not that the task succeeded.
+  proposals. Review the target and exact instruction, then choose **Confirm and
+  send this instruction**. A busy session receives ordinary requests after its
+  current work; an idle session starts them immediately. Nothing is sent by the
+  model alone. Acceptance means Pi admitted the prompt, not that the task
+  succeeded.
 - Voice captions are approximate fragments, not finalized turns. **Use captured
   words** copies a snapshot into the editable draft. **Review instruction** also
   works without a microphone. New speech invalidates a pending proposal.
@@ -206,16 +209,16 @@ reported; there is no fallback to another voice product.
   Saved-session file changes are observed without opening a writer; external
   activity is not inferred. Full session text remains the source of truth.
 - **Stop speaking** mutes playback until **Resume speech**. **Mute microphone**,
-  **End voice**, and **End coordinator** never cancel coding. Use the coding
-  session's existing Stop control to cancel work deliberately.
+  **Switch to text**, and **End** never cancel coding. Use the coding session's
+  existing Stop control to cancel work deliberately.
 
 The trial is bounded to one coordinator per server and 50 recent root sessions.
 Backend reasoning and proactive summaries have no fixed request-count cutoff;
 each request remains bounded and only one runs at a time. Their usage is billed
-separately from voice. Text-only coordination ends 90 minutes after Enable. The
-first successful provider voice connection starts a fresh 90-minute window for
-the conversation; text-only preparation does not consume that voice window.
-Stopping and restarting voice does not extend it again. Browser audio
+separately from voice. Text-only coordination ends 90 minutes after **Start text
+only**. The first successful provider voice connection starts a fresh 90-minute
+window for the conversation; text-only preparation does not consume that voice
+window. Stopping and restarting voice does not extend it again. Browser audio
 negotiation follows the provider connection. At
 $0.05 per connected minute, 90 minutes costs $4.50 for voice, including silence,
 plus coordinator and coding usage. It keeps only bounded in-memory coordinator
@@ -235,8 +238,8 @@ before trying it beside a live service. Remote microphone use requires trusted
 HTTPS; plain remote HTTP is text-only. Local Stop releases microphone/playback
 immediately; restarting waits for outstanding voice controls and remote cleanup.
 Client cleanup failures block restart. A provider-side disconnect can leave
-restart enabled despite an unconfirmed-finalization warning; choose End
-coordinator before trying again whenever that warning appears.
+restart enabled despite an unconfirmed-finalization warning; choose **End**
+before trying again whenever that warning appears.
 
 Live provider operation, continuous 90-minute WebRTC use and phone/headphone use
 are unverified. Backgrounding, screen lock, calls, headset changes and network

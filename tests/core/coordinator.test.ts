@@ -173,12 +173,7 @@ describe("app-level coordinator", () => {
   it("grounds a rewritten proposal in one explicit target, never submits model output without confirmation", async () => {
     const { coordinator, token, live, provider } = await fixture();
     const prompt = vi.spyOn(live, "prompt");
-    await coordinator.request(
-      token,
-      "Ask it to review the code",
-      "S1",
-      "prompt",
-    );
+    await coordinator.request(token, "Ask it to review the code", "S1");
     expect(prompt).not.toHaveBeenCalled();
     const input = vi.mocked(provider.respond).mock.calls[0]?.[0];
     expect(input?.target).toMatchObject({
@@ -188,7 +183,11 @@ describe("app-level coordinator", () => {
     expect(input?.context?.messages).toHaveLength(2);
     const proposal = coordinator.state(token).proposal;
     assert(proposal);
+    expect(proposal.mode).toBe("prompt");
     await coordinator.confirm(token, proposal.id);
+    expect(coordinator.state(token).conversation.at(-1)?.text).toBe(
+      "S1 — Timer: instruction submitted. This acknowledges admission, not completion.",
+    );
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(prompt).toHaveBeenCalledWith(
       "Review the timer-test changes in this session. Do not modify code.",
@@ -200,6 +199,77 @@ describe("app-level coordinator", () => {
     await coordinator.end(token);
     await live.stop();
   });
+  it.each([
+    [undefined, "followUp", "will run after current work"],
+    ["followUp", "followUp", "will run after current work"],
+    ["steer", "steer", "will interrupt current work"],
+  ] as const)(
+    "requires confirmation for a running target with delivery %s",
+    async (mode, expectedMode, acknowledgement) => {
+      const { coordinator, token, live, provider } = await fixture();
+      vi.useFakeTimers();
+      try {
+        await live.prompt("Existing work");
+        const prompt = vi.spyOn(live, "prompt");
+        await coordinator.request(
+          token,
+          "Ask it to review the code",
+          "S1",
+          mode,
+        );
+        expect(
+          vi.mocked(provider.respond).mock.calls[0]?.[0].context?.running,
+        ).toBe(true);
+        const proposal = coordinator.state(token).proposal;
+        assert(proposal);
+        expect(proposal.mode).toBe(expectedMode);
+        expect(prompt).not.toHaveBeenCalled();
+        await coordinator.confirm(token, proposal.id);
+        expect(prompt).toHaveBeenCalledExactlyOnceWith(proposal.text, {
+          literal: true,
+          behavior: expectedMode,
+        });
+        expect(live.snapshot().status.queue).toEqual([
+          { text: proposal.text, behavior: expectedMode },
+        ]);
+        const text = coordinator.state(token).conversation.at(-1)?.text;
+        expect(text).toContain(`instruction submitted; ${acknowledgement}`);
+        expect(text).toContain("admission, not completion");
+        expect(text).not.toMatch(/followUp|steer|prompt/);
+      } finally {
+        await coordinator.end(token);
+        await live.stop();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("defaults voice delegation to follow-up for captured running context without admitting it", async () => {
+    const { coordinator, token, live, emit } = await fixture();
+    vi.useFakeTimers();
+    let off = () => {};
+    try {
+      await live.prompt("Existing work");
+      const prompt = vi.spyOn(live, "prompt");
+      await coordinator.select(token, "S1");
+      await coordinator.connect(token, "offer");
+      const proposed = Promise.withResolvers<undefined>();
+      off = coordinator.subscribe(token, (state) => {
+        if (state.proposal) proposed.resolve(undefined);
+      });
+      emit({ type: "input", id: "words", text: "Ask it to review the code" });
+      emit({ type: "delegate", id: "request" });
+      await proposed.promise;
+      expect(coordinator.state(token).proposal?.mode).toBe("followUp");
+      expect(prompt).not.toHaveBeenCalled();
+    } finally {
+      off();
+      await coordinator.end(token);
+      await live.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("asks rather than guessing for pronouns, duplicate labels and conflicting handles", async () => {
     const { coordinator, token, live } = await fixture(["Timer", "Timer"]);
     for (const text of [
@@ -273,7 +343,7 @@ describe("app-level coordinator", () => {
     expect(
       coordinator
         .state(token)
-        .conversation.some((m) => m.text.includes("instruction accepted")),
+        .conversation.some((m) => m.text.includes("instruction submitted")),
     ).toBe(false);
     await expect(coordinator.confirm(token, proposal.id)).rejects.toThrow();
     expect(send).toHaveBeenCalledOnce();

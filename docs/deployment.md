@@ -160,7 +160,7 @@ Funnel or a public tunnel for this trial.
 
 The coordinator does not persist audio or its small conversation window. Both
 OpenAI requests set `store:false`, but ordinary abuse-monitoring retention can
-still apply. Text-only mode expires 90 minutes after Enable. The first
+still apply. Text-only mode expires 90 minutes after Start text only. The first
 successful provider voice connection starts a fresh 90-minute conversation
 window; stopping and restarting voice does not extend it. Browser audio
 negotiation follows the provider connection. The original ten-minute cutoff was
@@ -170,15 +170,15 @@ remains bounded and single-flight, with separate model usage charges.
 
 Muting the microphone or playback does not stop billing. Ninety connected
 minutes at the documented $0.05/minute rate cost $4.50 for voice, plus
-coordinator and coding usage. End voice when not using it. Local Stop releases
+coordinator and coding usage. Use End when not using it. Local End releases
 microphone and playback immediately, but a replacement waits for outstanding
 voice requests and server cleanup. A transport failure or missing provider-close
-acknowledgment leaves shutdown unconfirmed; End coordinator before starting
-voice again. Client cleanup failures block restart, but an unsolicited
-provider-side disconnect can leave the restart button enabled despite its
-warning. Do not treat that button as proof of provider finalization. Fake API
-and browser checks do not establish real model access, microphone compatibility,
-latency or wording quality.
+acknowledgment leaves shutdown unconfirmed; use End before starting voice again.
+Client cleanup failures block restart, but an unsolicited provider-side
+disconnect can leave the restart button enabled despite its warning. Do not
+treat that button as proof of provider finalization. Fake API and browser checks
+do not establish real model access, microphone compatibility, latency or wording
+quality.
 
 ### Isolated real Pi trial
 
@@ -241,14 +241,13 @@ Minimal paid smoke, only after explicit authorization:
 
 1. Open `/new`, choose an available coding model and create a disposable session
    with: "Name this session Voice trial. Reply ready; do not run tools yet."
-2. Enable the coordinator and start microphone/voice. Ask it to list sessions,
-   choose the Voice trial handle, and say: "Ask it to create hello.txt
-   containing hello in this trial folder."
-3. Read the visible target, wording and delivery mode, then confirm once. Check
-   actual admission, the resulting file in the disposable project and the brief
+2. Choose Start voice. Ask it to list sessions, choose the Voice trial handle,
+   and say: "Ask it to create hello.txt containing hello in this trial folder."
+3. Read the visible target and wording, then confirm once. Check actual
+   admission, the resulting file in the disposable project and the brief
    proactive result. A spoken "yes" is not a submission or approval mechanism.
-4. End voice, then End coordinator. Verify capture stops and inspect any
-   finalization warning. Stop both supervised processes.
+4. Choose End. Verify capture stops and inspect any finalization warning. Stop
+   both supervised processes.
 
 Allow about two connected minutes: voice is approximately $0.10, plus separately
 metered coordinator and coding usage. Initialization bills 15 seconds credited
@@ -305,7 +304,7 @@ suspension can interrupt audio even without a connection-state error; a
 While unmuted, capture is continuous and includes nearby voices, not only
 commands. Collapsing the panel or putting the phone away does not intentionally
 mute it. Stop speaking mutes playback only. Use Mute microphone for privacy and
-End voice to release capture and stop the session. Both provider requests use
+End to release capture and stop the coordinator. Both provider requests use
 `store:false`, which does not disable ordinary abuse-monitoring retention.
 
 Before relying on a walk, a separately authorized trial must check the actual

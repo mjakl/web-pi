@@ -14,7 +14,6 @@ export type CoordinatorExchange = {
     | "focus"
     | "request"
     | "reply"
-    | "proposal"
     | "submission"
     | "result"
     | "update"
@@ -27,8 +26,15 @@ export type CoordinatorMemory = {
   target: CoordinatorSession | null;
   context: CoordinatorContext | null;
   conversation: CoordinatorExchange[];
-  proposal: CoordinatorProposal | null;
   question: string | null;
+  pending: CoordinatorPending | null;
+};
+export type CoordinatorPending = {
+  id: string;
+  text: string;
+  question: string | null;
+  ownership: CoordinatorProposal | null;
+  mode?: CoordinatorMode;
 };
 export type CoordinatorInput = CoordinatorMemory & {
   purpose: "request" | "updates";
@@ -36,7 +42,16 @@ export type CoordinatorInput = CoordinatorMemory & {
   explicitTargetId: string | null;
 };
 export type CoordinatorReply = {
-  kind: "reply" | "prompt";
+  kind:
+    | "reply"
+    | "clarify"
+    | "prompt"
+    | "handoff"
+    | "stopWork"
+    | "stopSpeaking"
+    | "resumeSpeaking"
+    | "endVoice";
+  resolves?: string | null;
   text: string;
   speech: string;
   instruction: string;
@@ -67,6 +82,7 @@ export type CoordinatorProvider = {
     memory: CoordinatorMemory,
   ) => Promise<CoordinatorVoice>;
 };
+/** The rewritten instruction retained in the admission audit or handoff. */
 export type CoordinatorProposal = {
   id: string;
   target: string;
@@ -81,7 +97,6 @@ export type CoordinatorState = {
   sessions: CoordinatorSession[];
   target: string;
   context: CoordinatorContext | null;
-  proposal: CoordinatorProposal | null;
   question: string | null;
   conversation: CoordinatorExchange[];
   inputCaption: string;
@@ -89,5 +104,7 @@ export type CoordinatorState = {
   voice: "off" | "connecting" | "connected";
   voiceGeneration: number;
   muted: boolean;
+  playback: { sequence: number; stopped: boolean };
+  pending: CoordinatorPending | null;
   error: string;
 };

@@ -90,9 +90,7 @@ export function coordinatorRoutes(app: WebApp, { deps }: RouteContext) {
           text("target"),
           mode as CoordinatorMode | undefined,
         );
-      } else if (action === "confirm")
-        await coordinator.confirm(key, text("proposal"));
-      else if (action === "answer") {
+      } else if (action === "answer") {
         let answer: DialogAnswer;
         if (typeof data["confirmed"] === "boolean")
           answer = { confirmed: data["confirmed"] };

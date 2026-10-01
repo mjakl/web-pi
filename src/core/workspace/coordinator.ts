@@ -14,6 +14,9 @@ export type CoordinatorMode = "prompt" | "steer" | "followUp";
 export function coordinatorUseCases(shared: Shared) {
   const { deps, inspectionOnly, requireFolder, admit } = shared;
   const incarnations = new WeakMap<LiveSession, number>();
+  // A failed post-open check must not become permission on the next request.
+  // Do not dispose a writer here: another local caller may share runtime.open.
+  const failedResumes = new WeakSet<LiveSession>();
   let incarnation = 0;
 
   async function coordinatorSessions() {
@@ -63,6 +66,7 @@ export function coordinatorUseCases(shared: Shared) {
             revision: context?.revision ?? null,
             currentRequest: context?.currentRequest ?? "",
             latestOutcome: context?.latestOutcome ?? "",
+            status: context?.status ?? null,
           };
         }),
     );
@@ -112,7 +116,52 @@ export function coordinatorUseCases(shared: Shared) {
     const running = snapshot?.status.running === true;
     const blocked =
       snapshot?.status.bashRunning === true ||
-      snapshot?.status.compacting === true;
+      snapshot?.status.compacting === true ||
+      !!snapshot?.status.custom;
+    const lastMessage = read.branch.findLast(
+      (entry) =>
+        entry.type === "message" &&
+        (entry.message.role === "assistant" || entry.message.role === "user"),
+    );
+    const assistant =
+      lastMessage?.type === "message" &&
+      lastMessage.message.role === "assistant"
+        ? lastMessage.message
+        : null;
+    const status = {
+      state:
+        dialog || snapshot?.status.custom
+          ? "waiting"
+          : running
+            ? "running"
+            : assistant?.stopReason === "error"
+              ? "error"
+              : assistant?.stopReason === "stop"
+                ? "completed"
+                : "idle",
+      queued: snapshot?.status.queue.length ?? 0,
+      tools:
+        snapshot?.status.tools
+          .slice(0, 5)
+          .map((tool) => tool.name.slice(0, 100)) ?? [],
+      retry: snapshot?.status.retry
+        ? {
+            attempt: snapshot.status.retry.attempt,
+            maxAttempts: snapshot.status.retry.maxAttempts,
+          }
+        : null,
+      notices:
+        snapshot?.status.notices.slice(-3).map((notice) => ({
+          level: notice.level,
+          message: notice.message.slice(0, 500),
+        })) ?? [],
+      error: (
+        snapshot?.status.compactionError ??
+        assistant?.errorMessage ??
+        ""
+      ).slice(0, 500),
+      blocked,
+    };
     return {
       id,
       messages: messages.slice(-12),
@@ -125,15 +174,22 @@ export function coordinatorUseCases(shared: Shared) {
         "",
       // The identity covers question changes and restarts, not every tool token.
       revision: JSON.stringify([
-        live ? incarnations.get(live) : null,
-        messages.at(-1)?.id ?? null,
-        running,
+        id,
+        read.summary.cwd,
+        read.summary.filePath,
+        live
+          ? incarnations.get(live)
+          : "revision" in read
+            ? read.revision
+            : null,
+        read.branch.at(-1)?.id ?? null,
         blocked,
         dialog,
       ]),
       writable: !!live && !blocked,
       running,
       dialog,
+      status,
     };
   }
 
@@ -206,30 +262,129 @@ export function coordinatorUseCases(shared: Shared) {
       id: string,
       revision: string,
       text: string,
-      mode: CoordinatorMode,
-    ): Promise<void> {
+      mode?: CoordinatorMode,
+      options: { handoff?: boolean; current?: () => boolean } = {},
+    ): Promise<{ mode: CoordinatorMode; queued: number }> {
       if (!text.trim() || text.length > 6000)
         throw new Error("Use an instruction of 1–6000 characters.");
-      await admit(
+      return admit(
         id,
         async () => {
-          const live = await current(id);
-          const context = verify(live, revision);
-          if (!context.writable || context.dialog)
+          const stillCurrent = () => {
+            if (options.current && !options.current())
+              throw new Error(
+                "A later request is unresolved. Nothing was sent.",
+              );
+          };
+          await requireFolder(id);
+          let live = deps.runtime.get(id);
+          let expected = revision;
+          if (!live) {
+            const saved = await deps.sessions.readSaved(id);
+            if (saved.kind !== "changed" || saved.snapshot.summary.id !== id)
+              throw new Error("Unknown session or incomplete saved snapshot.");
+            if (
+              contextFrom(id, undefined, saved.snapshot).revision !== revision
+            )
+              throw new Error(
+                "The saved session changed. Please make a fresh request.",
+              );
+            const trust = await deps.trust.status(saved.snapshot.summary.cwd);
+            if (trust.requiresTrust && !trust.trusted)
+              throw new Error(
+                "Project trust needs visible review while safely stopped. Voice cannot grant trust.",
+              );
+            if (!options.handoff)
+              throw new Error(
+                "Confirm this session is stopped in other apps before resuming it.",
+              );
+            // No cross-process lock exists. This is a user handoff, checked
+            // against the saved file on both sides of normal runtime opening.
+            await requireFolder(id);
+            const before = await deps.sessions.readSaved(id);
+            if (
+              before.kind !== "changed" ||
+              before.revision !== saved.revision ||
+              deps.runtime.get(id)
+            )
+              throw new Error(
+                "The saved session or writer changed. Please make a fresh request.",
+              );
+            stillCurrent();
+            live = await deps.runtime.open({ sessionId: id });
+            const opened = live.snapshot();
+            expected = contextFrom(id, live, opened, opened).revision;
+            const after = await deps.sessions.readSaved(id);
+            if (
+              after.kind !== "changed" ||
+              after.revision !== saved.revision ||
+              live.id !== id ||
+              opened.summary.id !== id ||
+              opened.summary.cwd !== saved.snapshot.summary.cwd ||
+              JSON.stringify(opened.branch) !==
+                JSON.stringify(saved.snapshot.branch)
+            ) {
+              if (live.id === id) failedResumes.add(live);
+              throw new Error(
+                "The saved session changed during resume. Nothing was sent; stop and review this local writer while safely stopped.",
+              );
+            }
+          }
+          await requireFolder(id);
+          const context = verify(live, expected);
+          stillCurrent();
+          if (failedResumes.has(live))
             throw new Error(
-              "Answer the pending dialog or wait for the session to become available.",
+              "This writer failed resume validation. Stop and review it while safely stopped before trying again.",
             );
-          if ((mode === "prompt") === context.running)
+          if (live.id !== id || !context.writable || context.dialog)
             throw new Error(
-              "Choose steer or follow-up for a busy session, or prompt for an idle one.",
+              "This task is paused for visible review while safely stopped, or is temporarily unavailable. No dialog answer was sent.",
+            );
+          const delivery = mode ?? (context.running ? "followUp" : "prompt");
+          if ((delivery === "prompt") === context.running)
+            throw new Error(
+              "The requested delivery mode no longer matches the task state. Nothing was sent.",
             );
           await live.prompt(text, {
             literal: true,
-            ...(mode === "prompt" ? {} : { behavior: mode }),
+            ...(delivery === "prompt" ? {} : { behavior: delivery }),
           });
+          return {
+            mode: delivery,
+            queued: live.snapshot().status.queue.length,
+          };
         },
         true,
       );
+    },
+    async coordinatorAbort(
+      id: string,
+      revision: string,
+      current?: () => boolean,
+    ) {
+      await shared.requireWritableSession(id);
+      const live = deps.runtime.get(id);
+      if (!live)
+        throw new Error(
+          "There is no local turn to stop. Saved or external sessions were not activated.",
+        );
+      const context = verify(live, revision);
+      if (context.status.blocked)
+        throw new Error(
+          "This operation needs visible review while safely stopped.",
+        );
+      if (current && !current())
+        throw new Error("A later request is unresolved. No turn was stopped.");
+      const cleared = live.clearQueue();
+      if (context.running) await live.abort();
+      const status = live.snapshot().status;
+      return {
+        aborted: context.running,
+        running: status.running,
+        queued: status.queue.length,
+        cleared,
+      };
     },
     async coordinatorAnswer(
       id: string,

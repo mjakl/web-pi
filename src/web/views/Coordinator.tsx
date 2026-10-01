@@ -19,7 +19,8 @@ export function CoordinatorPanel() {
         </p>
         <p class="coordinator-note">
           Nearby audio is sent while unmuted, even with this panel collapsed.
-          Instructions and approval answers always need visible confirmation.
+          Clear ordinary requests send work. Approvals wait for visible review
+          while safely stopped.
         </p>
         <div class="coordinator-actions">
           <button type="button" data-coordinator="voice">
@@ -53,8 +54,7 @@ export function CoordinatorPanel() {
           </div>
           <form class="coordinator-compose">
             <label for="coordinator-draft">
-              Instruction or question{" "}
-              <span>(review captured words before sending)</span>
+              Instruction or question <span>(ordinary requests send work)</span>
             </label>
             <textarea
               id="coordinator-draft"
@@ -65,7 +65,7 @@ export function CoordinatorPanel() {
             ></textarea>
             <div class="coordinator-actions">
               <button type="submit" disabled>
-                Review instruction
+                Send request
               </button>
               <button type="button" data-coordinator="captions" disabled>
                 Use captured words
@@ -81,9 +81,9 @@ export function CoordinatorPanel() {
           <p class="coordinator-note">
             Screen lock, backgrounding, headset changes or network loss may
             interrupt voice. There is no automatic reconnect. Stop speaking
-            mutes playback only; it does not stop coding. Saved sessions must be
-            activated in web-pi before receiving work; stop any external writer
-            first.
+            mutes playback only; it does not stop coding. Saved sessions require
+            a task-bound handoff before resume; external writers must stay
+            stopped.
           </p>
         </details>
         <noscript>
@@ -107,6 +107,8 @@ export function CoordinatorState({ state }: { state: State }) {
       data-voice={state.voice}
       data-voice-generation={state.voiceGeneration}
       data-muted={String(state.muted)}
+      data-playback-sequence={state.playback.sequence}
+      data-playback-stopped={String(state.playback.stopped)}
     >
       {state.busy && (
         <p class="coordinator-status" role="status">
@@ -177,23 +179,6 @@ export function CoordinatorState({ state }: { state: State }) {
           </pre>
           <h3>Voice reply</h3>
           <pre>{state.outputCaption || "No speech yet."}</pre>
-        </section>
-      )}
-      {state.proposal && (
-        <section class="coordinator-proposal">
-          <h3>Review before sending</h3>
-          <p>
-            <strong>{state.proposal.label}</strong>
-          </p>
-          <pre>{state.proposal.text}</pre>
-          <button
-            type="button"
-            data-coordinator="confirm"
-            data-proposal={state.proposal.id}
-            disabled={state.busy || !state.enabled}
-          >
-            Confirm and send this instruction
-          </button>
         </section>
       )}
       {dialog && context && (

@@ -24,7 +24,6 @@ const enabled = (): State => ({
   sessions: [],
   target: "",
   context: null,
-  proposal: null,
   question: null,
   conversation: [],
   inputCaption: "",
@@ -32,6 +31,8 @@ const enabled = (): State => ({
   voice: "off",
   voiceGeneration: 0,
   muted: false,
+  playback: { sequence: 0, stopped: false },
+  pending: null,
   error: "",
 });
 const flush = async () => {
@@ -323,6 +324,7 @@ describe("coordinator browser owner", () => {
           live: true,
           running: true,
           available: true,
+          status: null,
         },
       ],
     });
@@ -794,6 +796,15 @@ describe("coordinator browser owner", () => {
         running: true,
         writable: true,
         dialog: { id: "d1", method: "input", title: "Which branch?" },
+        status: {
+          state: "waiting",
+          queued: 0,
+          tools: [],
+          retry: null,
+          notices: [],
+          error: "",
+          blocked: false,
+        },
       },
     };
     await Events.last.state(state);
@@ -815,31 +826,41 @@ describe("coordinator browser owner", () => {
       value: "release/precise-2",
     });
   });
-  it("requires re-review after editing a draft, even if a state frame repeats the old proposal", async () => {
+  it("applies spoken playback controls only to the current generation without muting the microphone", async () => {
     await mount();
+    const media = mediaFixture();
     await enable();
-    const state = {
+    click("voice");
+    await flush();
+    const state: State = {
       ...enabled(),
-      proposal: {
-        id: "p1",
-        target: "one",
-        label: "S1",
-        text: "Review old request",
-        mode: "prompt" as const,
-        revision: "r1",
-      },
+      voice: "connected",
+      voiceGeneration: 1,
+      playback: { sequence: 1, stopped: true },
     };
     await Events.last.state(state);
-    const draft = query("#coordinator-draft") as HTMLTextAreaElement;
-    draft.value = "Actually review something else";
-    draft.dispatchEvent(new Event("input", { bubbles: true }));
-    await Events.last.state(state);
-    expect(
-      (query('[data-coordinator="confirm"]') as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(query(".coordinator-draft-state").textContent).toContain(
-      "Review the instruction again",
-    );
+    expect((query("audio") as HTMLAudioElement).muted).toBe(true);
+    expect(media.tracks[0]?.enabled).toBe(true);
+    expect(media.peers[0]?.close).not.toHaveBeenCalled();
+    await Events.last.state({
+      ...state,
+      voiceGeneration: 99,
+      playback: { sequence: 2, stopped: false },
+    });
+    expect((query("audio") as HTMLAudioElement).muted).toBe(true);
+    await Events.last.state({
+      ...state,
+      playback: { sequence: 2, stopped: false },
+    });
+    expect((query("audio") as HTMLAudioElement).muted).toBe(false);
+    click("speech");
+    await flush();
+    await Events.last.state({
+      ...state,
+      playback: { sequence: 2, stopped: false },
+    });
+    expect((query("audio") as HTMLAudioElement).muted).toBe(true);
+    expect(media.tracks[0]?.enabled).toBe(true);
   });
 
   it("explains remote HTTP microphone limitations without trying another audio product", async () => {

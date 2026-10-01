@@ -174,9 +174,10 @@ without touching Pi data. Browsers then need to confirm enrollment again.
 
 Open **Coordinator** to talk about tasks across sessions, independently of the
 coding session on screen. **Start voice** starts the conversation and requests
-microphone consent in one action. **End** stops both. Nothing listens or speaks
-automatically on page load. **Text fallback and voice details** contains **Start
-text only**, an editable draft, and independent playback controls.
+microphone consent in one action; start while safely stationary. **End** stops
+coordination and voice, not coding. Nothing listens or speaks automatically on
+page load. **Text fallback and voice details** contains **Start text only**, an
+editable draft, and independent playback controls.
 
 Set `OPENAI_API_KEY` in the server's environment before startup. The key stays
 server-side. This prototype uses `gpt-live-1` with client delegation and a
@@ -196,31 +197,38 @@ product.
   Handles remain stable until **End**. Explicit handles constrain the target;
   the current selection is context, not a fallback for an unclear reference.
   **Current target** is separate from the coding session behind the panel.
-- The coordinator rewrites indirect requests into direct, contextualized
-  proposals. Review the target and exact instruction, then choose **Confirm and
-  send this instruction**. A busy session receives ordinary requests after its
-  current work; an idle session starts them immediately. Nothing is sent by the
-  model alone. Acceptance means Pi admitted the prompt, not that the task
-  succeeded.
-- Voice captions are approximate fragments, not finalized turns. **Use captured
-  words** copies a snapshot into the editable draft. **Review instruction** also
-  works without a microphone. New speech invalidates a pending proposal.
-- Typed extension dialogs have exact, session-bound answer controls. Spoken
-  assent never approves them. Ordinary assistant questions remain prose; they
-  are not automatically classified as approval dialogs.
-- New assistant text in the observed root sessions is summarized briefly. Tool
-  output, thinking, token deltas and historical answers are not announced.
+- Clear ordinary requests authorize submission directly. The coordinator
+  rewrites them into contextualized instructions and records the target and
+  exact text in the conversation. At admission, a busy task gets a follow-up; an
+  idle task starts work. The spoken acknowledgment reports actual admission, not
+  success. Clarifying answers resolve only the pending ordinary request.
+- Voice captions are approximate fragments, not finalized turns. Delegation asks
+  the reasoner to resolve captured user input; neither raw deltas nor delegation
+  metadata execute work. Later input withholds superseded actions and stays
+  available for the next delegation, including while reasoning is busy. **Use
+  captured words** copies captions to the optional editable draft; **Send
+  request** uses the same ordinary-request semantics without a microphone.
+- Typed extension dialogs have exact, session-bound visible answer controls.
+  Speech cannot answer any dialog type. Trust, permissions, consequential
+  approvals and unsupported actions pause for visible review while safely
+  stopped. Ordinary coding prose questions can receive contextual spoken answers
+  routed to their originating task; ambiguous answers need clarification.
+- New results, questions and failures are summarized with task attribution.
+  Status includes bounded running, queue, waiting, retry and error facts. Tool
+  names may be included, but logs, thinking and token deltas are not narrated.
   Saved-session file changes are observed without opening a writer; external
   activity is not inferred. Full session text remains the source of truth.
 - **Stop speaking** mutes playback until **Resume speech**. **Mute microphone**,
-  **Switch to text**, and **End** never cancel coding. Use the coding session's
-  existing Stop control to cancel work deliberately.
+  **Switch to text**, and **End** never cancel coding. Spoken “stop talking,”
+  “resume speech” and “end voice” work without screen interaction. “Stop work on
+  the login task” aborts its local current turn and clears queued prompts,
+  reporting what happened; it neither opens saved sessions nor undoes changes.
 
 The trial is bounded to one coordinator per server and 50 recent root sessions.
 Backend reasoning and proactive summaries have no fixed request-count cutoff;
 only one request runs at a time. Coordinator messages are no longer trimmed to
 1,000 characters or eight exchanges; Responses receives full substantive
-history, explicit focus, pending proposal/question, and the three latest
+history, explicit focus, pending request/question, and the three latest
 background summaries. Full original records remain in memory. The provider's
 context limit is enforced without silent truncation; an oversized request fails
 without sending work. The existing 6,000-character instruction limit remains.
@@ -237,12 +245,17 @@ within Live's smaller startup limit; it does not replay requests. Captured
 speech used in delegation becomes coordinator history, but captions are not a
 complete or verbatim audio transcript. No new persistent coding history is
 created. It does not create sessions, grant project trust, orchestrate worktrees
-or merge work. Sending requires a runtime already activated in this server;
-saved or external sessions are not silently opened. Stop an external writer
-before activating its session. Coordinator work conservatively excludes
-concurrent work in the same project, including sibling worktrees, through the
-web server's prompt and shell admission paths. It cannot coordinate writers in
-another process.
+or merge work. Eligible saved ordinary roots can resume through the normal
+runtime path after a request-bound spoken handoff: confirm that the named
+session is stopped in other apps and keep external writers stopped. Every saved
+resume asks this question; there is no external-activity detector or
+cross-process lock. Untrusted projects, delegated sessions and unavailable roots
+are refused. Saved revision and writer identity are rechecked around resume and
+before sending. A failed post-open validation blocks further coordinator sends
+to that writer until it is stopped and reviewed visibly. Coordinator work
+conservatively excludes concurrent work in the same project, including sibling
+worktrees, through the web server's prompt and shell admission paths. It cannot
+coordinate writers in another process.
 
 Ordinary in-app navigation preserves the panel. Reload, owner removal or stream
 failure ends the conversation instead of reconnecting speech or retrying work.
@@ -259,10 +272,10 @@ Live provider operation, continuous 90-minute WebRTC use and phone/headphone use
 are unverified. Backgrounding, screen lock, calls, headset changes and network
 handoffs may interrupt capture or playback. No automatic reconnect or background
 keepalive is provided. While unmuted, the microphone sends nearby audio even
-with the panel collapsed; Stop speaking does not mute it. Coding instructions
-and approval questions still require the visible confirmation controls, so this
-is not a hands-free approval workflow. See the
-[mobile trial checks](docs/deployment.md#phone-and-headphone-trial-limits).
+with the panel collapsed; Stop speaking does not mute it. Ordinary work can be
+submitted hands-free, but this is not a hands-free approval workflow. Start and
+recover while safely stationary; approvals wait until safe visible review. See
+the [mobile trial checks](docs/deployment.md#phone-and-headphone-trial-limits).
 Automated checks use fake transports; real account access, voice latency and
 model wording quality require a separately authorized trial with credentials.
 

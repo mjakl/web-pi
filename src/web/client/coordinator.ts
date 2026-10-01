@@ -20,6 +20,7 @@ type VoiceAttempt = {
   generation?: number;
   muted: boolean;
   speechStopped: boolean;
+  playbackSequence: number;
 };
 
 export function setUpCoordinator(): void {
@@ -39,7 +40,6 @@ export function setUpCoordinator(): void {
     let pending: Promise<unknown> | undefined;
     let disposed = false;
     let ownsConversation = false;
-    let draftChanged = false;
     let active = false;
     const button = (name: string) =>
       query(`[data-coordinator="${name}"]`) as HTMLButtonElement;
@@ -90,14 +90,6 @@ export function setUpCoordinator(): void {
       button("captions").disabled = !active;
       (query('[type="submit"]', form) as HTMLButtonElement).disabled =
         !active || busy;
-      const confirm = owner.querySelector<HTMLButtonElement>(
-        '[data-coordinator="confirm"]',
-      );
-      if (confirm) confirm.disabled = !active || busy || draftChanged;
-      query(".coordinator-draft-state").textContent =
-        draftChanged && confirm
-          ? "Draft changed. Review the instruction again before confirming."
-          : "";
       query(".coordinator-indicator").textContent = capturing
         ? voice?.muted
           ? "muted"
@@ -283,13 +275,20 @@ export function setUpCoordinator(): void {
     function syncVoiceState() {
       const state = query(".coordinator-state");
       if (
-        voice &&
-        current(voice) &&
-        voice.generation !== undefined &&
-        Number(state.dataset["voiceGeneration"]) === voice.generation &&
-        state.dataset["voice"] === "off"
+        !voice ||
+        !current(voice) ||
+        voice.generation === undefined ||
+        Number(state.dataset["voiceGeneration"]) !== voice.generation
       )
-        void endVoice(voice);
+        return;
+      if (state.dataset["voice"] === "off") void endVoice(voice);
+      else {
+        const sequence = Number(state.dataset["playbackSequence"]);
+        if (sequence > voice.playbackSequence) {
+          voice.playbackSequence = sequence;
+          setPlayback(voice, state.dataset["playbackStopped"] === "true");
+        }
+      }
     }
     function listen() {
       stream?.close();
@@ -334,6 +333,7 @@ export function setUpCoordinator(): void {
         animation: 0,
         muted: false,
         speechStopped: false,
+        playbackSequence: 0,
       };
       voice = attempt;
       playback.textContent =
@@ -529,18 +529,21 @@ export function setUpCoordinator(): void {
         throw reason;
       }
     }
-    async function action(name: string, source: HTMLElement) {
+    function setPlayback(attempt: VoiceAttempt, stopped: boolean) {
+      attempt.speechStopped = stopped;
+      if (attempt.audio) attempt.audio.muted = stopped;
+      button("speech").textContent = stopped
+        ? "Resume speech"
+        : "Stop speaking";
+    }
+    async function action(name: string) {
       error.textContent = "";
       if (name === "end") await endCoordinator();
       else if (name === "end-voice") await endVoice();
       else if (name === "speech") {
         const attempt = voice;
         if (!attempt || !current(attempt)) return;
-        attempt.speechStopped = !attempt.speechStopped;
-        if (attempt.audio) attempt.audio.muted = attempt.speechStopped;
-        button("speech").textContent = attempt.speechStopped
-          ? "Resume speech"
-          : "Stop speaking";
+        setPlayback(attempt, !attempt.speechStopped);
       } else if (name === "mute") {
         const attempt = voice;
         if (!attempt || !current(attempt) || attempt.requests.size) return;
@@ -569,11 +572,8 @@ export function setUpCoordinator(): void {
         const text =
           owner.querySelector("[data-coordinator-input]")?.textContent ?? "";
         draft.value = text === "Waiting for speech…" ? "" : text;
-        draftChanged = true;
         draft.focus();
-      } else if (name === "confirm")
-        await post("confirm", { proposal: source.dataset["proposal"] });
-      else if (name === "voice") {
+      } else if (name === "voice") {
         requireMicrophoneSupport();
         const startedCoordinator = !active;
         if (startedCoordinator && !(await begin())) return;
@@ -594,15 +594,7 @@ export function setUpCoordinator(): void {
         // End and playback controls remain independent of a slow provider request.
         if (pending && !["end", "end-voice", "speech", "mute"].includes(name))
           return;
-        run(() => action(name, source));
-      },
-      { signal },
-    );
-    draft.addEventListener(
-      "input",
-      () => {
-        draftChanged = true;
-        controls();
+        run(() => action(name));
       },
       { signal },
     );
@@ -629,7 +621,6 @@ export function setUpCoordinator(): void {
         const data = new FormData(submitted);
         let operation: Promise<Result>;
         if (submitted === form) {
-          draftChanged = false;
           operation = post("request", {
             text: draft.value,
             target:

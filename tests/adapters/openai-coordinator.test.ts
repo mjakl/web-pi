@@ -11,12 +11,13 @@ const input: CoordinatorInput = {
   target: null,
   context: null,
   conversation: [],
-  proposal: null,
   question: null,
+  pending: null,
   explicitTargetId: null,
 };
 const reply = {
   kind: "reply",
+  resolves: null,
   text: "No active sessions.",
   speech: "No active sessions.",
   instruction: "",

@@ -145,7 +145,8 @@ storage. API access to `gpt-live-1` and `gpt-4.1-mini-2025-04-14`, quota and
 billing must be available. Subscription credentials are not a substitute.
 Keeping `--runtime fake` lets the user try real conversational voice with
 fictional coding sessions rather than paying for or modifying a real coding
-task. Activate a demo session before asking the coordinator to send it work.
+task. A saved ordinary demo session requires a spoken, task-bound handoff before
+resume; keep any external writer stopped.
 
 For an offline UI walkthrough without credentials, `just screenshots` starts the
 existing isolated fixture. Its coordinator uses explicitly labeled scripted text
@@ -246,13 +247,20 @@ Minimal paid smoke, only after explicit authorization:
 
 1. Open `/new`, choose an available coding model and create a disposable session
    with: "Name this session Voice trial. Reply ready; do not run tools yet."
-2. Choose Start voice. Ask it to list sessions, choose the Voice trial handle,
-   and say: "Ask it to create hello.txt containing hello in this trial folder."
-3. Read the visible target and wording, then confirm once. Check actual
-   admission, the resulting file in the disposable project and the brief
-   proactive result. A spoken "yes" is not a submission or approval mechanism.
-4. Choose End. Verify capture stops and inspect any finalization warning. Stop
-   both supervised processes.
+2. While safely stationary, choose Start voice. Ask it to list sessions and say:
+   "Ask the Voice trial task to create first-proof.txt containing first proof in
+   this trial folder." A clear ordinary request sends directly. If the session
+   is saved, answer its specific ownership question only after ensuring it is
+   stopped in other apps.
+3. Check new persisted user input, the real tool result and assistant outcome;
+   an old file is not proof of this request. Then ask for second-proof.txt
+   containing second proof and check the same evidence for that second request.
+   The conversation records the rewritten instructions and admission results.
+   Approval dialogs remain paused for safe visible review, not spoken assent.
+4. Say "End voice." Verify capture stops, coding is not canceled, and inspect
+   any finalization warning while safely stationary. Stop both supervised
+   processes. If microphone automation is unavailable, use Start text only with
+   the same requests and label the evidence text-path only, not audio proof.
 
 Allow about two connected minutes: voice is approximately $0.10, plus separately
 metered coordinator and coding usage. Initialization bills 15 seconds credited
@@ -318,9 +326,11 @@ initial playback, foreground/background and screen lock/unlock, long pauses,
 headset disconnect/reconnect, an incoming call, Wi-Fi/cellular transitions,
 network loss, explicit mute/stop/end and provider finalization. Verify
 microphone indicators and that unrelated coding keeps running. Keep the page
-accessible: submitting coding work and answering approval dialogs still require
-visible human confirmation. No native app, wake lock, background service or
-public exposure is part of this prototype.
+accessible for safe recovery while stopped. Clear ordinary coding requests can
+be sent hands-free; typed dialogs, trust, permissions and consequential actions
+remain paused for visible review while safely stopped. External writers must
+stay stopped after a session handoff; no cross-process lock is provided. No
+native app, wake lock, background service or public exposure is included.
 
 ## Web state cutover and reset
 

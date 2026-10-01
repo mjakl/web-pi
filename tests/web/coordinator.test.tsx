@@ -1,12 +1,29 @@
-import { createFakeWorld } from "@adapters/fake/index";
+import { createFakeWorld, userEntry } from "@adapters/fake/index";
 import { createCoordinator } from "@core/coordinator";
 import type { CoordinatorProvider } from "@core/coordinator-types";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { describe, expect, it, vi } from "vitest";
 
-function fixture(ready = true) {
-  const workspace = createWorkspace(createFakeWorld());
+function fixture(ready = true, withTask = false) {
+  const world = createFakeWorld({
+    delayMs: 10_000,
+    sessions: withTask
+      ? [
+          {
+            summary: {
+              id: "task",
+              cwd: "/trial",
+              createdAt: "2026-01-01",
+              modifiedAt: "2026-01-01",
+              fileSize: 1,
+            },
+            entries: [userEntry("u", null, "Review login")],
+          },
+        ]
+      : [],
+  });
+  const workspace = createWorkspace(world);
   const provider: CoordinatorProvider = {
     ready: () => ready,
     respond: vi.fn(() =>
@@ -48,7 +65,7 @@ function fixture(ready = true) {
       },
       body: JSON.stringify(data),
     });
-  return { app, coordinator, provider, post };
+  return { app, coordinator, provider, post, world, workspace };
 }
 
 describe("coordinator HTTP boundary", () => {
@@ -88,7 +105,7 @@ describe("coordinator HTTP boundary", () => {
       expect((await post("request", request, cookie)).status).toBe(200);
       expect(provider.respond).toHaveBeenCalledOnce();
       expect(
-        coordinator.state("private-coordinator-token-1").proposal,
+        coordinator.state("private-coordinator-token-1").pending,
       ).toBeNull();
       for (const mode of ["prompt", "followUp", "steer"]) {
         expect(
@@ -105,6 +122,60 @@ describe("coordinator HTTP boundary", () => {
       expect(provider.connect).not.toHaveBeenCalled();
     } finally {
       await coordinator.shutdown();
+    }
+  });
+
+  it("admits the optional text path through real core and Workspace without a confirm request", async () => {
+    const { post, provider, coordinator, workspace, world } = fixture(
+      true,
+      true,
+    );
+    await workspace.activate("task");
+    vi.mocked(provider.respond).mockResolvedValue({
+      kind: "prompt",
+      targetId: "task",
+      text: "Review login",
+      speech: "Review login",
+      instruction: "Review the login timeout fix.",
+      question: null,
+    });
+    const begin = await post("begin");
+    const cookie = begin.headers.get("Set-Cookie") ?? "";
+    try {
+      expect(
+        (
+          await post(
+            "request",
+            { text: "Ask login to review its timeout fix", target: "" },
+            cookie,
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        world.runtime
+          .get("task")
+          ?.snapshot()
+          .branch.some(
+            (entry) =>
+              entry.type === "message" &&
+              entry.message.role === "user" &&
+              JSON.stringify(entry.message.content).includes(
+                "Review the login timeout fix.",
+              ),
+          ),
+      ).toBe(true);
+      expect(
+        coordinator
+          .state("private-coordinator-token-1")
+          .conversation.some(
+            (message) =>
+              message.event === "result" &&
+              message.text.includes("instruction submitted"),
+          ),
+      ).toBe(true);
+    } finally {
+      await coordinator.shutdown();
+      await workspace.stop("task");
     }
   });
 
@@ -215,7 +286,7 @@ describe("coordinator HTTP boundary", () => {
     expect(full).not.toContain("Enable text coordinator");
     expect(full).not.toContain('id="coordinator-mode"');
     expect(full).toContain(
-      "Instructions and approval answers always need visible confirmation",
+      "Clear ordinary requests send work. Approvals wait for visible review",
     );
     expect(full).toContain("90-minute window");
     expect(full).toContain("There is no automatic reconnect");

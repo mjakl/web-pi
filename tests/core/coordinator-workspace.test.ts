@@ -278,12 +278,202 @@ describe("coordinator workspace boundary", () => {
     await live.stop();
   });
 
+  it("resumes a saved ordinary root only with a revision-bound user handoff", async () => {
+    const { workspace, world } = fixture();
+    const saved = await workspace.coordinatorContext("one");
+    const open = vi.spyOn(world.runtime, "open");
+    await expect(
+      workspace.coordinatorSend("one", saved.revision, "Review the fix"),
+    ).rejects.toThrow(/stopped in other apps/i);
+    expect(open).not.toHaveBeenCalled();
+    const admitted = await workspace.coordinatorSend(
+      "one",
+      saved.revision,
+      "Review the fix",
+      undefined,
+      { handoff: true },
+    );
+    expect(admitted.mode).toBe("prompt");
+    expect(
+      world.runtime
+        .get("one")
+        ?.snapshot()
+        .branch.some(
+          (entry) =>
+            entry.type === "message" &&
+            entry.message.role === "user" &&
+            JSON.stringify(entry.message.content).includes("Review the fix"),
+        ),
+    ).toBe(true);
+    await workspace.stop("one");
+  });
+
+  it("refuses trust, delegated and unavailable roots before opening, even with a handoff", async () => {
+    const { workspace, world } = fixture();
+    const saved = await workspace.coordinatorContext("one");
+    const open = vi.spyOn(world.runtime, "open");
+    const grant = vi.spyOn(world.trust, "trust");
+    vi.spyOn(world.trust, "status").mockResolvedValue({
+      requiresTrust: true,
+      trusted: false,
+    });
+    await expect(
+      workspace.coordinatorSend("one", saved.revision, "work", undefined, {
+        handoff: true,
+      }),
+    ).rejects.toThrow(/trust.*visible review/i);
+    await expect(
+      workspace.coordinatorSend("child", saved.revision, "work", undefined, {
+        handoff: true,
+      }),
+    ).rejects.toThrow(/inspection/i);
+    vi.spyOn(world.projects, "available").mockResolvedValue(false);
+    await expect(
+      workspace.coordinatorSend("one", saved.revision, "work", undefined, {
+        handoff: true,
+      }),
+    ).rejects.toThrow(/folder/i);
+    expect(open).not.toHaveBeenCalled();
+    expect(grant).not.toHaveBeenCalled();
+  });
+
+  it.each(["before", "during"])(
+    "refuses a saved revision changed %s runtime opening",
+    async (when) => {
+      const { workspace, world } = fixture();
+      const saved = await workspace.coordinatorContext("one");
+      const stored = world.store.get("one");
+      assert(stored);
+      const change = () => {
+        stored.entries.push(userEntry("new", "a1", "Changed external request"));
+        stored.leafId = "new";
+      };
+      const original = world.runtime.open.bind(world.runtime);
+      const open = vi
+        .spyOn(world.runtime, "open")
+        .mockImplementation(async (target) => {
+          const live = await original(target);
+          if (when === "during") change();
+          return live;
+        });
+      if (when === "before") change();
+      await expect(
+        workspace.coordinatorSend(
+          "one",
+          saved.revision,
+          "Wrong stale instruction",
+          undefined,
+          { handoff: true },
+        ),
+      ).rejects.toThrow(/changed/);
+      if (when === "before") expect(open).not.toHaveBeenCalled();
+      else {
+        const current = await workspace.coordinatorContext("one");
+        await expect(
+          workspace.coordinatorSend(
+            "one",
+            current.revision,
+            "Wrong stale instruction",
+          ),
+        ).rejects.toThrow(/failed resume validation/);
+      }
+      expect(
+        stored.entries.some(
+          (entry) =>
+            entry.type === "message" &&
+            JSON.stringify(entry.message).includes("Wrong stale instruction"),
+        ),
+      ).toBe(false);
+      await workspace.stop("one");
+    },
+  );
+
+  it("rejects wrong-target resumes and superseded input at the final admission check", async () => {
+    const { workspace, world } = fixture();
+    await workspace.activate("two");
+    const other = world.runtime.get("two");
+    assert(other);
+    const saved = await workspace.coordinatorContext("one");
+    vi.spyOn(world.runtime, "open").mockResolvedValue(other);
+    await expect(
+      workspace.coordinatorSend("one", saved.revision, "wrong", undefined, {
+        handoff: true,
+      }),
+    ).rejects.toThrow(/changed/);
+    const context = await workspace.coordinatorContext("two");
+    await expect(
+      workspace.coordinatorSend(
+        "two",
+        context.revision,
+        "superseded",
+        undefined,
+        { current: () => false },
+      ),
+    ).rejects.toThrow(/unresolved/);
+    expect(other.snapshot().status.running).toBe(false);
+    await workspace.stop("two");
+  });
+
+  it("chooses automatic delivery from actual admission state and reads bounded status without consuming notices", async () => {
+    const { workspace, world } = fixture();
+    await workspace.activate("one");
+    const live = world.runtime.get("one");
+    assert(live);
+    const original = live.snapshot.bind(live);
+    let running = false;
+    vi.spyOn(live, "snapshot").mockImplementation(() => {
+      const snapshot = original();
+      return {
+        ...snapshot,
+        status: {
+          ...snapshot.status,
+          running,
+          tools: [{ id: "t", name: "bash", progress: "secret raw log" }],
+          retry: { attempt: 1, maxAttempts: 3, message: "private retry trace" },
+          notices: [{ level: "error", message: "Failed to run test" }],
+        },
+      };
+    });
+    const context = await workspace.coordinatorContext("one");
+    running = true;
+    const prompt = vi.spyOn(live, "prompt");
+    const result = await workspace.coordinatorSend(
+      "one",
+      context.revision,
+      "Include regression tests",
+    );
+    expect(result.mode).toBe("followUp");
+    expect(prompt).toHaveBeenCalledWith("Include regression tests", {
+      literal: true,
+      behavior: "followUp",
+    });
+    const status = (await workspace.coordinatorContext("one")).status;
+    expect(status).toMatchObject({
+      tools: ["bash"],
+      retry: { attempt: 1, maxAttempts: 3 },
+      notices: [{ level: "error", message: "Failed to run test" }],
+    });
+    expect(JSON.stringify(status)).not.toContain("raw log");
+    expect(live.snapshot().status.notices).toHaveLength(1);
+    await workspace.stop("one");
+  });
+
+  it("never activates saved sessions to stop work", async () => {
+    const { workspace, world } = fixture();
+    const saved = await workspace.coordinatorContext("one");
+    const open = vi.spyOn(world.runtime, "open");
+    await expect(
+      workspace.coordinatorAbort("one", saved.revision),
+    ).rejects.toThrow(/no local turn/i);
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("refuses saved, unknown and overlapping-project dispatches", async () => {
     const { workspace, world } = fixture();
     const saved = await workspace.coordinatorContext("one");
     await expect(
       workspace.coordinatorSend("one", saved.revision, "go", "prompt"),
-    ).rejects.toThrow(/Activate/);
+    ).rejects.toThrow(/stopped in other apps/i);
     await expect(workspace.coordinatorContext("missing")).rejects.toThrow(
       /Unknown/,
     );

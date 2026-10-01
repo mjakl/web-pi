@@ -169,8 +169,8 @@ web tests and `WEB_PI_RUNTIME=fake` use it.
 
 `src/core/coordinator.ts` owns one opt-in, bounded conversation. It holds short
 session handles, full substantive conversation records, current focus, a single
-pending proposal/question and observation cursors in memory. Focus changes,
-resolved requests, proposals and admission results carry stable session IDs.
+pending request/question and observation cursors in memory. Focus changes,
+rewritten instructions and admission results carry stable session IDs.
 Background summaries are recorded separately by event kind; only the latest
 three enter reasoning context and none changes focus. Ending drops that state;
 Pi remains the canonical coding history. `src/core/coordinator-types.ts` defines
@@ -192,30 +192,51 @@ request contains at most three windows. Failed requests are not retried.
 Watchers exist only while the coordinator is enabled and expose no user-supplied
 filesystem path.
 
-Responses produces structured replies or proposals with an inventory session ID,
-not executable tool calls. Reasoning resolves task references and pronouns using
-conversation, explicit focus/pending state, and each candidate's recent user
-request and assistant outcome. The server validates the returned identity,
-explicit handle constraint, root/write eligibility and captured context
-revision. No current-selection fallback substitutes for an unresolved model
-target. Live delegation notifications contain metadata, not instructions.
-Captured input since the previous delegation becomes one app request; transcript
-fragments alone never trigger reasoning or execution. Captured voice output is
-labeled speech context, not authoritative admission evidence. The coordinator
-uses this context only to reason or propose. Fresh speech invalidates an
-in-flight proposal, and a visible user confirmation is required before any
-prompt admission. The selected target, writer incarnation, latest meaningful
-message, running state and exact dialog bind that confirmation. Workspace checks
-fresh state immediately before dispatch. Typed dialog answers additionally check
-method, offered options and deadline; a model has no answer capability.
+Responses produces structured replies, ordinary instructions or bounded voice
+controls with an inventory session ID, not arbitrary executable tool calls.
+Reasoning resolves task references and pronouns using conversation, explicit
+focus/pending state, and each candidate's recent user request and assistant
+outcome. The server validates the returned identity, explicit handle constraint,
+root/write eligibility and captured context revision. No current-selection
+fallback substitutes for an unresolved model target. Live delegation
+notifications contain metadata, not instructions. Captured input since the
+previous delegation becomes an app request; transcript fragments alone never
+trigger reasoning or execution. Live has no completed-turn marker or transcript
+item identity, so delegation metadata cannot prove intent is complete. The
+reasoner must resolve a clearly complete ordinary request. Captured voice output
+is labeled speech context, never authorization. A clear ordinary user request
+authorizes direct admission, without a visible confirmation. Later input
+withholds superseded actions, including across asynchronous resume. A
+conversation-local pending batch retains delegated input while the reasoner is
+busy; unresolved raw fragments wait for another delegation. Full request history
+and pending ordinary intent survive clarification and status questions. Only an
+ordinary `clarify` reply creates a question eligible for bound assent; a pause
+for permissions or consequential review does not. Delegation IDs are
+deduplicated for the conversation. Background summaries yield to pending input
+and never change focus or the pending question.
 
-Requests may omit delivery mode. Text requests and voice delegation both default
-from the captured target context: idle sessions use `prompt`, and running
-sessions use `followUp` so ordinary requests do not interrupt current work.
-Explicit API modes (`prompt`, `followUp`, `steer`) remain supported. The
-resolved mode is bound to the proposal, not recomputed at confirmation.
-Confirmation acknowledges instruction submission and whether it will run after
-or interrupt current work; it does not claim completion.
+Workspace binds sending to the target, writer incarnation, branch tip and exact
+dialog. Saved roots require a task/request-bound user handoff that external
+writers are stopped. The reasoner's handoff must identify the exact pending
+question and target; it cannot rewrite the held instruction. Trust is checked
+before opening, never granted. Saved revisions are checked before and after
+normal runtime opening, and writer identity/state immediately before dispatch. A
+failed post-open check blocks further coordinator sends to that writer until
+visible stop/review; it does not dispose a possibly shared local writer. This is
+not cross-process locking. Delegated and unavailable roots remain refused. Typed
+dialog answers still require visible controls and validate method, offered
+options and deadline; speech has no dialog-answer capability. Ordinary prose
+answers are contextualized prompts to the question's origin, not typed
+approvals.
+
+Requests may omit delivery mode. Workspace chooses `prompt` when idle or
+`followUp` when running at actual admission. Explicit API modes (`prompt`,
+`followUp`, `steer`) remain supported. Only actual admission produces a sent or
+queued acknowledgment, never a claim of completion. Context includes bounded
+queue counts, tool names, retry state, notices and errors from non-consuming
+snapshots. Spoken stop-work uses local abort and clears queued prompts,
+reporting removed work without claiming undo; it never opens a saved session.
+End voice ends coordination but leaves coding running.
 
 Coordinator prompts use Pi's literal-input option to bypass slash commands,
 skill commands and prompt templates, and never enter the web shell classifier.
@@ -224,8 +245,8 @@ ordinary browser prompt/shell submissions participate in coordinator project
 exclusion. This deliberately conservative rule also excludes sibling worktrees
 while coordinator work runs. Admission uses canonical repository identity even
 when the folder picker groups a checkout subdirectory separately. It is not a
-cross-process lock; external writers must be stopped before a session is
-activated in web-pi.
+cross-process lock; external writers must remain stopped after the user's
+handoff when a saved session is resumed.
 
 The shell owns the panel outside the replaceable session region. A separate SSE
 stream delivers server-rendered coordinator state, not a browser-maintained
@@ -245,6 +266,9 @@ transcripts and sends short verified commentary. The browser's provider data
 channel can only close the voice session. Transcript deltas are not turn
 boundaries, and commentary receipt does not establish playback. Stop-speaking
 mutes local playback; it neither retracts provider context nor stops coding.
+Spoken stop/resume playback commands carry a sequence on the existing
+voice-generation-bound state. The current browser media owner applies each
+command once, leaving microphone state and local playback controls independent.
 
 Each browser voice attempt owns its media, callbacks and outstanding voice HTTP
 requests. The existing media epoch invalidates permission and startup outcomes

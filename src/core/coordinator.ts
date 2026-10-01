@@ -5,6 +5,7 @@ import type {
   CoordinatorExchange,
   CoordinatorMemory,
   CoordinatorProvider,
+  CoordinatorProposal,
   CoordinatorSession,
   CoordinatorState,
   CoordinatorVoice,
@@ -13,8 +14,8 @@ import type {
 
 export const COORDINATOR_WINDOW_MS = 90 * 60_000;
 
-/** One opt-in conversation per server. It proposes; only a visible confirmation
- * can enter the Workspace's existing writer. No provider tools can mutate it. */
+/** One opt-in conversation. Only resolved user requests may enter Workspace;
+ * background data and assistant speech never authorize coding or approvals. */
 export function createCoordinator(
   workspace: Workspace,
   provider: CoordinatorProvider,
@@ -29,6 +30,15 @@ export function createCoordinator(
   let voiceWindowStarted = false;
   let voiceInput = "";
   let voiceOutput = "";
+  let waiting:
+    | {
+        text: string;
+        selected: string;
+        mode?: CoordinatorMode;
+        delegationId?: string;
+        done: (() => void)[];
+      }
+    | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopGlobal: (() => void) | undefined;
   const observers = new Map<string, () => void>();
@@ -50,7 +60,6 @@ export function createCoordinator(
       sessions: [],
       target: "",
       context: null,
-      proposal: null,
       question: null,
       conversation: [],
       inputCaption: "",
@@ -58,6 +67,8 @@ export function createCoordinator(
       voice: "off",
       voiceGeneration: 0,
       muted: false,
+      playback: { sequence: 0, stopped: false },
+      pending: null,
       error: "",
     };
   }
@@ -78,8 +89,8 @@ export function createCoordinator(
       sessions: state.sessions,
       target: state.sessions.find((s) => s.handle === state.target) ?? null,
       context: state.context,
-      proposal: state.proposal,
       question: state.question,
+      pending: state.pending,
       conversation: state.conversation.filter(
         (m) => m.event !== "update" || recentUpdates.has(m),
       ),
@@ -109,13 +120,13 @@ export function createCoordinator(
         role: "assistant",
         event: "focus",
         sessionIds: session ? [session.id] : [],
-        text: `Current target: ${session ? `${session.handle} — ${session.label}` : "none"}. Previous proposals are invalid.`,
+        text: `Current target: ${session ? session.label : "none"}.`,
       });
     }
     state.target = session?.handle ?? "";
     state.context = context;
     voice?.context(
-      `Current target: ${session ? `${session.handle} (${session.id}) — ${session.label}` : "none"}. Previous proposals are invalid.`,
+      `Current target: ${session ? `${session.handle} (${session.id}) — ${session.label}` : "none"}.`,
       false,
     );
   }
@@ -147,13 +158,13 @@ export function createCoordinator(
     const mentioned = [...new Set(text.toUpperCase().match(/\bS\d+\b/g) ?? [])];
     if (mentioned.length > 1)
       throw new Error(
-        "Which one session should receive this request? Select its handle.",
+        "Which single task should receive this request? You can use its name.",
       );
     if (mentioned.length === 1) {
       const target = state.sessions.find((s) => s.handle === mentioned[0]);
       if (!target)
         throw new Error(
-          "That session handle is unknown. Select a current target.",
+          "That session handle is unknown. Which current task did you mean?",
         );
       return target;
     }
@@ -170,8 +181,13 @@ export function createCoordinator(
     try {
       const context = await workspace.coordinatorContext(id);
       if (key !== token || !state.enabled) return;
-      if (!baseline && revisions.get(id) === context.revision) return;
-      revisions.set(id, context.revision);
+      const observed = JSON.stringify([
+        context.revision,
+        context.running,
+        context.status,
+      ]);
+      if (!baseline && revisions.get(id) === observed) return;
+      revisions.set(id, observed);
       const previous = cursors.get(id);
       const index = context.messages.findIndex((m) => m.id === previous);
       const latest = context.messages.at(-1)?.id ?? "";
@@ -183,6 +199,30 @@ export function createCoordinator(
       session.writable = session.available && context.writable;
       session.currentRequest = context.currentRequest;
       session.latestOutcome = context.latestOutcome;
+      const previousStatus = session.status;
+      session.status = context.status;
+      if (
+        !baseline &&
+        (context.status.error ||
+          context.status.notices.length ||
+          context.status.retry) &&
+        JSON.stringify([
+          previousStatus?.error,
+          previousStatus?.notices,
+          previousStatus?.retry,
+        ]) !==
+          JSON.stringify([
+            context.status.error,
+            context.status.notices,
+            context.status.retry,
+          ])
+      )
+        updates.set(
+          id,
+          `${updates.get(id) ?? `${session.label}:`}\nStatus: ${JSON.stringify(context.status)}`.slice(
+            -6000,
+          ),
+        );
       if (baseline || (previous !== "" && index === -1)) updates.delete(id);
       // Missing cursor means a branch changed or the bounded window moved;
       // establish a baseline instead of replaying unrelated history.
@@ -199,7 +239,7 @@ export function createCoordinator(
           const combined = `${updates.get(id) ?? header}\n${fresh.map((m) => m.text).join("\n")}`;
           const overflow = `${header}[Earlier new text exceeded the update window. Inspect this session for omitted details.]\n`;
           if (combined.length > 6000)
-            state.error = `${session.handle}'s update window was exceeded. Open that session for omitted new text.`;
+            state.error = `${session.label}'s update window was exceeded. Omitted text remains available for visible review while safely stopped.`;
           updates.set(
             id,
             combined.length <= 6000
@@ -211,15 +251,14 @@ export function createCoordinator(
       const dialog = JSON.stringify(context.dialog);
       if (!baseline && context.dialog && dialogs.get(id) !== dialog) {
         say(
-          `${session.handle} — ${context.dialog.title}\n${context.dialog.message ?? ""}\nThis is a typed dialog. Select this session and answer the exact question below.`,
-          `${session.handle} has a pending question. Select it to see the exact question and answer.`,
+          `${session.label} — ${context.dialog.title}\n${context.dialog.message ?? ""}\nThis typed dialog is paused for visible review while safely stopped. Speech cannot answer it.`,
+          `${session.label} is paused for visible review while safely stopped. It has a typed dialog.`,
           undefined,
           { event: "update", sessionIds: [id] },
         );
       }
       dialogs.set(id, dialog);
       if (state.target === session.handle) {
-        if (state.context?.revision !== context.revision) state.proposal = null;
         state.context = context;
       }
       publish();
@@ -227,7 +266,7 @@ export function createCoordinator(
     } catch {
       if (key === token && state.enabled) {
         state.error =
-          "A session changed or became unavailable. Refresh the session list.";
+          "A task changed or became unavailable. Ask for its current status again.";
         publish();
       }
     } finally {
@@ -257,11 +296,19 @@ export function createCoordinator(
     }
   }
   async function flushUpdates() {
-    if (!state.enabled || state.busy || !updates.size) return;
+    if (
+      !state.enabled ||
+      state.busy ||
+      waiting ||
+      voiceInput.trim() ||
+      !updates.size
+    )
+      return;
     const key = token;
+    const version = epoch;
     // Coalesce a few session updates without displacing conversational focus.
     const batch = [...updates.entries()].slice(0, 3);
-    const versions = new Map(batch.map(([id]) => [id, cursors.get(id)]));
+    const versions = new Map(batch.map(([id]) => [id, revisions.get(id)]));
     state.busy = true;
     publish();
     try {
@@ -277,7 +324,9 @@ export function createCoordinator(
       if (
         key === token &&
         state.enabled &&
-        [...versions].every(([id, cursor]) => cursors.get(id) === cursor)
+        version === epoch &&
+        !voiceInput.trim() &&
+        [...versions].every(([id, revision]) => revisions.get(id) === revision)
       ) {
         for (const [id, text] of batch)
           if (updates.get(id) === text) updates.delete(id);
@@ -290,14 +339,15 @@ export function createCoordinator(
       if (key === token && state.enabled) {
         // Failed requests are not retried. The canonical sessions retain their text.
         for (const [id] of batch) updates.delete(id);
-        state.error = `${error instanceof Error ? error.message : "Update summary failed."} Read the affected sessions for unsummarized updates.`;
+        state.error = `${error instanceof Error ? error.message : "Update summary failed."} Unsummarized details remain available for visible review while safely stopped.`;
         publish();
       }
     } finally {
       if (key === token && state.enabled) {
         state.busy = false;
         publish();
-        if (updates.size) void flushUpdates();
+        if (waiting) void drain();
+        else if (updates.size) void flushUpdates();
       }
     }
   }
@@ -307,25 +357,61 @@ export function createCoordinator(
     selected: string,
     mode?: CoordinatorMode,
     delegationId?: string,
-  ) {
+  ): Promise<void> {
     check(key);
-    if (state.busy)
-      throw new Error(
-        "The coordinator is preparing a reply. Wait before reviewing another instruction.",
-      );
     if (!text.trim() || text.length > 6000)
       throw new Error("Use an instruction of 1–6000 characters.");
-    const pending = state.proposal;
-    state.proposal = null;
-    state.error = "";
-    const exchange: CoordinatorExchange = {
+    epoch++;
+    state.conversation.push({
       role: "user",
       text,
       event: "request",
       sessionIds: [],
+    });
+    return new Promise<void>((done) => {
+      if (waiting) {
+        waiting.text += `\n${text}`;
+        waiting.selected = selected;
+        waiting.mode = mode;
+        waiting.delegationId = delegationId;
+        waiting.done.push(done);
+      } else waiting = { text, selected, mode, delegationId, done: [done] };
+      void drain();
+    });
+  }
+  async function drain() {
+    if (!state.enabled || state.busy || voiceInput.trim() || !waiting) return;
+    const batch = waiting;
+    waiting = undefined;
+    await resolveRequest(
+      token,
+      batch.text,
+      batch.selected,
+      batch.mode,
+      batch.delegationId,
+    );
+    for (const done of batch.done) done();
+  }
+  async function resolveRequest(
+    key: string,
+    text: string,
+    selected: string,
+    mode?: CoordinatorMode,
+    delegationId?: string,
+  ) {
+    const pending = state.pending;
+    const intent = state.pending ?? {
+      id: newId(),
+      text,
+      question: null,
+      ownership: null,
+      mode,
     };
-    state.conversation.push(exchange);
-    const version = ++epoch;
+    state.pending = intent;
+    state.error = "";
+    const version = epoch;
+    const currentRequest = () =>
+      key === token && state.enabled && version === epoch;
     state.busy = true;
     try {
       await refreshSessions();
@@ -335,25 +421,48 @@ export function createCoordinator(
         null;
       if (selected && !current)
         throw new Error(
-          "That session is no longer in the inventory. Select a current target.",
+          "That session is no longer in the inventory. Which current task did you mean?",
         );
       const currentContext = current
         ? await workspace.coordinatorContext(current.id)
         : null;
       if (key !== token || !state.enabled || version !== epoch) return;
-      if (current?.handle !== state.target) focus(current, currentContext);
-      else state.context = currentContext;
-      exchange.sessionIds = explicit ? [explicit.id] : [];
+      if (!pending && current?.handle !== state.target)
+        focus(current, currentContext);
+      else if (current?.handle === state.target) state.context = currentContext;
       const input = {
         ...memory(),
-        proposal: pending,
+        target: current,
+        context: currentContext,
+        pending: structuredClone(pending),
         purpose: "request" as const,
         text,
         explicitTargetId: explicit?.id ?? null,
       };
       publish();
+      const assent =
+        /^(yes|yeah|yep|sure|okay|ok|do it|go ahead|approved?|confirm)[.!\s]*$/i.test(
+          text.trim(),
+        );
+      if (
+        assent &&
+        (!pending?.question || pending.question !== state.question)
+      ) {
+        state.pending = null;
+        state.question =
+          "What ordinary task would you like me to send? Approvals need visible review while safely stopped.";
+        say(state.question, state.question, delegationId);
+        return;
+      }
       const reply = await provider.respond(input, controller.signal);
       if (key !== token || !state.enabled || version !== epoch) return;
+      // A control outcome does not own the ordinary request it interrupted.
+      if (
+        ["stopWork", "stopSpeaking", "resumeSpeaking", "endVoice"].includes(
+          reply.kind,
+        )
+      )
+        state.pending = pending;
       const target = reply.targetId
         ? input.sessions.find((s) => s.id === reply.targetId)
         : null;
@@ -371,14 +480,80 @@ export function createCoordinator(
       if (key !== token || !state.enabled || version !== epoch) return;
       if (target && context?.revision !== target.revision)
         throw new Error(
-          "The session changed while preparing this reply. Review a fresh request.",
+          "The session changed while preparing this reply. What should I send now?",
         );
-      exchange.sessionIds = target ? [target.id] : [];
+      if (
+        (reply.resolves && reply.resolves !== pending?.id) ||
+        (assent && reply.resolves !== pending?.id)
+      )
+        throw new Error(
+          "That answer does not resolve the exact pending ordinary question.",
+        );
+      if (["stopSpeaking", "resumeSpeaking", "endVoice"].includes(reply.kind)) {
+        if (reply.kind === "endVoice") {
+          say("Ending voice. Coding continues.", undefined, delegationId);
+          await end(key);
+        } else {
+          state.playback = {
+            sequence: state.playback.sequence + 1,
+            stopped: reply.kind === "stopSpeaking",
+          };
+          say(
+            reply.kind === "stopSpeaking"
+              ? "Speech stopped; microphone and coding continue."
+              : "Speech resumed.",
+            undefined,
+            delegationId,
+          );
+        }
+        return;
+      }
+      if (reply.kind === "stopWork") {
+        if (!target || !context || reply.question)
+          throw new Error(
+            reply.question ?? "Which task should stop its current turn?",
+          );
+        const stopped = await workspace.coordinatorAbort(
+          target.id,
+          context.revision,
+          currentRequest,
+        );
+        if (!currentRequest()) return;
+        const result = `${target.label}: ${stopped.aborted ? (stopped.running ? "stop requested; work is still running" : "current turn stopped") : "no current local turn was running"}. Removed ${String(stopped.cleared.length)} queued requests; ${String(stopped.queued)} remain. Changes were not undone.`;
+        say(
+          result +
+            (stopped.cleared.length
+              ? `\nRemoved requests:\n${stopped.cleared.map((entry) => entry.text).join("\n")}`
+              : ""),
+          result,
+          delegationId,
+          { event: "result", sessionIds: [target.id] },
+        );
+        return;
+      }
+      if (pending && current?.handle !== state.target)
+        focus(current, currentContext);
       state.question = reply.question;
+      if (reply.kind === "handoff") {
+        const action = pending?.ownership;
+        if (
+          !action ||
+          reply.resolves !== pending.id ||
+          target?.id !== action.target ||
+          context?.revision !== action.revision ||
+          reply.question
+        )
+          throw new Error(
+            "That answer does not resolve the pending session handoff. Is the requested session stopped in other apps?",
+          );
+        await submit(action, pending.mode, true, currentRequest, delegationId);
+        return;
+      }
       if (reply.kind === "prompt") {
         if (!target || reply.question) {
           state.question =
             reply.question ?? "Which session should receive this request?";
+          intent.question = state.question;
           say(state.question, state.question, delegationId);
           return;
         }
@@ -386,50 +561,62 @@ export function createCoordinator(
           (s) => s.id === target.id,
         );
         if (key !== token || !state.enabled || version !== epoch) return;
-        if (
-          !available?.root ||
-          !available.available ||
-          !available.writable ||
-          !context?.writable
-        ) {
-          say(
-            `${target.handle} is not an available local writer. Open and activate it in web-pi first; stop any external writer before doing so.`,
+        if (!available?.root || !available.available || !context)
+          throw new Error(
+            `${target.label} is unavailable. Work is paused until safe visible review while stopped.`,
           );
-          return;
-        }
         if (available.revision !== context.revision)
           throw new Error(
-            "The session changed while preparing this reply. Review a fresh request.",
+            "The session changed while preparing this reply. What should I send now?",
           );
-        if (context.dialog) {
-          say(
-            `${target.handle} has a typed dialog. Answer the exact question using the visible controls; spoken assent cannot approve it.`,
+        if (context.dialog || context.status.blocked)
+          throw new Error(
+            `${target.label} is paused for visible review while safely stopped. Speech cannot answer typed dialogs or permissions.`,
           );
-          return;
-        }
+        if (assent && (reply.resolves !== pending?.id || pending?.ownership))
+          throw new Error(
+            "That assent is not bound to the pending ordinary question. What should this task do?",
+          );
         if (!reply.instruction.trim() || reply.instruction.length > 6000)
           throw new Error("The provider returned an invalid instruction.");
         focus(target, context);
-        state.question = null;
-        state.proposal = {
+        const action = {
           id: newId(),
           target: target.id,
-          label: `${target.handle} — ${target.label}`,
+          label: target.label,
           text: reply.instruction,
-          mode: mode ?? (context.running ? "followUp" : "prompt"),
+          mode:
+            mode ??
+            (context.running ? ("followUp" as const) : ("prompt" as const)),
           revision: context.revision,
         };
-        say(
-          `${reply.text}\nProposed for ${target.handle}; not sent.`,
-          `${target.handle}: an instruction is ready for your review. It has not been sent.`,
-          delegationId,
-          {
-            event: "proposal",
-            sessionIds: [target.id],
-            proposal: structuredClone(state.proposal),
-          },
-        );
+        if (!available.live) {
+          const question = `Is the ${target.label} session stopped in other apps? It must stay stopped there while I resume this request.`;
+          state.pending = {
+            id: newId(),
+            text: pending ? `${pending.text}\n${text}` : text,
+            ownership: action,
+            question,
+            mode,
+          };
+          state.question = question;
+          say(
+            `${state.question}\nPending instruction: ${action.text}`,
+            state.question,
+            delegationId,
+            { sessionIds: [target.id] },
+          );
+          return;
+        }
+        await submit(action, mode, false, currentRequest, delegationId);
       } else {
+        if (reply.kind === "clarify" && reply.question) {
+          intent.question = reply.question;
+        } else {
+          state.pending =
+            reply.resolves && reply.resolves === pending?.id ? null : pending;
+          if (state.pending && !reply.question) state.question = input.question;
+        }
         if (target && !reply.question) focus(target, context);
         say(
           reply.question ?? reply.text,
@@ -444,29 +631,90 @@ export function createCoordinator(
           error instanceof Error
             ? error.message
             : "The coordinator request failed.";
-        state.question = state.error;
+        // Failure reports the attempt; it does not resolve a pending question.
         say(state.error, state.error, delegationId);
       }
     } finally {
       if (key === token && state.enabled) {
         state.busy = false;
         publish();
-        if (updates.size) void flushUpdates();
+        if (waiting) void drain();
+        else if (updates.size) void flushUpdates();
       }
     }
+  }
+  async function submit(
+    action: CoordinatorProposal,
+    mode: CoordinatorMode | undefined,
+    handoff: boolean,
+    current: () => boolean,
+    delegationId?: string,
+  ) {
+    const key = token;
+    const pending = state.pending;
+    state.question = null;
+    state.conversation.push({
+      role: "assistant",
+      event: "submission",
+      text: `${action.label} — instruction:\n${action.text}`,
+      sessionIds: [action.target],
+      proposal: structuredClone(action),
+    });
+    try {
+      const admission = await workspace.coordinatorSend(
+        action.target,
+        action.revision,
+        action.text,
+        mode,
+        { handoff, current },
+      );
+      if (key !== token || !state.enabled) return;
+      if (state.pending === pending) state.pending = null;
+      action.mode = admission.mode;
+      const timing =
+        admission.mode === "followUp"
+          ? admission.queued > 0
+            ? `; queued after current work (${String(admission.queued)} queued)`
+            : "; no follow-up remains queued"
+          : admission.mode === "steer"
+            ? "; steering current work"
+            : "";
+      say(
+        `${action.label}: instruction submitted${timing}. This acknowledges admission, not completion.`,
+        undefined,
+        delegationId,
+        {
+          event: "result",
+          sessionIds: [action.target],
+          proposal: structuredClone(action),
+        },
+      );
+    } catch (error) {
+      if (key !== token || !state.enabled) return;
+      if (current()) state.pending = null;
+      state.error = `${action.label}: admission failed. ${error instanceof Error ? error.message : "Nothing was sent."}`;
+      say(state.error, state.error, delegationId, {
+        event: "result",
+        sessionIds: [action.target],
+        proposal: structuredClone(action),
+      });
+    }
+  }
+  function retireVoiceInput() {
+    // Captions survive voice shutdown, but undelegated fragments are not requests.
+    voiceInput = "";
+    if (waiting) void drain();
+    else void flushUpdates();
   }
   function voiceEvent(key: string, event: VoiceEvent) {
     if (key !== token || !state.enabled) return;
     if ("id" in event) {
       if (events.has(event.id)) return;
       events.add(event.id);
-      const oldest = events.values().next().value;
-      if (events.size > 1024 && oldest) events.delete(oldest);
     }
     if (event.type === "input") {
       state.inputCaption = (state.inputCaption + event.text).slice(-6000);
       voiceInput += event.text;
-      state.proposal = null;
       epoch++;
     } else if (event.type === "output") {
       state.outputCaption = (state.outputCaption + event.text).slice(-6000);
@@ -474,7 +722,7 @@ export function createCoordinator(
     } else if (event.type === "delegate") {
       // Metadata is only a request to reason about captured context. It never
       // authorizes a tool or marks an utterance complete.
-      if (!state.busy && voiceInput.trim()) {
+      if (voiceInput.trim()) {
         const text = voiceInput;
         voiceInput = "";
         if (voiceOutput.trim())
@@ -490,14 +738,14 @@ export function createCoordinator(
               state.error =
                 error instanceof Error
                   ? error.message
-                  : "Review the captured words before trying again.";
+                  : "Please clarify the request; nothing was sent.";
               say(state.error, state.error, event.id);
             }
           },
         );
       } else
         voice?.context(
-          "Ask the user to review the captured words in the coordinator panel before preparing an instruction.",
+          "No new captured user input is available yet. Do not infer a request from delegation metadata or assistant speech. Ask a brief clarification if needed.",
           true,
           event.id,
         );
@@ -508,6 +756,7 @@ export function createCoordinator(
       state.error = event.confirmed
         ? "Voice ended. Text is still available."
         : "Voice disconnected. Provider finalization is unconfirmed; text is still available.";
+      retireVoiceInput();
     }
     publish();
   }
@@ -538,10 +787,12 @@ export function createCoordinator(
     reading.clear();
     reread.clear();
     token = "";
+    for (const done of waiting?.done ?? []) done();
+    waiting = undefined;
     const closing = voice;
     voice = undefined;
     state.voice = "off";
-    state.proposal = null;
+    retireVoiceInput();
     ending = closing ? closing.close() : Promise.resolve(true);
     publish();
     listeners.clear();
@@ -612,7 +863,7 @@ export function createCoordinator(
       if (state.busy)
         throw new Error("Wait for the current coordinator request.");
       epoch++;
-      state.proposal = null;
+      state.pending = null;
       state.busy = true;
       publish();
       try {
@@ -634,67 +885,6 @@ export function createCoordinator(
       }
     },
     request,
-    async confirm(key: string, id: string) {
-      check(key);
-      const proposal = state.proposal;
-      if (state.busy || !proposal || proposal.id !== id)
-        throw new Error("The proposal expired or changed. Review it again.");
-      state.proposal = null;
-      state.busy = true;
-      state.conversation.push({
-        role: "user",
-        event: "submission",
-        text: `Confirmed instruction for ${proposal.label}.`,
-        sessionIds: [proposal.target],
-        proposal: structuredClone(proposal),
-      });
-      publish();
-      try {
-        await workspace.coordinatorSend(
-          proposal.target,
-          proposal.revision,
-          proposal.text,
-          proposal.mode,
-        );
-        if (key === token) state.inputCaption = "";
-        if (key === token) {
-          const timing =
-            proposal.mode === "followUp"
-              ? "; will run after current work"
-              : proposal.mode === "steer"
-                ? "; will interrupt current work"
-                : "";
-          say(
-            `${proposal.label}: instruction submitted${timing}. This acknowledges admission, not completion.`,
-            undefined,
-            undefined,
-            {
-              event: "result",
-              sessionIds: [proposal.target],
-              proposal: structuredClone(proposal),
-            },
-          );
-        }
-      } catch (error) {
-        if (key === token)
-          say(
-            `${proposal.label}: admission failed. ${error instanceof Error ? error.message : "Review a fresh request."}`,
-            undefined,
-            undefined,
-            {
-              event: "result",
-              sessionIds: [proposal.target],
-              proposal: structuredClone(proposal),
-            },
-          );
-        throw error;
-      } finally {
-        if (key === token) {
-          state.busy = false;
-          publish();
-        }
-      }
-    },
     async answer(
       key: string,
       revision: string,
@@ -706,7 +896,6 @@ export function createCoordinator(
       if (state.busy || !session)
         throw new Error("Select an available session first.");
       state.busy = true;
-      state.proposal = null;
       publish();
       try {
         await workspace.coordinatorAnswer(
@@ -726,6 +915,8 @@ export function createCoordinator(
         if (key === token) {
           state.busy = false;
           publish();
+          if (waiting) void drain();
+          else void flushUpdates();
         }
       }
     },
@@ -736,6 +927,7 @@ export function createCoordinator(
       const generation = ++voiceEpoch;
       state.voiceGeneration = generation;
       state.voice = "connecting";
+      state.playback = { sequence: 0, stopped: false };
       state.inputCaption = "";
       state.outputCaption = "";
       voiceInput = "";
@@ -764,11 +956,22 @@ export function createCoordinator(
           `Selected target: ${state.target || "none"}. Never claim an instruction was submitted before the application confirms admission.`,
           false,
         );
+        const tasks = state.sessions
+          .slice(0, 2)
+          .map(
+            (s) =>
+              `${s.label.slice(0, 40)}: ${s.status?.state === "waiting" ? "waiting for visible review" : s.running ? "running" : s.live ? "idle" : "saved, external activity unknown"}`,
+          )
+          .join("; ");
+        say(
+          `Hello. Ordinary requests send work. Approvals wait for visible review while safely stopped. ${tasks || "No tasks are available."}`,
+        );
         publish();
         return { answer: connected.answer, generation };
       } catch (error) {
         if (generation === voiceEpoch && key === token) {
           state.voice = "off";
+          retireVoiceInput();
           publish();
         }
         throw error;
@@ -787,6 +990,7 @@ export function createCoordinator(
       voice = undefined;
       state.voice = "off";
       state.muted = false;
+      retireVoiceInput();
       publish();
       return closing ? closing.close() : true;
     },

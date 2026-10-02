@@ -13,6 +13,10 @@ import type { GitFileStatus } from "./git-status.ts";
 import type { PackagesView, PackageScope } from "./packages.ts";
 import type { SessionRowMetadata, SessionSummary } from "./sessions.ts";
 import type {
+  SessionDiscovery,
+  SessionDiscoveryOptions,
+} from "./session-discovery.ts";
+import type {
   SkillInfo,
   SkillScope,
   SkillSearchHit,
@@ -61,6 +65,16 @@ export type SavedSessionRead =
 export type SessionCatalog = {
   /** Headers plus stamped, streamed delegation metadata; no retained transcripts. */
   list(): Promise<SessionSummary[]>;
+  /** Priority-certified root prefix; never returns unclassified headers. */
+  discover(options: SessionDiscoveryOptions): Promise<SessionDiscovery>;
+  /** Exact EOF classification, independent of adaptive sidebar discovery. */
+  classification(
+    id: string,
+  ): Promise<
+    | { kind: "classified"; summary: SessionSummary }
+    | { kind: "missing" }
+    | { kind: "unavailable" }
+  >;
   /** Working folder from the current header only; undefined if unreadable. */
   folder(id: string): Promise<string | undefined>;
   /** Undefined when the id is unknown. */
@@ -71,7 +85,7 @@ export type SessionCatalog = {
   resolveEntryId(entries: readonly SessionEntry[], entryId: string): string;
   /**
    * One sidebar row: the header summary plus the counts a full pass over the
-   * file yields. Cached by size and mtime, so a second visit is free.
+   * file yields. Cached by file revision; shares the classification pass.
    */
   rowMetadata(
     id: string,

@@ -79,7 +79,10 @@ function fixture(child: boolean, entries: SessionEntry[]) {
   const open = vi.spyOn(world.runtime, "open");
   const models = vi.spyOn(world.models, "list");
   const workspace = createWorkspace(world);
-  if (!child) stopRuntimes.push(() => workspace.stop(id));
+  if (!child)
+    stopRuntimes.push(async () => {
+      await world.runtime.get(id)?.stop();
+    });
   const app = createWebApp({
     workspace,
     staticRoot: "/nonexistent",

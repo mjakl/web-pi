@@ -87,7 +87,11 @@ export function createShared(deps: WorkspaceDeps) {
     return sessions.map((session) => {
       const inspectionOnly = isSubagentSession(session);
       const live =
-        inspectionOnly || savedOnly ? undefined : deps.runtime.get(session.id);
+        inspectionOnly ||
+        savedOnly ||
+        (snapshots !== undefined && !snapshots.has(session.id))
+          ? undefined
+          : deps.runtime.get(session.id);
       const project = roots.get(session.cwd);
       return {
         ...session,
@@ -113,8 +117,14 @@ export function createShared(deps: WorkspaceDeps) {
   /** Classify from persisted origin, never from a possibly unrelated runtime. */
   async function inspectionOnly(id: string): Promise<boolean> {
     if (id.startsWith("subagent.")) return true;
-    const stored = await deps.sessions.rowMetadata(id);
-    return stored !== undefined && isSubagentSession(stored.summary);
+    const stored = await deps.sessions.classification(id);
+    if (stored.kind === "classified") return isSubagentSession(stored.summary);
+    // Missing persisted history is safe only for a runtime we already own.
+    // An unreadable or unstable file must never admit an ordinary writer.
+    if (stored.kind === "unavailable") return true;
+    // Existing runtimes passed writable admission or were created fresh. Their
+    // snapshot is conversation state, not the authority for source ownership.
+    return deps.runtime.get(id) === undefined;
   }
 
   async function requireWritableSession(id: string): Promise<void> {

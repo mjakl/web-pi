@@ -1,4 +1,5 @@
 import { pathKey } from "@core/path-access";
+import { discoverSessionRoots } from "@core/session-discovery";
 import type { SessionCatalog, SessionRead } from "@core/ports";
 import {
   delegationFold,
@@ -11,6 +12,7 @@ import {
 } from "@core/session-entries";
 import {
   isSessionId,
+  isSubagentSession,
   type SessionRowMetadata,
   type SessionSummary,
 } from "@core/sessions";
@@ -45,9 +47,9 @@ import {
   rewindSessionFile,
 } from "./session-files.ts";
 
-// Listing reads each header and streams delegation metadata on a changed
-// stamp, before the workspace paginates. Neither discovery nor row metadata
-// retains transcripts; only a requested session snapshot loads all entries.
+// All identities come from headers. Adaptive root discovery classifies only
+// the prefix and ancestry needed for a priority certificate. Explicit child
+// expansion classifies the full inventory. Neither retains transcript bodies.
 
 const HEADER_MAX_BYTES = 8192;
 const METADATA_CACHE_MAX = 4096;
@@ -144,17 +146,6 @@ async function streamRowMetadata(
     }),
     classification: delegation.finish(),
   };
-}
-
-async function streamDelegation(
-  filePath: string,
-  header: Header,
-): Promise<SessionDelegation | undefined> {
-  const fold = delegationFold(header.id);
-  const valid = await streamEntries(filePath, header.id, (entry) => {
-    fold.add(entry);
-  });
-  return valid ? fold.finish() : undefined;
 }
 
 async function streamEntries(
@@ -257,8 +248,51 @@ export function createPiSessionCatalog(options: {
     }
   >();
 
-  async function scan(): Promise<SessionSummary[]> {
-    const summaries: SessionSummary[] = [];
+  const pendingRows = new Map<string, ReturnType<typeof streamRowMetadata>>();
+
+  function readMetadata(filePath: string, header: Header) {
+    // A direct page loads its sidebar and exact admission check concurrently.
+    // They can share this one revision's EOF pass without retaining its body.
+    const key = `${filePath}\0${header.stamp}`;
+    const pending = pendingRows.get(key);
+    if (pending) return pending;
+    const read = streamRowMetadata(filePath, header)
+      .then(async (streamed) => {
+        if (!streamed || fileStamp(await stat(filePath)) !== header.stamp)
+          return undefined;
+        cacheFile(delegations, filePath, {
+          stamp: header.stamp,
+          value: streamed.classification,
+        });
+        cacheFile(rows, filePath, {
+          stamp: header.stamp,
+          row: {
+            summary: {
+              id: header.id,
+              cwd: header.cwd,
+              createdAt: header.timestamp,
+              modifiedAt: header.modifiedAt,
+              fileSize: header.fileSize,
+              filePath,
+              ...streamed.classification,
+              ...(streamed.metadata.name
+                ? { name: streamed.metadata.name }
+                : {}),
+            },
+            metadata: streamed.metadata,
+          },
+        });
+        return streamed;
+      })
+      .finally(() => pendingRows.delete(key));
+    pendingRows.set(key, read);
+    return read;
+  }
+
+  async function inventory(): Promise<
+    { header: Header; summary: SessionSummary }[]
+  > {
+    const files: { header: Header; summary: SessionSummary }[] = [];
     // parentSession is a path; the sidebar needs the id it belongs to, and
     // only this scan knows both.
     const idByPath = new Map<string, string>();
@@ -267,7 +301,7 @@ export function createPiSessionCatalog(options: {
     try {
       folders = await readdir(sessionsDir);
     } catch {
-      return summaries;
+      return files;
     }
     const listed = await Promise.all(
       folders.map(async (folder) => {
@@ -285,44 +319,97 @@ export function createPiSessionCatalog(options: {
       try {
         const header = readHeader(filePath);
         if (!header) continue;
-        const cached = delegations.get(filePath);
-        const classification =
-          cached?.stamp === header.stamp
-            ? cached.value
-            : await streamDelegation(filePath, header);
-        if (!classification) continue;
-        cacheFile(delegations, filePath, {
-          stamp: header.stamp,
-          value: classification,
-        });
         paths.set(header.id, filePath);
         idByPath.set(pathKey(filePath), header.id);
         if (header.parentSession !== undefined) {
           parents.set(header.id, pathKey(header.parentSession));
         }
-        summaries.push({
-          id: header.id,
-          cwd: header.cwd,
-          createdAt: header.timestamp,
-          modifiedAt: header.modifiedAt,
-          fileSize: header.fileSize,
-          filePath,
-          ...classification,
+        files.push({
+          header,
+          summary: {
+            id: header.id,
+            cwd: header.cwd,
+            createdAt: header.timestamp,
+            modifiedAt: header.modifiedAt,
+            fileSize: header.fileSize,
+            filePath,
+          },
         });
       } catch {
         // Unreadable or concurrently removed files are left out.
       }
     }
-    return summaries.map((summary) => {
+    return files.map(({ header, summary }) => {
       const parentId = idByPath.get(parents.get(summary.id) ?? "");
-      return parentId === undefined ? summary : { ...summary, parentId };
+      return {
+        header,
+        summary: parentId === undefined ? summary : { ...summary, parentId },
+      };
     });
+  }
+
+  async function classifyFile(
+    header: Header,
+    summary: SessionSummary,
+  ): Promise<SessionSummary | undefined> {
+    const filePath = summary.filePath;
+    if (!filePath) return undefined;
+    try {
+      const cached = delegations.get(filePath);
+      if (cached?.stamp === header.stamp) {
+        return fileStamp(await stat(filePath)) === header.stamp
+          ? { ...summary, ...cached.value }
+          : undefined;
+      }
+      // A candidate will often become a visible row. Share its concrete EOF
+      // read with row metadata rather than streaming the same revision twice.
+      const streamed = await readMetadata(filePath, header);
+      return streamed ? { ...summary, ...streamed.classification } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function scan(): Promise<SessionSummary[]> {
+    const summaries: SessionSummary[] = [];
+    for (const { header, summary } of await inventory()) {
+      const classified = await classifyFile(header, summary);
+      if (classified) summaries.push(classified);
+    }
+    return summaries;
   }
 
   async function pathOf(id: string): Promise<string | undefined> {
     if (!isSessionId(id)) return undefined;
-    if (!paths.has(id)) await scan();
+    if (!paths.has(id)) await inventory();
     return paths.get(id);
+  }
+
+  async function classification(
+    id: string,
+  ): ReturnType<SessionCatalog["classification"]> {
+    const filePath = await pathOf(id);
+    if (!filePath) return { kind: "missing" };
+    try {
+      await stat(filePath);
+    } catch (error) {
+      return error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+        ? { kind: "missing" }
+        : { kind: "unavailable" };
+    }
+    const header = readHeader(filePath);
+    if (!header || header.id !== id) return { kind: "unavailable" };
+    const summary = await classifyFile(header, {
+      id,
+      cwd: header.cwd,
+      createdAt: header.timestamp,
+      modifiedAt: header.modifiedAt,
+      fileSize: header.fileSize,
+      filePath,
+    });
+    return summary ? { kind: "classified", summary } : { kind: "unavailable" };
   }
 
   /** The file behind an id, or a "Session not found" error for callers that write. */
@@ -373,6 +460,45 @@ export function createPiSessionCatalog(options: {
 
   return {
     list: scan,
+    classification,
+    async discover(options) {
+      const files = await inventory();
+      const bySummary = new Map(
+        files.map((file) => [file.summary, file.header]),
+      );
+      const runtime = new Map(
+        options.runtime.map((summary) => [summary.id, summary]),
+      );
+      const unflushed: SessionSummary[] = [];
+      const known = new Set(files.map((file) => file.summary.id));
+      for (const summary of options.runtime) {
+        if (
+          !known.has(summary.id) &&
+          (await classification(summary.id)).kind === "missing"
+        ) {
+          unflushed.push(
+            isSubagentSession(summary)
+              ? { ...summary, live: false, running: false }
+              : summary,
+          );
+        }
+      }
+      return discoverSessionRoots(
+        files.map((file) => file.summary),
+        async (summary) => {
+          const header = bySummary.get(summary);
+          if (!header) return undefined;
+          const classified = await classifyFile(header, summary);
+          if (!classified) return undefined;
+          const live = runtime.get(summary.id);
+          return live && !isSubagentSession(classified)
+            ? { ...classified, live: true, running: live.running ?? false }
+            : classified;
+        },
+        options,
+        unflushed,
+      );
+    },
     pathOf,
     contextTokensAt,
     resolveEntryId: resolveSnapshotEntryId,
@@ -443,16 +569,17 @@ export function createPiSessionCatalog(options: {
       const header = readHeader(filePath);
       if (!header || header.id !== id) return undefined;
       const file = {
-        modifiedAt: info.mtime.toISOString(),
-        fileSize: info.size,
+        modifiedAt: header.modifiedAt,
+        fileSize: header.fileSize,
       };
-      const streamed = await streamRowMetadata(filePath, header).catch(
+      const streamed = await readMetadata(filePath, header).catch(
         (error: unknown) => {
           if (isFileReadError(error)) return undefined;
           throw error;
         },
       );
-      if (!streamed) return undefined;
+      if (!streamed || fileStamp(await stat(filePath)) !== header.stamp)
+        return undefined;
       const { metadata, classification } = streamed;
       const row = {
         summary: {
@@ -465,8 +592,11 @@ export function createPiSessionCatalog(options: {
         },
         metadata,
       };
-      cacheFile(rows, filePath, { stamp, row });
-      cacheFile(delegations, filePath, { stamp, value: classification });
+      cacheFile(rows, filePath, { stamp: header.stamp, row });
+      cacheFile(delegations, filePath, {
+        stamp: header.stamp,
+        value: classification,
+      });
       return row;
     },
 

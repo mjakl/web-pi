@@ -19,18 +19,18 @@ shared server settings.
 Internal interfaces, all consumers in this repository. Defined in
 `src/core/ports.ts`:
 
-| Port               | Purpose                                                                                                                           | Adapter                              |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `SessionCatalog`   | List headers and delegation origins; read a non-writing snapshot; row metadata; rename, delete, star, fork, clone, rewind, export | `src/adapters/pi/session-catalog.ts` |
-| `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                               | `src/adapters/pi/agent-runtime.ts`   |
-| `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`      | same                                 |
-| `ModelCatalog`     | Models Pi has credentials for, narrowed by `enabledModels`, with the configured default and per-pattern reasoning pins            | `src/adapters/pi/model-catalog.ts`   |
-| `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                        | `src/adapters/pi/projects.ts`        |
-| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                | `src/adapters/pi/resources.ts`       |
-| `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                          | `src/adapters/fs/file-tree.ts`       |
-| `Git`              | `git status` of a folder and the patch for one file                                                                               | `src/adapters/git/git.ts`            |
-| `Watcher`          | One file's changes on disk, deduplicated                                                                                          | `src/adapters/fs/watch.ts`           |
-| `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                          | `src/adapters/pi/web-push.ts`        |
+| Port               | Purpose                                                                                                                             | Adapter                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `SessionCatalog`   | Discover priority-certified roots or complete delegation trees; exact classification; non-writing snapshots; row metadata and edits | `src/adapters/pi/session-catalog.ts` |
+| `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                                 | `src/adapters/pi/agent-runtime.ts`   |
+| `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`        | same                                 |
+| `ModelCatalog`     | Models Pi has credentials for, narrowed by `enabledModels`, with the configured default and per-pattern reasoning pins              | `src/adapters/pi/model-catalog.ts`   |
+| `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                          | `src/adapters/pi/projects.ts`        |
+| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                  | `src/adapters/pi/resources.ts`       |
+| `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                            | `src/adapters/fs/file-tree.ts`       |
+| `Git`              | `git status` of a folder and the patch for one file                                                                                 | `src/adapters/git/git.ts`            |
+| `Watcher`          | One file's changes on disk, deduplicated                                                                                            | `src/adapters/fs/watch.ts`           |
+| `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                            | `src/adapters/pi/web-push.ts`        |
 
 `WebSettingsStore` in `src/core/web-settings.ts` owns shared General
 preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
@@ -250,15 +250,16 @@ no-swap rules preserve error toasts without replacing the requested region.
 
 A second stream, `GET /events`, belongs to the global sidebar rather than one
 session or project. Opening, starting a turn, finishing and stopping replace the
-sorted first 50 root subtrees through `hx-partial`. Delegation discovery
-precedes pagination; transcript bodies are not retained for the list. The
-runtime announces `started` only when it becomes busy, not for every token. A
-named `finished` event carries the session id, which the browser records as an
-unread dot in `localStorage`, including for rows that have not loaded yet. The
-list and its small `#sidebar-events` owner live in `#session-nav` and survive
-conversation and directory navigation. No cookie or query scopes the stream. Row
-selection is projected from the displayed `main` on processing and settlement,
-including paginated rows, star responses and stream updates.
+sorted first 50 root subtrees through `hx-partial`. Adaptive delegation
+discovery certifies the root prefix before pagination; transcript bodies are not
+retained for the list. The runtime announces `started` only when it becomes
+busy, not for every token. A named `finished` event carries the session id,
+which the browser records as an unread dot in `localStorage`, including for rows
+that have not loaded yet. The list and its small `#sidebar-events` owner live in
+`#session-nav` and survive conversation and directory navigation. No cookie or
+query scopes the stream. Row selection is projected from the displayed `main` on
+processing and settlement, including paginated rows, star responses and stream
+updates.
 
 The browser also refreshes the list every 30 seconds while visible, on sidebar
 SSE connection or reconnection, and on visibility return or window focus. Return
@@ -462,17 +463,44 @@ composition root and the only importer of Pi adapters.
   omitted from later pages to avoid duplicates. Every row keeps its own folder
   and optional worktree branch. The old project cookie and query do not filter
   the list.
-- **Listing discovers origins before pagination.** The catalog reads each header
-  and streams changed files for delegation origins. Visible rows also stream
-  their row metadata. Both use bounded file-stamp caches rather than retaining
-  transcript bodies. This makes cold discovery more expensive than header-only
-  listing, but avoids hiding children on another page or in another working
-  folder. Initial pages, refreshes, pagination and SSE list replacements use the
-  same projection. Unreadable files are omitted; untitled and empty sessions
-  keep fallback labels. Page offsets count unreadable rows. New sessions and
-  sidebar changes are discovered on refresh or local rescan. Only an opened
-  saved transcript checks its known file for updates; there is no background
-  transcript watcher or external live-status promise.
+- **Root discovery is adaptive; child expansion is exhaustive.** Every sidebar
+  request enumerates headers and file revisions across the store. Header IDs,
+  not filenames, resolve renamed sessions and delegation parents. Known local
+  runtimes and the selected session's ancestor chain are classified first; every
+  subsequent candidate also resolves its ancestors. Classification reads to EOF
+  or uses a fresh cache stamped by size, mtime, ctime, device and inode. Root
+  discovery stops when priority-aware timestamp intervals prove the first
+  `offset + 50` roots and at least one additional root proves a next-page
+  cursor. Subtree priority and newest member time are independent; timestamp
+  ties use root-ID `localeCompare`. Unknown roots can only be stored-priority
+  roots after runtime ancestry closure. Duplicate IDs force complete
+  classification, and short pages, conservative timestamp-tie bounds or
+  ambiguous same-priority activity can also require all files. There is no fixed
+  archive cutoff or background index. The bounded caches may evict metadata, but
+  an initial page does not reclassify the whole archive just because it exceeds
+  their capacity.
+
+  Root ordering and selected ancestry are certified against the discovered
+  revisions, not an atomic filesystem snapshot. Directory enumeration, headers,
+  classification and row reads are a rolling observation. Changed or unreadable
+  classifications are omitted rather than cached; later refreshes reconcile
+  external arrivals and changes. Runtime priority is captured for each request.
+  Visible rows use their own revision's metadata, sharing the classification
+  pass when possible. Untitled and empty sessions keep fallback labels; sibling
+  offsets still include unreadable rows.
+
+  Older incoming child edges, counts and selected-path sibling preloads can be
+  incomplete even when the root page is certified. Every potentially incomplete
+  row therefore offers “Check sub-sessions” or a lower-bound `N+` count. Opening
+  a closed disclosure classifies the full inventory for an exact child page;
+  partial selected-path preloads offer “Load all sub-sessions” for the same
+  deliberate expansion. Child pages still contain 50 siblings and numeric
+  cursors. Root pagination reaches older sessions without a permanent cutoff.
+  Refreshes may discard loaded pages as before. Explicit expansion and other
+  complete-list consumers can cost a full archive scan; only an opened saved
+  transcript polls its known file for updates. No background transcript watcher
+  or external live-status promise is added.
+
 - **Delegation origin is separate from Pi fork ancestry.** The
   `pi-subagent:delegation` custom entry has data
   `{version:1, childSessionId, parentSessionId, agent, handle}`. An origin
@@ -493,11 +521,14 @@ composition root and the only importer of Pi adapters.
   requests. Saved transcript pages, earlier messages, thinking, tools, images
   and copy use catalog snapshots, never an external runtime. The conversation
   shows an inspection notice and no composer or mutation controls; sidebar cards
-  have no activity or menu icon. The native disclosure footer counts direct
-  children. Browser-local expansion preferences survive row/list swaps; selected
-  ancestors are revealed without changing those preferences. Row-only actions
-  replace the card body inside a stable tree wrapper, and keyboard shortcuts
-  number only visible rows.
+  have no activity or menu icon. Exact admission checks are independent of the
+  adaptive root prefix: unreadable or unstable classification never authorizes a
+  writer. A missing file is usable only by an already-owned local runtime, whose
+  first reply may not have flushed yet. The native disclosure footer counts
+  known direct children and marks potentially incomplete counts. Browser-local
+  expansion preferences survive row/list swaps; selected ancestors are revealed
+  without changing those preferences. Row-only actions replace the card body
+  inside a stable tree wrapper, and keyboard shortcuts number only visible rows.
 - **The conversation rail is server-rendered and positioned in percentages.**
   `src/core/conversation-rail.ts` is pi-web's `lib/conversation-rail.ts` fed
   from the flat entry list rather than a compressed tree: web-pi already holds

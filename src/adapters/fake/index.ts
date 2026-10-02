@@ -1045,6 +1045,23 @@ export function createFakeWorld(
     store,
     sessions: {
       list: () => Promise.resolve([...store.values()].map((s) => s.summary)),
+      discover: (options) => {
+        const summaries = [...store.values()].map((s) => s.summary);
+        const known = new Set(summaries.map((summary) => summary.id));
+        return Promise.resolve({
+          summaries: [
+            ...summaries,
+            ...options.runtime.filter((summary) => !known.has(summary.id)),
+          ],
+          complete: true,
+        });
+      },
+      classification: (id) => {
+        const summary = store.get(id)?.summary;
+        return Promise.resolve(
+          summary ? { kind: "classified", summary } : { kind: "missing" },
+        );
+      },
       folder: (id) => Promise.resolve(store.get(id)?.summary.cwd),
       resolveEntryId: (_entries, entryId) => entryId,
       read: (id, leafId) => Promise.resolve(savedRead(id, leafId)),

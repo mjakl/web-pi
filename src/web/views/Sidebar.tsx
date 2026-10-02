@@ -252,13 +252,13 @@ function SessionNode({
   row: SidebarView["rows"][number];
   activeId?: string;
 }) {
-  const { summary, childCount = 0, children } = row;
+  const { summary, childCount = 0, children, childrenIncomplete } = row;
   const query = new URLSearchParams({ parent: summary.id });
   if (activeId !== undefined) query.set("selected", activeId);
   return (
     <div id={`node-${summary.id}`} class="session-node">
       <SessionRow {...row} {...(activeId === undefined ? {} : { activeId })} />
-      {childCount > 0 ? (
+      {childCount > 0 || childrenIncomplete ? (
         <details
           class="session-children"
           data-parent-session-id={summary.id}
@@ -271,8 +271,11 @@ function SessionNode({
             <span class="session-children-open" aria-hidden="true">
               ▾
             </span>
-            {String(childCount)}{" "}
-            {childCount === 1 ? "sub-session" : "sub-sessions"}
+            {childrenIncomplete
+              ? childCount > 0
+                ? `${String(childCount)}+ sub-sessions`
+                : "Check sub-sessions"
+              : `${String(childCount)} ${childCount === 1 ? "sub-session" : "sub-sessions"}`}
           </summary>
           <div class="session-subtree">
             {children === undefined ? (
@@ -312,13 +315,31 @@ export function SessionRows({
   if (activeId !== undefined) query.set("selected", activeId);
   return (
     <>
+      {view.parentId !== undefined &&
+      view.rows.length === 0 &&
+      view.nextOffset === undefined &&
+      !view.incomplete ? (
+        <div class="session-children-loading">No more sub-sessions</div>
+      ) : null}
       {view.rows.map((row) => (
         <SessionNode
           row={row}
           {...(activeId === undefined ? {} : { activeId })}
         />
       ))}
-      {view.nextOffset !== undefined ? (
+      {view.incomplete && view.parentId !== undefined ? (
+        <button
+          type="button"
+          class="session-rows-loading"
+          hx-get={`/sidebar/rows?${new URLSearchParams({ parent: view.parentId, ...(activeId === undefined ? {} : { selected: activeId }) }).toString()}`}
+          hx-target="closest .session-subtree"
+          hx-swap="innerHTML"
+        >
+          Load all sub-sessions
+        </button>
+      ) : null}
+      {view.nextOffset !== undefined &&
+      !(view.incomplete && view.parentId !== undefined) ? (
         <div
           class="session-rows-loading"
           hx-get={`/sidebar/rows?${query.toString()}`}

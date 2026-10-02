@@ -2,6 +2,7 @@ import { assistantEntry } from "@adapters/fake/index";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { DELEGATION_TYPE } from "@core/session-delegation";
 import { readStars } from "@core/session-entries";
+import { sessionTree } from "@core/session-tree";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   appendFileSync,
@@ -95,6 +96,14 @@ describe("catalog delegation discovery", () => {
     nested.appendCustomEntry(DELEGATION_TYPE, origin("nested", "child"));
     const catalog = createPiSessionCatalog({ agentDir: root });
     const listed = await catalog.list();
+    const bounded = await catalog.discover({ runtime: [], parentId: "parent" });
+    const tree = sessionTree(bounded.summaries);
+    expect(
+      tree.byId.get("parent")?.children.map((node) => node.summary.id),
+    ).toEqual(["child"]);
+    expect(
+      tree.byId.get("child")?.children.map((node) => node.summary.id),
+    ).toEqual(["nested"]);
 
     expect(
       listed.find((row) => row.id === "parent")?.inspectionOnly,
@@ -238,6 +247,36 @@ describe("catalog delegation discovery", () => {
     expect(
       (await catalog.read("late"))?.summary.delegation?.parentSessionId,
     ).toBe("parent");
+  });
+
+  it("rechecks scan-start cache hits against edits after header enumeration", async () => {
+    const first = makeSession("a-first");
+    const later = makeSession("z-later");
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    await catalog.list();
+    first.appendCustomEntry(DELEGATION_TYPE, origin("a-first", "parent"));
+    const originalStream = vi
+      .mocked(fs.createReadStream)
+      .getMockImplementation();
+    if (!originalStream) throw new Error("Missing stream implementation");
+    vi.mocked(fs.createReadStream).mockImplementationOnce((...args) => {
+      const stream = originalStream(...args);
+      stream.once("data", () =>
+        later.appendCustomEntry(DELEGATION_TYPE, origin("z-later", "parent")),
+      );
+      return stream;
+    });
+    // The inventory saw the old revision; a cached classification cannot
+    // publish it after the file changed during an earlier candidate's read.
+    expect((await catalog.list()).map((summary) => summary.id)).toEqual([
+      "a-first",
+    ]);
+    expect(
+      (await catalog.list()).find((summary) => summary.id === "z-later"),
+    ).toMatchObject({
+      inspectionOnly: true,
+      delegation: { parentSessionId: "parent" },
+    });
   });
 
   it("notices replacement with the same length and modification time", async () => {

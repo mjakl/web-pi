@@ -463,23 +463,27 @@ composition root and the only importer of Pi adapters.
   omitted from later pages to avoid duplicates. Every row keeps its own folder
   and optional worktree branch. The old project cookie and query do not filter
   the list.
-- **Root discovery is adaptive; child expansion is exhaustive.** Every sidebar
-  request enumerates headers and file revisions across the store. Concurrent
-  requests share an in-flight inventory, including a cold direct link's sidebar
-  and session lookup; later requests enumerate again. Header IDs, not filenames,
-  resolve renamed sessions and delegation parents. Known local runtimes and the
-  selected session's ancestor chain are classified first; every subsequent
-  candidate also resolves its ancestors. Classification reads to EOF or uses a
-  fresh cache stamped by size, mtime, ctime, device and inode. Root discovery
-  stops when priority-aware timestamp intervals prove the first `offset + 50`
-  roots and at least one additional root proves a next-page cursor. Subtree
-  priority and newest member time are independent; timestamp ties use root-ID
-  `localeCompare`. Unknown roots can only be stored-priority roots after runtime
-  ancestry closure. Duplicate IDs force complete classification, and short
-  pages, conservative timestamp-tie bounds or ambiguous same-priority activity
-  can also require all files. There is no fixed archive cutoff or background
-  index. The bounded caches may evict metadata, but an initial page does not
-  reclassify the whole archive just because it exceeds their capacity.
+- **Root discovery is adaptive; child expansion is creation-bounded.** Every
+  sidebar request enumerates headers and file revisions across the store.
+  Concurrent requests share an in-flight inventory, including a cold direct
+  link's sidebar and session lookup; later requests enumerate again. Header IDs,
+  not filenames, resolve renamed sessions and delegation parents. Root requests
+  classify known local runtimes and the selected session's ancestor chain first;
+  every subsequent candidate also resolves its ancestors. Classification reads
+  to EOF or uses a fresh cache stamped by size, mtime, ctime, device and inode.
+  Root discovery stops when priority-aware timestamp intervals prove the first
+  `offset + 50` roots and at least one additional root proves a next-page
+  cursor. Subtree priority and newest member time are independent; timestamp
+  ties use root-ID `localeCompare`. Unknown roots can only be stored-priority
+  roots after runtime ancestry closure. Duplicate IDs force complete
+  classification, and short pages, conservative timestamp-tie bounds or
+  ambiguous same-priority activity can also require all files. There is no fixed
+  archive cutoff or background index. The bounded caches may evict metadata, but
+  an initial page does not reclassify the whole archive just because it exceeds
+  their capacity. Discovery and complete-list scans keep a bounded snapshot of
+  the classification cache at scan start, so early misses cannot evict later
+  hits from the same scan. Every hit still checks the current file revision;
+  concurrent reads of one revision share the same EOF pass.
 
   Root ordering and selected ancestry are certified against the discovered
   revisions, not an atomic filesystem snapshot. Directory enumeration, headers,
@@ -494,15 +498,21 @@ composition root and the only importer of Pi adapters.
   incomplete even when the root page is certified. Rows show plain counts of
   known direct children and omit the disclosure when none are known. This
   deliberately accepts rare undercounts and omitted older children rather than
-  adding checking controls. Opening an unloaded disclosure classifies the full
-  inventory for an exact child page: delegation records can occur anywhere in a
-  transcript, so headers cannot bound incoming child lookup. Child pages contain
-  50 siblings and numeric cursors. Selected-path preloads use the known tree
-  without another discovery pass. Root pagination reaches older sessions without
-  a permanent cutoff. Refreshes may discard loaded pages as before. Explicit
-  expansion and other complete-list consumers can cost a full archive scan; only
-  an opened saved transcript polls its known file for updates. No background
-  transcript watcher or external live-status promise is added.
+  adding checking controls. Opening an unloaded disclosure classifies candidates
+  whose parsed header creation time is at least the requested parent's creation
+  time, plus concrete ancestor and duplicate-ID context. Every eligible
+  candidate is classified through EOF, including late and conflicting origins.
+  This gives exact child/descendant counts within the valid-edge contract below.
+  A missing or unreadable parent returns an empty child page without unrelated
+  body reads; an already-owned, unflushed parent uses its runtime summary under
+  the existing missing-file contract. Child pages contain 50 siblings and
+  numeric cursors, ordered by subtree activity rather than creation time.
+  Selected-path preloads use the known tree without another discovery pass. Root
+  pagination reaches older sessions without a permanent cutoff. Refreshes may
+  discard loaded pages as before. Old parents and complete-list consumers can
+  still cost nearly a full archive scan; only an opened saved transcript polls
+  its known file for updates. No background transcript watcher or external
+  live-status promise is added.
 
 - **Delegation origin is separate from Pi fork ancestry.** The
   `pi-subagent:delegation` custom entry has data
@@ -510,13 +520,19 @@ composition root and the only importer of Pi adapters.
   belongs only to the header whose ID equals `childSessionId`; copied entries in
   forks and parent-seeded children do not establish ownership. Conflicting,
   malformed or self-origin claims create no edge. All edges within a cycle are
-  discarded. Missing parents become roots without losing their descendants. Pi's
-  header `parentSession`/summary `parentId` never creates a delegation edge.
-  Deleting an ordinary parent does not delete or rewrite delegated children;
-  refresh promotes them. Cloning an ordinary session does not clone its
-  delegation tree. Only new named persisted children receive producer records;
-  there is no backfill, historical reconstruction, registry, or ephemeral child
-  row.
+  discarded. A valid tree edge also requires
+  `child.createdAt >= parent.createdAt`, comparing parsed authoritative header
+  timestamps; equal times are valid. The same rule applies to adaptive roots and
+  explicit child pages. Clock rollback or imported future-dated parents can
+  violate recorded creation order: those edges are intentionally excluded
+  without changing stored histories or making own-origin sessions writable.
+  Names, mtimes and copied message times do not establish creation order.
+  Missing parents become roots without losing their descendants. Pi's header
+  `parentSession`/summary `parentId` never creates a delegation edge. Deleting
+  an ordinary parent does not delete or rewrite delegated children; refresh
+  promotes them. Cloning an ordinary session does not clone its delegation tree.
+  Only new named persisted children receive producer records; there is no
+  backfill, historical reconstruction, registry, or ephemeral child row.
 - **Delegated conversations are strictly inspection-only.** Own-ID origin claims
   (even malformed ones) and legacy `subagent.*` IDs are read-only. Legacy IDs
   alone imply no ancestry. The workspace refuses all source mutations, runtime

@@ -69,6 +69,25 @@ describe("persisted session tree", () => {
     ]);
   });
 
+  it("rejects older children by parsed header time without changing inspection status or cycle protection", () => {
+    const tree = sessionTree([
+      summary("parent", { createdAt: "2026-01-02T00:00:00.000Z" }),
+      child("older", "parent"),
+      child("equal", "parent", { createdAt: "2026-01-01T19:00:00-05:00" }),
+      child("nested", "equal", { createdAt: "2026-01-03T00:00:00.000Z" }),
+      child("older-leaf", "older"),
+      child("cycle-a", "cycle-b"),
+      child("cycle-b", "cycle-a", { createdAt: "2026-01-02T00:00:00.000Z" }),
+    ]);
+    expect(tree.byId.get("older")?.parentId).toBeUndefined();
+    expect(tree.byId.get("older")?.summary.inspectionOnly).toBe(true);
+    expect(ids(tree.byId.get("parent")?.children ?? [])).toEqual(["equal"]);
+    expect(tree.byId.get("nested")?.parentId).toBe("equal");
+    expect(tree.byId.get("older-leaf")?.parentId).toBe("older");
+    for (const id of ["cycle-a", "cycle-b"])
+      expect(tree.byId.get(id)?.parentId).toBeUndefined();
+  });
+
   it("ranks each sibling subtree by best activity then newest member then id without changing summaries", () => {
     const newer = "2026-02-01T00:00:00.000Z";
     const summaries = [

@@ -47,10 +47,33 @@ async function fixture(wrap: (transport: Transport) => Transport = (t) => t) {
   const browser = await htmxBrowser(
     await (await app.request("/sessions/s1")).text(),
     wrap((request) => app.request(request)),
+    {
+      afterMarkup: (window) => {
+        window.eval(`window.initialSidebarRefresh = new Promise(resolve => {
+          const finished = event => {
+            const ctx = event.detail.ctx;
+            if (ctx.response?.status !== 200 || ctx.request.signal.aborted ||
+                ctx.sourceElement !== document.getElementById('session-list') ||
+                new URL(ctx.request.action, location.href).pathname !== '/sidebar/rows') return;
+            document.removeEventListener('htmx:finally:request', finished);
+            resolve();
+          };
+          document.addEventListener('htmx:finally:request', finished);
+        });`);
+      },
+    },
   );
   browsers.push(browser);
   browser.window.happyDOM.settings.navigation.disableMainFrameNavigation = true;
-  return { ...browser, workspace, world, app };
+  return {
+    ...browser,
+    workspace,
+    world,
+    app,
+    initialSidebarRefresh: browser.window.eval(
+      "window.initialSidebarRefresh",
+    ) as Promise<void>,
+  };
 }
 type Browser = Awaited<ReturnType<typeof fixture>>;
 function click(b: Browser, id: string) {
@@ -564,7 +587,8 @@ it("keeps the shell and other drafts when cloning or deleting the displayed sess
   await displayed(b, "");
   expect(b.document.querySelector("#session-sidebar")).toBe(shell);
   expect(b.document.querySelector("#file-panel")).toBe(panel);
-  expect(b.document.cookie).not.toContain("web-pi-session=");
+  // happy-dom retains a max-age=0 cookie until the clock passes its expiry.
+  await expect.poll(() => b.document.cookie).not.toContain("web-pi-session=");
 });
 
 it("retains a pending image decode across owner replacement", async () => {
@@ -842,6 +866,8 @@ it("does not steal focus after interaction while a real session request loads", 
     }
     return transport(request);
   });
+  // The connection refresh replaces row anchors independently of navigation.
+  await b.initialSidebarRefresh;
   click(b, "s2");
   try {
     await expect.poll(() => requested).toBe(true);

@@ -26,7 +26,11 @@ const realSetTimeout = globalThis.setTimeout;
 export async function htmxBrowser(
   markup: string,
   transport: Transport,
-  options: { clientAfterHtmx?: boolean; clock?: boolean } = {},
+  options: {
+    clientAfterHtmx?: boolean;
+    clock?: boolean;
+    afterMarkup?: (window: Window) => void;
+  } = {},
 ) {
   if (options.clock && vi.isFakeTimers())
     throw new Error("A browser clock is already active");
@@ -125,6 +129,7 @@ export async function htmxBrowser(
     }
   };`);
     window.document.write(markup);
+    options.afterMarkup?.(window);
     // happy-dom's ID cache uses insertion order for duplicate IDs. Native
     // hx-preserve temporarily puts the old ID in a pantry after body; browsers
     // return the replacement in body first, as querySelector does here.

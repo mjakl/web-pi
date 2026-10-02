@@ -109,7 +109,7 @@ it.each(["u31", "u1"])(
           : transport.request(request),
     );
     browsers.push(browser);
-    const { document } = browser;
+    const { document, window } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
     // A response body exists before async inspection checks finish. This case
     // must stop an already-subscribed runtime to exercise reconnection.
@@ -117,6 +117,22 @@ it.each(["u31", "u1"])(
     subscribed.mockRestore();
     const owner = document.querySelector("main");
     const oldLog = document.querySelector("#log");
+    const reconnected = window.eval(`new Promise(resolve => {
+      const owner = document.querySelector('main');
+      let connected = false;
+      const connectionReady = event => {
+        if (!event.detail.connection.lastEventId) return;
+        connected = true;
+        owner.removeEventListener('htmx:sse:after:connection', connectionReady);
+      };
+      owner.addEventListener('htmx:sse:after:connection', connectionReady);
+      const rendered = event => {
+        if (!connected || event.detail.message.event) return;
+        owner.removeEventListener('htmx:sse:after:message', rendered);
+        resolve();
+      };
+      owner.addEventListener('htmx:sse:after:message', rendered);
+    })`) as Promise<void>;
     expect(
       (
         await f.app.request(`/sessions/${f.id}/rewind`, {
@@ -148,6 +164,8 @@ it.each(["u31", "u1"])(
     expect(
       required(transport.connections[1]).request.headers.get("Last-Event-ID"),
     ).not.toBeNull();
+    // Response creation is not readiness; finish the reconnect's initial frame.
+    await reconnected;
     await f.workspace.send(f.id, "continue from the rewritten branch");
     await expect
       .poll(() => document.querySelector("#messages")?.textContent)

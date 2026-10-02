@@ -747,9 +747,12 @@ it("retains progressively loaded global rows across cross-directory navigation",
   expect(b.document.querySelector("#session-list")).toBe(list);
   expect(b.document.querySelector("#sidebar-events")).toBe(stream);
   expect(selected(b, "page-0")).toBe(true);
-  expect(
-    b.document.querySelector("#file-explorer")?.getAttribute("data-cwd"),
-  ).toBe("/folder-0");
+  // The explorer partial settles independently of the session region.
+  await expect
+    .poll(() =>
+      b.document.querySelector("#file-explorer")?.getAttribute("data-cwd"),
+    )
+    .toBe("/folder-0");
 });
 
 it("does not let an old submit navigate while the reader's newer choice is loading", async () => {

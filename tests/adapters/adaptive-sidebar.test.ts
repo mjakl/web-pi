@@ -2,6 +2,7 @@ import { assistantEntry, createFakeWorld } from "@adapters/fake/index";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createWorkspace } from "@core/workspace";
 import { DELEGATION_TYPE } from "@core/session-delegation";
+import { sessionTree } from "@core/session-tree";
 import { InspectionOnlySession } from "@core/workspace/views";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createWebApp } from "@web/app";
@@ -73,6 +74,27 @@ function session(index: number) {
   const date = new Date(1700000000000 - index * 1000);
   fs.utimesSync(file, date, date);
   return { id, file, manager };
+}
+
+function creation(fixture: ReturnType<typeof session>, timestamp: string) {
+  const content = fs.readFileSync(fixture.file, "utf8");
+  fs.writeFileSync(
+    fixture.file,
+    JSON.stringify({ ...fixture.manager.getHeader(), timestamp }) +
+      content.slice(content.indexOf("\n")),
+  );
+}
+function delegate(
+  fixture: ReturnType<typeof session>,
+  parentSessionId: string,
+) {
+  fixture.manager.appendCustomEntry(DELEGATION_TYPE, {
+    version: 1,
+    childSessionId: fixture.id,
+    parentSessionId,
+    agent: "coder",
+    handle: "task",
+  });
 }
 
 it("initial sidebar and a direct link do not scan a whole archive beyond the metadata cache", async () => {
@@ -184,6 +206,194 @@ it("keeps older children discoverable and explicitly expands exact child pages",
   expect(olderRoots.nextOffset).toBeUndefined();
 });
 
+it("bounds child routes by header creation while preserving exact counts, selected paths and numeric pages", async () => {
+  const files = Array.from({ length: 86 }, (_, index) => session(index));
+  const parent = files[10],
+    selected = files[70],
+    grandchild = files[81],
+    nested = files[82];
+  const equal = files[11],
+    invalid = files[0],
+    conflict = files[83],
+    copied = files[84];
+  if (
+    !parent ||
+    !selected ||
+    !grandchild ||
+    !nested ||
+    !equal ||
+    !invalid ||
+    !conflict ||
+    !copied
+  )
+    throw new Error("Missing family fixtures");
+  const cutoff = "2026-06-01T00:00:00.000Z";
+  for (const fixture of files) {
+    creation(
+      fixture,
+      fixture.manager === parent.manager || files.indexOf(fixture) >= 11
+        ? cutoff
+        : "2020-01-01T00:00:00.000Z",
+    );
+  }
+  // Recent mtime and large old bodies must not widen the creation window.
+  for (const fixture of files.slice(0, 10)) {
+    const resumed = SessionManager.open(fixture.file);
+    resumed.appendMessage({
+      role: "user",
+      content: "old".repeat(20000),
+      timestamp: Date.now(),
+    });
+  }
+  for (const fixture of files.slice(11, 81)) delegate(fixture, parent.id);
+  delegate(grandchild, selected.id);
+  delegate(nested, grandchild.id);
+  delegate(invalid, parent.id);
+  delegate(conflict, parent.id);
+  delegate(conflict, "conflicting-parent");
+  // A copied claim and messages older than the header establish no ownership.
+  copied.manager.appendCustomEntry(DELEGATION_TYPE, {
+    version: 1,
+    childSessionId: selected.id,
+    parentSessionId: parent.id,
+    agent: "coder",
+    handle: "task",
+  });
+  const resumed = SessionManager.open(equal.file);
+  resumed.appendMessage({
+    role: "user",
+    content: "Resumed child",
+    timestamp: 1,
+  });
+  for (const fixture of files.slice(11, 83)) {
+    const modified = new Date(1600000000000 - files.indexOf(fixture) * 1000);
+    fs.utimesSync(fixture.file, modified, modified);
+  }
+  fs.renameSync(
+    parent.file,
+    join(root, "sessions", "demo", "unrelated-filename.jsonl"),
+  );
+  const world = createFakeWorld();
+  const catalog = createPiSessionCatalog({ agentDir: root });
+  world.sessions = catalog;
+  const workspace = createWorkspace(world);
+  const app = createWebApp({
+    workspace,
+    defaultCwd: root,
+    staticRoot: "static",
+  });
+  resetReads();
+  const first = await workspace.sidebar({
+    parentId: parent.id,
+    selectedId: nested.id,
+  });
+  expect(first.incomplete).toBeUndefined();
+  expect(first.nextOffset).toBe(50);
+  expect(first.rows).toHaveLength(51);
+  expect(first.rows.at(-1)).toMatchObject({
+    summary: { id: selected.id, inspectionOnly: true },
+    childCount: 1,
+    children: {
+      rows: [
+        {
+          summary: { id: grandchild.id },
+          childCount: 1,
+          children: { rows: [{ summary: { id: nested.id } }] },
+        },
+      ],
+    },
+  });
+  expect(first.rows.every((row) => !row.childrenIncomplete)).toBe(true);
+  expect(fs.createReadStream).toHaveBeenCalledTimes(76);
+  expect(
+    vi
+      .mocked(fs.createReadStream)
+      .mock.calls.every(
+        ([path]) =>
+          !files.slice(0, 10).some((fixture) => fixture.file === String(path)),
+      ),
+  ).toBe(true);
+  const coldBytes = io.streamBytes;
+  resetReads();
+  const response = await app.request(
+    `/sidebar/rows?parent=${parent.id}&selected=${nested.id}&after=50`,
+  );
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(html).not.toContain(`data-session-id="${selected.id}"`);
+  expect(fs.createReadStream).not.toHaveBeenCalled();
+  const later = await workspace.sidebar({
+    parentId: parent.id,
+    offset: 50,
+    selectedId: nested.id,
+  });
+  expect(later.rows).toHaveLength(19);
+  expect(later.nextOffset).toBeUndefined();
+  expect(later.rows.some((row) => row.summary.id === selected.id)).toBe(false);
+  // Missing parents have no creation bound and must not initiate an archive EOF scan.
+  resetReads();
+  expect((await app.request("/sidebar/rows?parent=missing")).status).toBe(200);
+  expect(fs.createReadStream).not.toHaveBeenCalled();
+  const full = await catalog.list();
+  const tree = sessionTree(full);
+  expect(tree.byId.get(parent.id)?.children).toHaveLength(70);
+  expect(tree.byId.get(invalid.id)?.parentId).toBeUndefined();
+  expect(tree.byId.get(conflict.id)?.parentId).toBeUndefined();
+  expect(tree.byId.get(copied.id)?.summary.inspectionOnly).toBeUndefined();
+  await expect(
+    workspace.rename(invalid.id, "Must not write"),
+  ).rejects.toBeInstanceOf(InspectionOnlySession);
+  if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
+    process.stdout.write(
+      `Creation-bounded child I/O: ${JSON.stringify({ files: files.length, eligibleStreams: 76, coldBytes, olderExcluded: 10, warmStreams: 0 })}\n`,
+    );
+  }
+});
+
+it.each(["list", "discover"] as const)(
+  "reuses a bounded scan-start cache for repeated necessary %s scans beyond 4096 files",
+  async (method) => {
+    const files = Array.from({ length: 4201 }, (_, index) => session(index));
+    const parent = files[0];
+    if (!parent) throw new Error("Missing parent");
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    const scan = () =>
+      method === "list"
+        ? catalog.list()
+        : catalog.discover({ runtime: [], parentId: parent.id });
+    await scan();
+    expect(fs.createReadStream).toHaveBeenCalledTimes(4201);
+    resetReads();
+    await scan();
+    expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+    const repeatedBytes = io.streamBytes;
+    expect(repeatedBytes).toBeLessThan(
+      files.reduce((sum, f) => sum + fs.statSync(f.file).size, 0) / 20,
+    );
+    resetReads();
+    await scan();
+    expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+    const changed = files[2100];
+    if (!changed) throw new Error("Missing changed session");
+    delegate(changed, parent.id);
+    resetReads();
+    const refreshed = await scan();
+    const summaries = Array.isArray(refreshed)
+      ? refreshed
+      : refreshed.summaries;
+    expect(
+      summaries.find((summary) => summary.id === changed.id)?.inspectionOnly,
+    ).toBe(true);
+    expect(fs.createReadStream).toHaveBeenCalledTimes(106);
+    if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
+      process.stdout.write(
+        `Repeated ${method} I/O: ${JSON.stringify({ files: 4201, repeatStreams: 105, repeatedBytes })}\n`,
+      );
+    }
+  },
+  30000,
+);
+
 it("prioritizes old known running and idle sessions without classifying the rest of the archive", async () => {
   const files = Array.from({ length: 200 }, (_, index) => session(index));
   const running = files[199],
@@ -291,6 +501,13 @@ it("keeps a known unflushed runtime usable without treating arbitrary missing ID
   world.sessions = catalog;
   const workspace = createWorkspace(world);
   await world.runtime.open({ sessionId: summary.id });
+  const child = session(0);
+  delegate(child, summary.id);
+  expect(
+    (await workspace.sidebar({ parentId: summary.id })).rows.map(
+      (row) => row.summary.id,
+    ),
+  ).toEqual([child.id]);
   expect((await workspace.sidebar()).rows.map((row) => row.summary.id)).toEqual(
     [summary.id],
   );
@@ -305,6 +522,9 @@ it("keeps a known unflushed runtime usable without treating arbitrary missing ID
 
 it("measures cold, warm, changed and later-page discovery for 15000 real files with 8GB modeled transcript weights", async () => {
   const files = Array.from({ length: 15000 }, (_, index) => session(index));
+  const oldest = files.at(-1);
+  if (!oldest) throw new Error("Missing oldest");
+  creation(oldest, new Date(0).toISOString());
   // Small real JSONL bodies exercise real directory/header/EOF I/O. A skewed
   // transcript-size distribution models archive cost without allocating 8GB.
   const raw = files.map((_, i) =>
@@ -347,8 +567,6 @@ it("measures cold, warm, changed and later-page discovery for 15000 real files w
   expect((await workspace.sidebar()).rows).toHaveLength(50);
   const warm = measured();
   expect(warm.streams).toBe(0);
-  const oldest = files.at(-1);
-  if (!oldest) throw new Error("Missing oldest");
   resetReads();
   expect((await app.request(`/sessions/${oldest.id}`)).status).toBe(200);
   expect(vi.mocked(fs.createReadStream).mock.calls.length).toBeLessThan(5);

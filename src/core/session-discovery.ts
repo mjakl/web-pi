@@ -11,12 +11,12 @@ export type SessionDiscoveryOptions = {
   selectedId?: string;
   /** All known runtimes, including ones not yet flushed to disk. */
   runtime: readonly SessionSummary[];
-  /** Explicit child expansion needs all incoming edges. */
-  exhaustive?: boolean;
+  /** Exact descendants within this parent's header creation bound. */
+  parentId?: string;
 };
 export type SessionDiscovery = {
   summaries: SessionSummary[];
-  /** False means every row's incoming children may still be incomplete. */
+  /** Complete for the requested subtree, or the whole inventory on a root request. */
   complete: boolean;
 };
 
@@ -72,8 +72,9 @@ function certified(
 
 /**
  * Header identities are authoritative, but never themselves classified rows.
- * Resolve runtime and selected ancestry first. Each later candidate gets the
- * same ancestor closure, so unread files can only add stored members/roots.
+ * Root requests resolve runtime and selected ancestry first, then certify the
+ * prefix. Child requests classify the parent's creation window completely.
+ * Both retain concrete ancestor/copy closure for the same tree protections.
  */
 export async function discoverSessionRoots(
   headers: readonly SessionSummary[],
@@ -81,40 +82,75 @@ export async function discoverSessionRoots(
   options: SessionDiscoveryOptions,
   unflushed: readonly SessionSummary[] = [],
 ): Promise<SessionDiscovery> {
-  const byId = new Map(headers.map((header) => [header.id, header]));
+  const byId = new Map<string, SessionSummary[]>();
+  for (const header of headers) {
+    const copies = byId.get(header.id) ?? [];
+    copies.push(header);
+    byId.set(header.id, copies);
+  }
   const duplicate = byId.size !== headers.length;
+  const runtimeHeaders = new Set(unflushed);
+  for (const summary of unflushed) {
+    if (!byId.has(summary.id)) byId.set(summary.id, [summary]);
+  }
   const seen = new Set<SessionSummary>();
   const classified = new Map<SessionSummary, SessionSummary>();
-  const summaries: SessionSummary[] = [...unflushed];
-  async function resolve(header: SessionSummary | undefined) {
-    // Iteration handles long ancestry and cycles without consuming the stack.
-    let cursor = header;
-    while (cursor && !seen.has(cursor)) {
-      seen.add(cursor);
-      const summary = await classify(cursor);
-      if (!summary) break;
-      classified.set(cursor, summary);
+  const summaries: SessionSummary[] = [];
+  async function resolve(id: string | undefined) {
+    // Include every copy of a concrete identity, even outside the creation
+    // window, so bounded discovery preserves the last-duplicate rule.
+    const pending = [...(byId.get(id ?? "") ?? [])];
+    while (pending.length > 0) {
+      const header = pending.pop();
+      if (!header || seen.has(header)) continue;
+      seen.add(header);
+      const summary = runtimeHeaders.has(header)
+        ? header
+        : await classify(header);
+      if (!summary) continue;
+      classified.set(header, summary);
       summaries.push(summary);
-      cursor = byId.get(summary.delegation?.parentSessionId ?? "");
+      pending.push(
+        ...(byId.get(summary.delegation?.parentSessionId ?? "") ?? []),
+      );
     }
   }
-  for (const summary of unflushed)
-    await resolve(byId.get(summary.delegation?.parentSessionId ?? ""));
-  for (const runtime of options.runtime) await resolve(byId.get(runtime.id));
-  await resolve(byId.get(options.selectedId ?? ""));
-  if (duplicate || options.exhaustive) {
-    for (const header of headers) await resolve(header);
+  const ordered = (runtime: readonly SessionSummary[]) => ({
+    summaries: [
+      ...runtime,
+      ...headers.flatMap((header) => {
+        const summary = classified.get(header);
+        return summary ? [summary] : [];
+      }),
+    ],
+    complete: true,
+  });
+  if (options.parentId !== undefined) {
+    await resolve(options.parentId);
+    const parent = (byId.get(options.parentId) ?? [])
+      .map((header) => classified.get(header))
+      .filter((summary) => summary !== undefined)
+      .at(-1);
+    if (!parent) return { summaries: [], complete: true };
+    const cutoff = Date.parse(parent.createdAt);
+    const eligibleRuntime = unflushed.filter(
+      (summary) => Date.parse(summary.createdAt) >= cutoff,
+    );
+    for (const summary of eligibleRuntime) await resolve(summary.id);
+    for (const header of headers) {
+      if (Date.parse(header.createdAt) >= cutoff) await resolve(header.id);
+    }
+    // All valid descendants are in the window. Older bodies are read only
+    // for concrete ancestry/copy context, including cycle detection.
+    return ordered(unflushed.filter((summary) => classified.has(summary)));
+  }
+  for (const summary of unflushed) await resolve(summary.id);
+  for (const runtime of options.runtime) await resolve(runtime.id);
+  await resolve(options.selectedId);
+  if (duplicate) {
+    for (const header of headers) await resolve(header.id);
     // Seed resolution must not change the tree's existing last-duplicate rule.
-    return {
-      summaries: [
-        ...unflushed,
-        ...headers.flatMap((header) => {
-          const summary = classified.get(header);
-          return summary ? [summary] : [];
-        }),
-      ],
-      complete: true,
-    };
+    return ordered(unflushed);
   }
   const sorted = [...headers].sort(
     (a, b) =>
@@ -154,7 +190,7 @@ export async function discoverSessionRoots(
     if (certified(tree, bound, k))
       return { summaries, complete: next === undefined };
     const before = summaries.length;
-    await resolve(next);
+    await resolve(next?.id);
     const added = summaries.slice(before);
     if (added.some((summary) => summary.delegation !== undefined)) {
       tree = rebuild();

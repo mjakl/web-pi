@@ -60,6 +60,22 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
     for (const member of path) visited.add(member);
   }
 
+  // Reject timestamp-inconsistent edges, not ownership. Origin classification
+  // remains on the summary so a promoted child is still inspection-only.
+  for (const [id, parentId] of parents) {
+    const child = byId.get(id),
+      parent = byId.get(parentId);
+    if (
+      !child ||
+      !parent ||
+      !(
+        Date.parse(child.summary.createdAt) >=
+        Date.parse(parent.summary.createdAt)
+      )
+    )
+      parents.delete(id);
+  }
+
   const roots: SessionTreeNode[] = [];
   const scores = new Map<string, SessionTreeScore>();
   const remaining = new Map<string, number>();

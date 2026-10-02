@@ -92,6 +92,134 @@ async function check(
   return { result, visits, actual, full };
 }
 
+describe("creation-bounded child discovery", () => {
+  it("classifies eligible descendants and concrete ancestry, not older files with recent activity", async () => {
+    const files = [
+      file("ancestor", 1),
+      file("parent", 2, "ancestor"),
+      file("equal", 3, "parent"),
+      file("nested", 4, "equal"),
+      file("older-invalid", 9000, "parent"),
+      file("older-unrelated", 10000),
+    ];
+    for (const f of files) {
+      const createdAt = new Date(
+        f.header.id.startsWith("older") || f.header.id === "ancestor" ? 0 : 100,
+      ).toISOString();
+      f.header.createdAt = createdAt;
+      f.summary.createdAt = createdAt;
+    }
+    const visits: string[] = [];
+    const result = await discoverSessionRoots(
+      files.map((f) => f.header),
+      (h) => {
+        visits.push(h.id);
+        return Promise.resolve(files.find((f) => f.header === h)?.summary);
+      },
+      {
+        runtime: files
+          .filter((f) => f.header.id === "older-unrelated")
+          .map((f) => f.summary),
+        parentId: "parent",
+        selectedId: "nested",
+      },
+    );
+    expect(visits.sort()).toEqual(["ancestor", "equal", "nested", "parent"]);
+    expect(result.complete).toBe(true);
+    const tree = sessionTree(result.summaries);
+    expect(
+      sessionTreePage(tree, { parentId: "parent" }).nodes.map(
+        (n) => n.summary.id,
+      ),
+    ).toEqual(["equal"]);
+    expect(tree.byId.get("equal")?.children.map((n) => n.summary.id)).toEqual([
+      "nested",
+    ]);
+    expect([
+      ...sessionTreePage(tree, { parentId: "parent", selectedId: "nested" })
+        .selectedPath,
+    ]).toEqual(["nested", "equal", "parent", "ancestor"]);
+  });
+
+  it("keeps duplicate identity and cycle context outside the creation window", async () => {
+    const files = [
+      file("parent", 1),
+      file("duplicate", 2, "parent"),
+      file("duplicate", 3, "parent"),
+      file("cycle-child", 4, "cycle-ancestor"),
+      file("cycle-ancestor", 5, "cycle-child"),
+    ];
+    for (const f of files) {
+      f.header.createdAt = new Date(
+        f.header.id === "cycle-ancestor" ||
+          f.header.modifiedAt === new Date(3).toISOString()
+          ? 0
+          : 100,
+      ).toISOString();
+      f.summary.createdAt = f.header.createdAt;
+    }
+    const visits: SessionSummary[] = [];
+    const result = await discoverSessionRoots(
+      files.map((f) => f.header),
+      (h) => {
+        visits.push(h);
+        return Promise.resolve(files.find((f) => f.header === h)?.summary);
+      },
+      { runtime: [], parentId: "parent" },
+    );
+    expect(visits).toHaveLength(5);
+    const tree = sessionTree(result.summaries);
+    expect(tree.byId.get("duplicate")?.summary.createdAt).toBe(
+      new Date(0).toISOString(),
+    );
+    expect(tree.byId.get("parent")?.children).toHaveLength(0);
+    expect(tree.byId.get("duplicate")?.summary.inspectionOnly).toBe(true);
+    for (const id of ["cycle-child", "cycle-ancestor"])
+      expect(tree.byId.get(id)?.parentId).toBeUndefined();
+  });
+
+  it("uses unflushed owned parent and ancestor summaries without classifying unrelated runtime roots", async () => {
+    const parent = file("parent", 2, "ancestor").summary;
+    const ancestor = file("ancestor", 1).summary;
+    parent.createdAt = new Date(100).toISOString();
+    const child = file("child", 3, "parent");
+    child.header.createdAt = child.summary.createdAt = parent.createdAt;
+    const unrelated = file("unrelated", 10000);
+    const visits: string[] = [];
+    const result = await discoverSessionRoots(
+      [child.header, unrelated.header],
+      (h) => {
+        visits.push(h.id);
+        return Promise.resolve(
+          h.id === child.header.id ? child.summary : unrelated.summary,
+        );
+      },
+      { runtime: [parent, ancestor, unrelated.summary], parentId: parent.id },
+      [parent, ancestor],
+    );
+    expect(visits).toEqual(["child"]);
+    const tree = sessionTree(result.summaries);
+    expect(tree.byId.get("parent")?.children.map((n) => n.summary.id)).toEqual([
+      "child",
+    ]);
+    expect(tree.byId.get("parent")?.parentId).toBe("ancestor");
+  });
+
+  it("does not classify unrelated bodies for a missing parent", async () => {
+    let visits = 0;
+    const result = await discoverSessionRoots(
+      roots(100).map((f) => f.header),
+      (h) => {
+        visits += 1;
+        return Promise.resolve(h);
+      },
+      { runtime: [], parentId: "missing" },
+    );
+    expect(visits).toBe(0);
+    expect(result).toEqual({ summaries: [], complete: true });
+  });
+});
+
 describe("priority interval root discovery", () => {
   it("separates runtime priority from time and cursor existence from extra-root order", async () => {
     const files = [
@@ -207,13 +335,17 @@ describe("priority interval root discovery", () => {
         if (random(20) === 0) records.push(claim(id, "missing-other"));
         if (random(12) === 0) records.push(claim("copied", "other"));
         if (random(40) === 0) records.push(claim(id, "other", { version: 2 }));
-        return file(
+        const f = file(
           id,
           random(trial % 2 ? 3 : 60),
           undefined,
           random(4) === 0 ? (random(2) ? "running" : "idle") : undefined,
           records,
         );
+        f.header.createdAt = f.summary.createdAt = new Date(
+          random(3),
+        ).toISOString();
+        return f;
       });
       for (const offset of [0, 50])
         await check(files, { offset, selectedId: files[random(n)]?.header.id });

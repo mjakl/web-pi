@@ -467,7 +467,6 @@ export function sessionUseCases({
       );
       const discovery = await deps.sessions.discover({
         ...options,
-        exhaustive: options.parentId !== undefined,
         runtime: [...snapshots.values()].map((snapshot) => ({
           ...snapshot.summary,
           live: true,

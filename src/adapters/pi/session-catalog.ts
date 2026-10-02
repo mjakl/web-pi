@@ -49,7 +49,8 @@ import {
 
 // All identities come from headers. Adaptive root discovery classifies only
 // the prefix and ancestry needed for a priority certificate. Explicit child
-// expansion classifies the full inventory. Neither retains transcript bodies.
+// expansion classifies the parent's creation window and concrete ancestry.
+// Neither retains transcript bodies.
 
 const HEADER_MAX_BYTES = 8192;
 const METADATA_CACHE_MAX = 4096;
@@ -351,11 +352,17 @@ export function createPiSessionCatalog(options: {
   async function classifyFile(
     header: Header,
     summary: SessionSummary,
+    scanCache: ReadonlyMap<
+      string,
+      { stamp: string; value: SessionDelegation }
+    > = delegations,
   ): Promise<SessionSummary | undefined> {
     const filePath = summary.filePath;
     if (!filePath) return undefined;
     try {
-      const cached = delegations.get(filePath);
+      const atStart = scanCache.get(filePath);
+      const cached =
+        atStart?.stamp === header.stamp ? atStart : delegations.get(filePath);
       if (cached?.stamp === header.stamp) {
         return fileStamp(await stat(filePath)) === header.stamp
           ? { ...summary, ...cached.value }
@@ -372,8 +379,11 @@ export function createPiSessionCatalog(options: {
 
   async function scan(): Promise<SessionSummary[]> {
     const summaries: SessionSummary[] = [];
+    // Freeze at most the existing cache capacity. Early misses must not evict
+    // later hits from the same scan when the inventory exceeds that capacity.
+    const scanCache = new Map(delegations);
     for (const { header, summary } of await inventory()) {
-      const classified = await classifyFile(header, summary);
+      const classified = await classifyFile(header, summary, scanCache);
       if (classified) summaries.push(classified);
     }
     return summaries;
@@ -462,6 +472,7 @@ export function createPiSessionCatalog(options: {
     list: scan,
     classification,
     async discover(options) {
+      const scanCache = new Map(delegations);
       const files = await inventory();
       const bySummary = new Map(
         files.map((file) => [file.summary, file.header]),
@@ -488,7 +499,7 @@ export function createPiSessionCatalog(options: {
         async (summary) => {
           const header = bySummary.get(summary);
           if (!header) return undefined;
-          const classified = await classifyFile(header, summary);
+          const classified = await classifyFile(header, summary, scanCache);
           if (!classified) return undefined;
           const live = runtime.get(summary.id);
           return live && !isSubagentSession(classified)

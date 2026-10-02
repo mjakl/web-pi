@@ -16,8 +16,6 @@ export type SessionDiscoveryOptions = {
 };
 export type SessionDiscovery = {
   summaries: SessionSummary[];
-  /** Complete for the requested subtree, or the whole inventory on a root request. */
-  complete: boolean;
 };
 
 /** Lower times must dominate upper times, with the tree's actual ID tie break. */
@@ -123,7 +121,6 @@ export async function discoverSessionRoots(
         return summary ? [summary] : [];
       }),
     ],
-    complete: true,
   });
   if (options.parentId !== undefined) {
     await resolve(options.parentId);
@@ -131,7 +128,7 @@ export async function discoverSessionRoots(
       .map((header) => classified.get(header))
       .filter((summary) => summary !== undefined)
       .at(-1);
-    if (!parent) return { summaries: [], complete: true };
+    if (!parent) return { summaries: [] };
     const cutoff = Date.parse(parent.createdAt);
     const eligibleRuntime = unflushed.filter(
       (summary) => Date.parse(summary.createdAt) >= cutoff,
@@ -187,8 +184,7 @@ export async function discoverSessionRoots(
       next && idBound !== undefined
         ? { upperTime: next.modifiedAt, bestId: idBound }
         : undefined;
-    if (certified(tree, bound, k))
-      return { summaries, complete: next === undefined };
+    if (certified(tree, bound, k)) return { summaries };
     const before = summaries.length;
     await resolve(next?.id);
     const added = summaries.slice(before);

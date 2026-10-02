@@ -464,24 +464,26 @@ composition root and the only importer of Pi adapters.
   and optional worktree branch. The old project cookie and query do not filter
   the list.
 - **Root discovery is adaptive; child expansion is creation-bounded.** Every
-  sidebar request enumerates headers and file revisions across the store. Header
-  IDs, not filenames, resolve renamed sessions and delegation parents. Root
-  requests classify known local runtimes and the selected session's ancestor
-  chain first; every subsequent candidate also resolves its ancestors.
-  Classification reads to EOF or uses a fresh cache stamped by size, mtime,
-  ctime, device and inode. Root discovery stops when priority-aware timestamp
-  intervals prove the first `offset + 50` roots and at least one additional root
-  proves a next-page cursor. Subtree priority and newest member time are
-  independent; timestamp ties use root-ID `localeCompare`. Unknown roots can
-  only be stored-priority roots after runtime ancestry closure. Duplicate IDs
-  force complete classification, and short pages, conservative timestamp-tie
-  bounds or ambiguous same-priority activity can also require all files. There
-  is no fixed archive cutoff or background index. The bounded caches may evict
-  metadata, but an initial page does not reclassify the whole archive just
-  because it exceeds their capacity. Discovery and complete-list scans keep a
-  bounded snapshot of the classification cache at scan start, so early misses
-  cannot evict later hits from the same scan. Every hit still checks the current
-  file revision; concurrent reads of one revision share the same EOF pass.
+  sidebar request enumerates headers and file revisions across the store.
+  Concurrent requests share an in-flight inventory, including a cold direct
+  link's sidebar and session lookup; later requests enumerate again. Header IDs,
+  not filenames, resolve renamed sessions and delegation parents. Root requests
+  classify known local runtimes and the selected session's ancestor chain first;
+  every subsequent candidate also resolves its ancestors. Classification reads
+  to EOF or uses a fresh cache stamped by size, mtime, ctime, device and inode.
+  Root discovery stops when priority-aware timestamp intervals prove the first
+  `offset + 50` roots and at least one additional root proves a next-page
+  cursor. Subtree priority and newest member time are independent; timestamp
+  ties use root-ID `localeCompare`. Unknown roots can only be stored-priority
+  roots after runtime ancestry closure. Duplicate IDs force complete
+  classification, and short pages, conservative timestamp-tie bounds or
+  ambiguous same-priority activity can also require all files. There is no fixed
+  archive cutoff or background index. The bounded caches may evict metadata, but
+  an initial page does not reclassify the whole archive just because it exceeds
+  their capacity. Discovery and complete-list scans keep a bounded snapshot of
+  the classification cache at scan start, so early misses cannot evict later
+  hits from the same scan. Every hit still checks the current file revision;
+  concurrent reads of one revision share the same EOF pass.
 
   Root ordering and selected ancestry are certified against the discovered
   revisions, not an atomic filesystem snapshot. Directory enumeration, headers,
@@ -493,18 +495,19 @@ composition root and the only importer of Pi adapters.
   offsets still include unreadable rows.
 
   Older incoming child edges, counts and selected-path sibling preloads can be
-  incomplete even when the root page is certified. Every potentially incomplete
-  row therefore offers “Check sub-sessions” or a lower-bound `N+` count. Opening
-  a closed disclosure classifies candidates whose parsed header creation time is
-  at least the requested parent's creation time, plus concrete ancestor and
-  duplicate-ID context. Every eligible candidate is classified through EOF,
-  including late and conflicting origins. This gives exact child/descendant
-  counts within the valid-edge contract below. A missing or unreadable parent
-  returns an empty child page without unrelated body reads; an already-owned,
-  unflushed parent uses its runtime summary under the existing missing-file
-  contract. Partial selected-path preloads offer “Load all sub-sessions” for
-  this same deliberate expansion. Child pages still contain 50 siblings and
-  numeric cursors, ordered by subtree activity rather than creation time. Root
+  incomplete even when the root page is certified. Rows show plain counts of
+  known direct children and omit the disclosure when none are known. This
+  deliberately accepts rare undercounts and omitted older children rather than
+  adding checking controls. Opening an unloaded disclosure classifies candidates
+  whose parsed header creation time is at least the requested parent's creation
+  time, plus concrete ancestor and duplicate-ID context. Every eligible
+  candidate is classified through EOF, including late and conflicting origins.
+  This gives exact child/descendant counts within the valid-edge contract below.
+  A missing or unreadable parent returns an empty child page without unrelated
+  body reads; an already-owned, unflushed parent uses its runtime summary under
+  the existing missing-file contract. Child pages contain 50 siblings and
+  numeric cursors, ordered by subtree activity rather than creation time.
+  Selected-path preloads use the known tree without another discovery pass. Root
   pagination reaches older sessions without a permanent cutoff. Refreshes may
   discard loaded pages as before. Old parents and complete-list consumers can
   still cost nearly a full archive scan; only an opened saved transcript polls
@@ -541,10 +544,11 @@ composition root and the only importer of Pi adapters.
   adaptive root prefix: unreadable or unstable classification never authorizes a
   writer. A missing file is usable only by an already-owned local runtime, whose
   first reply may not have flushed yet. The native disclosure footer counts
-  known direct children and marks potentially incomplete counts. Browser-local
-  expansion preferences survive row/list swaps; selected ancestors are revealed
-  without changing those preferences. Row-only actions replace the card body
-  inside a stable tree wrapper, and keyboard shortcuts number only visible rows.
+  known direct children without marking potentially incomplete counts.
+  Browser-local expansion preferences survive row/list swaps; selected ancestors
+  are revealed without changing those preferences. Row-only actions replace the
+  card body inside a stable tree wrapper, and keyboard shortcuts number only
+  visible rows.
 - **The conversation rail is server-rendered and positioned in percentages.**
   `src/core/conversation-rail.ts` is pi-web's `lib/conversation-rail.ts` fed
   from the flat entry list rather than a compressed tree: web-pi already holds

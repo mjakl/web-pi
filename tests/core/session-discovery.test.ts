@@ -125,7 +125,6 @@ describe("creation-bounded child discovery", () => {
       },
     );
     expect(visits.sort()).toEqual(["ancestor", "equal", "nested", "parent"]);
-    expect(result.complete).toBe(true);
     const tree = sessionTree(result.summaries);
     expect(
       sessionTreePage(tree, { parentId: "parent" }).nodes.map(
@@ -216,7 +215,7 @@ describe("creation-bounded child discovery", () => {
       { runtime: [], parentId: "missing" },
     );
     expect(visits).toBe(0);
-    expect(result).toEqual({ summaries: [], complete: true });
+    expect(result).toEqual({ summaries: [] });
   });
 });
 
@@ -241,14 +240,13 @@ describe("priority interval root discovery", () => {
       file("a", 1, undefined, "running"),
       file("b", 2, undefined, "running"),
     ];
-    expect((await check([...live, ...roots(200)])).result.complete).toBe(true);
+    expect((await check([...live, ...roots(200)])).visits).toHaveLength(202);
     const separated = await check([
       ...live,
       file("new-child", 2000, "a"),
       ...roots(200),
     ]);
     expect(separated.visits).toHaveLength(52);
-    expect(separated.result.complete).toBe(false);
   });
   it("compares known boundary rivals and actual root IDs on timestamp ties", async () => {
     const live = Array.from({ length: 49 }, (_, i) =>
@@ -305,7 +303,6 @@ describe("priority interval root discovery", () => {
       ...roots(60),
       file("root-000", 1, "root-001"),
     ]);
-    expect(duplicated.result.complete).toBe(true);
     expect(duplicated.visits).toHaveLength(61);
     const short = await check([
       file("p", 1),
@@ -313,7 +310,7 @@ describe("priority interval root discovery", () => {
         file(`c-${String(i)}`, 100 - i, "p"),
       ),
     ]);
-    expect(short.result.complete).toBe(true);
+    expect(short.visits).toHaveLength(71);
   });
   it("matches complete trees across dense and sparse activity, ties, cycles and later pages", async () => {
     let seed = 0x1a7e2a1;

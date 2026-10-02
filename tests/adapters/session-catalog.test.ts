@@ -97,7 +97,6 @@ describe("catalog delegation discovery", () => {
     const catalog = createPiSessionCatalog({ agentDir: root });
     const listed = await catalog.list();
     const bounded = await catalog.discover({ runtime: [], parentId: "parent" });
-    expect(bounded.complete).toBe(true);
     const tree = sessionTree(bounded.summaries);
     expect(
       tree.byId.get("parent")?.children.map((node) => node.summary.id),

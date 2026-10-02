@@ -106,14 +106,11 @@ export type SidebarView = {
   rows: {
     summary: SessionSummary;
     metadata: SessionRowMetadata;
+    /** Known direct children from sidebar discovery. */
     childCount?: number;
-    /** The count is a lower bound, including when no children are known yet. */
-    childrenIncomplete?: boolean;
     /** Only the selected ancestor path is preloaded. */
     children?: SidebarView;
   }[];
-  /** Selected sibling preloads may omit older children until explicit expansion. */
-  incomplete?: boolean;
   /** Direct children of this node; absent for a root page. */
   parentId?: string;
   /** Sibling offset, including unreadable and already-pinned rows. */

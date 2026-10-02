@@ -9,10 +9,11 @@ import { linkedPiVersion, webPiVersion } from "./host-pi.ts";
 configureHttpDispatcher();
 
 const config = loadConfig();
-const { workspace } = createDeps(config);
+const { workspace, coordinator } = createDeps(config);
 const piVersion = linkedPiVersion() ?? "unknown";
 const app = createWebApp({
   workspace,
+  coordinator,
   staticRoot: config.staticRoot,
   defaultCwd: config.defaultCwd,
   home: homedir(),
@@ -30,6 +31,7 @@ const server = serve(
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     server.close();
+    void coordinator.shutdown();
     setTimeout(() => process.exit(0), 2000).unref();
   });
 }

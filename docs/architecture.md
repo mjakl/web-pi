@@ -150,19 +150,167 @@ replaced. Project trust still gates project settings, and existing conversations
 retain SDK model/reasoning restoration.
 
 `src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
-`src/core/workspace/index.ts` composes one flat `Workspace` object from four
+`src/core/workspace/index.ts` composes one flat `Workspace` object from five
 use-case families that never import each other —
 `src/core/workspace/sessions.ts` (the sidebar, one session's page, and the edits
 Pi's `SessionManager` writes), `src/core/workspace/live.ts` (the running agent
 and what only its entries can answer), `src/core/workspace/files.ts` (the file
-panel and `@` completion) and `src/core/workspace/config.ts` (folder choice,
-`/new`, trust, skills, packages). `src/core/workspace/deps.ts` holds the
-`WorkspaceDeps` ports and the internals more than one family needs (session
-lookup and decoration, folder availability, `authorize`), and
-`src/core/workspace/views.ts` the view types a page renders. Every route calls
-the workspace and renders the returned `SessionView`. The fake world in
-`src/adapters/fake/index.ts` implements every outbound port in memory; web tests
-and `WEB_PI_RUNTIME=fake` use it.
+panel and `@` completion), `src/core/workspace/config.ts` (folder choice,
+`/new`, trust, skills, packages) and `src/core/workspace/coordinator.ts`
+(bounded root-session observation and guarded coordinator admission).
+`src/core/workspace/deps.ts` holds the `WorkspaceDeps` ports and the internals
+more than one family needs (session lookup and decoration, folder availability,
+`authorize`), and `src/core/workspace/views.ts` the view types a page renders.
+Every route calls the workspace and renders the returned `SessionView`. The fake
+world in `src/adapters/fake/index.ts` implements every outbound port in memory;
+web tests and `WEB_PI_RUNTIME=fake` use it.
+
+## App-level conversational coordinator
+
+`src/core/coordinator.ts` owns one opt-in, bounded conversation. It holds short
+session handles, full substantive conversation records, current focus, a single
+pending request/question and observation cursors in memory. Focus changes,
+rewritten instructions and admission results carry stable session IDs.
+Background summaries are recorded separately by event kind; only the latest
+three enter reasoning context and none changes focus. Ending drops that state;
+Pi remains the canonical coding history. `src/core/coordinator-types.ts` defines
+the internal provider boundary; `src/adapters/openai/coordinator.ts` implements
+GPT-Live client delegation and stateless Responses requests. `src/container.ts`
+wires it alongside Workspace. Provider configuration and credentials never enter
+the browser or session prompt.
+
+The Workspace coordinator use cases list at most 50 ordinary roots, read bounded
+user/assistant text, and watch known saved files or owned runtime events without
+consuming notices. Saved reads use the stable `readSaved` path. The initial
+snapshot establishes a baseline; missing cursors after branch changes establish
+a new baseline rather than replay history. Repeated activity is deduplicated by
+context revision. Fresh updates are coalesced by session while a bounded text
+request is in flight. Pending text stays queued until a current summary
+succeeds; superseded summaries do not consume it. Each session has a
+6,000-character update window, with an explicit notice on overflow, and a
+request contains at most three windows. Failed requests are not retried.
+Watchers exist only while the coordinator is enabled and expose no user-supplied
+filesystem path.
+
+Responses produces structured replies, ordinary instructions or bounded voice
+controls with an inventory session ID, not arbitrary executable tool calls.
+Reasoning resolves task references and pronouns using conversation, explicit
+focus/pending state, and each candidate's recent user request and assistant
+outcome. The server validates the returned identity, explicit handle constraint,
+root/write eligibility and captured context revision. No current-selection
+fallback substitutes for an unresolved model target. Live delegation
+notifications contain metadata, not instructions. Captured input since the
+previous delegation becomes an app request; transcript fragments alone never
+trigger reasoning or execution. Live has no completed-turn marker or transcript
+item identity, so delegation metadata cannot prove intent is complete. The
+reasoner must resolve a clearly complete ordinary request. Captured voice output
+is labeled speech context, never authorization. A clear ordinary user request
+authorizes direct admission, without a visible confirmation. Later input
+withholds superseded actions, including across asynchronous resume. A
+conversation-local pending batch retains delegated input while the reasoner is
+busy; unresolved raw fragments wait for another delegation. Full request history
+and pending ordinary intent survive clarification and status questions. Only an
+ordinary `clarify` reply creates a question eligible for bound assent; a pause
+for permissions or consequential review does not. Delegation IDs are
+deduplicated for the conversation. Background summaries yield to pending input
+and never change focus or the pending question.
+
+Workspace binds sending to the target, writer incarnation, branch tip and exact
+dialog. Saved roots require a task/request-bound user handoff that external
+writers are stopped. The reasoner's handoff must identify the exact pending
+question and target; it cannot rewrite the held instruction. Trust is checked
+before opening, never granted. Saved revisions are checked before and after
+normal runtime opening, and writer identity/state immediately before dispatch. A
+failed post-open check blocks further coordinator sends to that writer until
+visible stop/review; it does not dispose a possibly shared local writer. This is
+not cross-process locking. Delegated and unavailable roots remain refused. Typed
+dialog answers still require visible controls and validate method, offered
+options and deadline; speech has no dialog-answer capability. Ordinary prose
+answers are contextualized prompts to the question's origin, not typed
+approvals.
+
+Requests may omit delivery mode. Workspace chooses `prompt` when idle or
+`followUp` when running at actual admission. Explicit API modes (`prompt`,
+`followUp`, `steer`) remain supported. Only actual admission produces a sent or
+queued acknowledgment, never a claim of completion. Context includes bounded
+queue counts, tool names, retry state, notices and errors from non-consuming
+snapshots. Spoken stop-work uses local abort and clears queued prompts,
+reporting removed work without claiming undo; it never opens a saved session.
+End voice ends coordination but leaves coding running.
+
+Coordinator prompts use Pi's literal-input option to bypass slash commands,
+skill commands and prompt templates, and never enter the web shell classifier.
+Existing extension input hooks still apply. A shared admission boundary makes
+ordinary browser prompt/shell submissions participate in coordinator project
+exclusion. This deliberately conservative rule also excludes sibling worktrees
+while coordinator work runs. Admission uses canonical repository identity even
+when the folder picker groups a checkout subdirectory separately. It is not a
+cross-process lock; external writers must remain stopped after the user's
+handoff when a saved session is resumed.
+
+The shell owns the panel outside the replaceable session region. A separate SSE
+stream delivers server-rendered coordinator state, not a browser-maintained
+transcript. Drafts, microphone tracks and playback belong to that panel's client
+lifecycle. Start voice uses the existing Begin authority before microphone
+startup, without a separate enable step. Text-only startup and playback controls
+remain in a secondary disclosure. Failed one-click voice startup ends the newly
+started coordinator; a deliberately started text conversation remains available
+if adding voice fails. A late Begin response is ended rather than attaching a
+stream to a removed owner. End immediately revokes the server token; only Begin
+writes the browser cookie. Its three-hour lifetime covers the initial text
+window and a first voice connection near that window's end; the server deadline
+remains authoritative. The obsolete cookie grants no access and expires or is
+replaced, so a late End response cannot delete a newer conversation's cookie.
+Voice is explicitly enabled using WebRTC; a server-owned sideband receives
+transcripts and sends short verified commentary. The browser's provider data
+channel can only close the voice session. Transcript deltas are not turn
+boundaries, and commentary receipt does not establish playback. Stop-speaking
+mutes local playback; it neither retracts provider context nor stops coding.
+Spoken stop/resume playback commands carry a sequence on the existing
+voice-generation-bound state. The current browser media owner applies each
+command once, leaving microphone state and local playback controls independent.
+
+Each browser voice attempt owns its media, callbacks and outstanding voice HTTP
+requests. The existing media epoch invalidates permission and startup outcomes
+when the attempt stops. Local media stops immediately; the retiring attempt
+remains the owner until its requests drain and server cleanup completes. No
+replacement can start during that interval. A failed browser voice request has
+an unknown remote outcome and blocks restart, even if a later cleanup request
+succeeds. An unsolicited provider-side close retains its uncertainty warning,
+but currently drops the core voice object; a subsequent no-voice cleanup can
+therefore permit an explicit restart. That prototype limitation does not
+establish provider finalization. End remains available to revoke the
+conversation and is the advised next step. UI pending operations also own their
+completion, so obsolete work cannot unlock a newer operation. The existing
+server voice generation identifies both the startup response and rendered voice
+state. An off frame describes the connection that stopped, not whichever browser
+attempt happens to be current when it arrives. The client checks this identity
+after either HTTP or SSE delivery, including when a current off frame arrives
+before the startup response.
+
+Both provider requests set `store:false`; client delegation was chosen because
+managed Live Responses configuration does not expose that backend setting.
+Ordinary abuse monitoring remains separate. Text-only coordination has a
+90-minute deadline from Begin. The first successful provider connection resets
+that deadline once to 90 minutes from connection; later voice restarts do not
+extend it. Browser audio negotiation follows that server connection. The former
+ten-minute value was a prototype trial budget, not an established vendor cap.
+Backend requests retain single-flight execution, output and instruction bounds,
+without a fixed request-count cutoff that proactive summaries could exhaust.
+Responses receives the full substantive coordinator records without per-message
+prefix clipping or a small exchange window, with `truncation: "disabled"`.
+Provider context-capacity errors fail explicitly rather than dropping history.
+Live startup uses `session.input` for an inert recap of identity/eligibility,
+focus, pending state and selected whole history records. Live allows 8,192
+startup tokens; a conservative 7,600 UTF-8-byte text budget leaves framing room.
+The recap marks omissions and the backend keeps the full originals. Live's
+500-token append limit still bounds brief ongoing commentary. See the
+[Live context contract](https://developers.openai.com/api/docs/guides/live-conversations).
+Voice-only restart seeds context without replaying actions; End, reload and
+server restart do not recover coordinator memory. Failed calls are not retried
+automatically. Transport loss ends voice and requires explicit restart. A failed
+graceful close reports provider finalization as unconfirmed. No paid API request
+is part of the automated validation or screenshot fixture.
 
 ## One rendering of UI state
 

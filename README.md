@@ -170,11 +170,122 @@ Stop affected old web runtimes for the one-time file migration. With the server
 stopped after cutover, deleting only `<agentDir>/web-pi/` resets web state
 without touching Pi data. Browsers then need to confirm enrollment again.
 
+## Conversational coordinator prototype
+
+Open **Coordinator** to talk about tasks across sessions, independently of the
+coding session on screen. **Start voice** starts the conversation and requests
+microphone consent in one action; start while safely stationary. **End** stops
+coordination and voice, not coding. Nothing listens or speaks automatically on
+page load. **Text fallback and voice details** contains **Start text only**, an
+editable draft, and independent playback controls.
+
+Set `OPENAI_API_KEY` in the server's environment before startup. The key stays
+server-side. This prototype uses `gpt-live-1` with client delegation and a
+server-owned `gpt-4.1-mini-2025-04-14` Responses coordinator. Both requests
+explicitly use `store:false`. This disables requested application-state storage,
+not ordinary abuse-monitoring retention. Enabling the coordinator sends bounded
+coding-session context and the enabled coordinator conversation to OpenAI. API
+billing is separate from ChatGPT subscriptions: Live costs $0.05 per active
+minute, including silence, plus text-model and coding usage. Missing credentials
+and provider failures are reported; there is no fallback to another voice
+product.
+
+- Ask to list sessions, then refer to their tasks, previous choices, or `S1`,
+  `S2` handles. Reasoning receives current requests and recent outcomes as well
+  as the coordinator's history. It can resolve references such as “the login fix
+  we discussed” or ask one short question when the evidence is ambiguous.
+  Handles remain stable until **End**. Explicit handles constrain the target;
+  the current selection is context, not a fallback for an unclear reference.
+  **Current target** is separate from the coding session behind the panel.
+- Clear ordinary requests authorize submission directly. The coordinator
+  rewrites them into contextualized instructions and records the target and
+  exact text in the conversation. At admission, a busy task gets a follow-up; an
+  idle task starts work. The spoken acknowledgment reports actual admission, not
+  success. Clarifying answers resolve only the pending ordinary request.
+- Voice captions are approximate fragments, not finalized turns. Delegation asks
+  the reasoner to resolve captured user input; neither raw deltas nor delegation
+  metadata execute work. Later input withholds superseded actions and stays
+  available for the next delegation, including while reasoning is busy. **Use
+  captured words** copies captions to the optional editable draft; **Send
+  request** uses the same ordinary-request semantics without a microphone.
+- Typed extension dialogs have exact, session-bound visible answer controls.
+  Speech cannot answer any dialog type. Trust, permissions, consequential
+  approvals and unsupported actions pause for visible review while safely
+  stopped. Ordinary coding prose questions can receive contextual spoken answers
+  routed to their originating task; ambiguous answers need clarification.
+- New results, questions and failures are summarized with task attribution.
+  Status includes bounded running, queue, waiting, retry and error facts. Tool
+  names may be included, but logs, thinking and token deltas are not narrated.
+  Saved-session file changes are observed without opening a writer; external
+  activity is not inferred. Full session text remains the source of truth.
+- **Stop speaking** mutes playback until **Resume speech**. **Mute microphone**,
+  **Switch to text**, and **End** never cancel coding. Spoken “stop talking,”
+  “resume speech” and “end voice” work without screen interaction. “Stop work on
+  the login task” aborts its local current turn and clears queued prompts,
+  reporting what happened; it neither opens saved sessions nor undoes changes.
+
+The trial is bounded to one coordinator per server and 50 recent root sessions.
+Backend reasoning and proactive summaries have no fixed request-count cutoff;
+only one request runs at a time. Coordinator messages are no longer trimmed to
+1,000 characters or eight exchanges; Responses receives full substantive
+history, explicit focus, pending request/question, and the three latest
+background summaries. Full original records remain in memory. The provider's
+context limit is enforced without silent truncation; an oversized request fails
+without sending work. The existing 6,000-character instruction limit remains.
+Their usage is billed separately from voice. Text-only coordination ends 90
+minutes after **Start text only**. The first successful provider voice
+connection starts a fresh 90-minute window for the conversation; text-only
+preparation does not consume that voice window. Stopping and restarting voice
+does not extend it again. Browser audio negotiation follows the provider
+connection. At $0.05 per connected minute, 90 minutes costs $4.50 for voice,
+including silence, plus coordinator and coding usage. Coordinator history exists
+only for this enabled conversation, not across End, reload or server restart. A
+voice-only restart keeps it and seeds Live with a selected history/state recap
+within Live's smaller startup limit; it does not replay requests. Captured
+speech used in delegation becomes coordinator history, but captions are not a
+complete or verbatim audio transcript. No new persistent coding history is
+created. It does not create sessions, grant project trust, orchestrate worktrees
+or merge work. Eligible saved ordinary roots can resume through the normal
+runtime path after a request-bound spoken handoff: confirm that the named
+session is stopped in other apps and keep external writers stopped. Every saved
+resume asks this question; there is no external-activity detector or
+cross-process lock. Untrusted projects, delegated sessions and unavailable roots
+are refused. Saved revision and writer identity are rechecked around resume and
+before sending. A failed post-open validation blocks further coordinator sends
+to that writer until it is stopped and reviewed visibly. Coordinator work
+conservatively excludes concurrent work in the same project, including sibling
+worktrees, through the web server's prompt and shell admission paths. It cannot
+coordinate writers in another process.
+
+Ordinary in-app navigation preserves the panel. Reload, owner removal or stream
+failure ends the conversation instead of reconnecting speech or retrying work.
+Read
+[the isolated trial instructions](docs/deployment.md#isolated-coordinator-trial)
+before trying it beside a live service. Remote microphone use requires trusted
+HTTPS; plain remote HTTP is text-only. Local Stop releases microphone/playback
+immediately; restarting waits for outstanding voice controls and remote cleanup.
+Client cleanup failures block restart. A provider-side disconnect can leave
+restart enabled despite an unconfirmed-finalization warning; choose **End**
+before trying again whenever that warning appears.
+
+Live provider operation, continuous 90-minute WebRTC use and phone/headphone use
+are unverified. Backgrounding, screen lock, calls, headset changes and network
+handoffs may interrupt capture or playback. No automatic reconnect or background
+keepalive is provided. While unmuted, the microphone sends nearby audio even
+with the panel collapsed; Stop speaking does not mute it. Ordinary work can be
+submitted hands-free, but this is not a hands-free approval workflow. Start and
+recover while safely stationary; approvals wait until safe visible review. See
+the [mobile trial checks](docs/deployment.md#phone-and-headphone-trial-limits).
+Automated checks use fake transports; real account access, voice latency and
+model wording quality require a separately authorized trial with credentials.
+
 ## Security
 
 web-pi runs agent tools and project commands. It has no accounts, login, or
-built-in authentication, and does not check `Host` or `Origin` headers. Keep it
-on `127.0.0.1` unless you have a trusted network or an external access-control
+built-in authentication. Ordinary session routes do not check `Host` or
+`Origin`; coordinator POSTs require same-host JSON and use a short-lived
+conversation cookie. That guard is not application authentication. Keep it on
+`127.0.0.1` unless you have a trusted network or an external access-control
 layer. `--lan` prints a warning for the same reason.
 
 Project resources can run local code. Extensions, skills, and other

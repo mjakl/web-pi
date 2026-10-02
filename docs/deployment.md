@@ -109,6 +109,229 @@ sessions — but it has consequences:
 Point either app at a different agent directory with `PI_CODING_AGENT_DIR` if
 you would rather keep them apart.
 
+## Isolated coordinator trial
+
+Do not start a second server against the live agent directory or point trial
+coding sessions at a checkout another worker owns. Use a fresh agent directory,
+HOME and disposable project. Do not restart the primary service or change its
+Tailnet proxy for a trial. Cookies are not port-scoped; use a fresh browser
+profile or a separate hostname.
+
+After `pnpm install --frozen-lockfile` and `just build`, with Node 24 and host
+Pi on PATH, this starts an offline coding demo on an otherwise unused port:
+
+```bash
+trial=$(mktemp -d /tmp/web-pi-coordinator.XXXXXX)
+mkdir -p "$trial/home" "$trial/agent" "$trial/project"
+printf '{"packages":[]}\n' > "$trial/agent/settings.json"
+env -u OPENAI_API_KEY HOME="$trial/home" \
+  PI_CODING_AGENT_DIR="$trial/agent" \
+  WEB_PI_DEFAULT_CWD="$trial/project" \
+  node bin/web-pi.js --runtime fake --host 127.0.0.1 --port 30143
+```
+
+Verify that port 30143 is unused before starting; choose another positive port
+if needed, never the live service's port or 30141. The ready marker is
+`web-pi … listening on http://127.0.0.1:30143 …`. Check `GET /new` returns 200.
+Stop the foreground process with Ctrl+C, or send SIGTERM to that exact trial
+process, and verify its listener disappears. Delete the disposable trial
+directory only after stopping it and checking it contains no work to retain.
+
+The offline demo deliberately has no OpenAI key: enabling the coordinator gives
+its configuration error. For a separately authorized provider trial, supply
+`OPENAI_API_KEY` through the launching shell's private environment and omit
+`env -u OPENAI_API_KEY`. Do not put its value in arguments, Git, logs or browser
+storage. API access to `gpt-live-1` and `gpt-4.1-mini-2025-04-14`, quota and
+billing must be available. Subscription credentials are not a substitute.
+Keeping `--runtime fake` lets the user try real conversational voice with
+fictional coding sessions rather than paying for or modifying a real coding
+task. A saved ordinary demo session requires a spoken, task-bound handoff before
+resume; keep any external writer stopped.
+
+For an offline UI walkthrough without credentials, `just screenshots` starts the
+existing isolated fixture. Its coordinator uses explicitly labeled scripted text
+replies and rejects voice startup; it is not a production provider fallback.
+
+A browser on the server machine can capture a microphone through localhost. A
+browser on another device needs a trusted HTTPS origin; plain HTTP at a host or
+Tailnet address cannot capture a microphone. An accepted private listener is not
+by itself an HTTPS solution. Use only an already authorized private HTTPS route,
+or arrange one separately without changing the current live proxy. Do not enable
+Funnel or a public tunnel for this trial.
+
+The coordinator does not persist audio or its in-memory conversation history.
+Responses receives full substantive coordinator records; Live receives a
+selected startup recap within its smaller context limit. A voice-only restart
+preserves app history, but End, reload and server restart do not recover it.
+Both OpenAI requests set `store:false`, but ordinary abuse-monitoring retention
+can still apply. Text-only mode expires 90 minutes after Start text only. The
+first successful provider voice connection starts a fresh 90-minute conversation
+window; stopping and restarting voice does not extend it. Browser audio
+negotiation follows the provider connection. The original ten-minute cutoff was
+an app-level prototype budget, not a documented vendor requirement. Backend
+reasoning and proactive summaries have no fixed request-count cutoff; calls
+remain single-flight, with separate model usage charges. Growing history can
+increase text usage. Provider context-capacity errors fail visibly without
+silent truncation or automatic retry.
+
+Muting the microphone or playback does not stop billing. Ninety connected
+minutes at the documented $0.05/minute rate cost $4.50 for voice, plus
+coordinator and coding usage. Use End when not using it. Local End releases
+microphone and playback immediately, but a replacement waits for outstanding
+voice requests and server cleanup. A transport failure or missing provider-close
+acknowledgment leaves shutdown unconfirmed; use End before starting voice again.
+Client cleanup failures block restart, but an unsolicited provider-side
+disconnect can leave the restart button enabled despite its warning. Do not
+treat that button as proof of provider finalization. Fake API and browser checks
+do not establish real model access, microphone compatibility, latency or wording
+quality.
+
+### Isolated real Pi trial
+
+For an authorized end-to-end trial, use the real runtime with a private copy of
+Pi's credentials and model definitions, not its session store or settings. This
+uses existing coding credentials without asking the user to paste them again. Do
+not symlink `auth.json`: credential refreshes must not write the primary agent's
+file. Copied credentials still grant the same account access; this is
+session-store isolation, not a tool-execution sandbox. Keep the task disposable
+and do not grant new folder trust or install extensions for the trial.
+
+From the validated checkout, in a supervised foreground terminal:
+
+```bash
+umask 077
+source_agent="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+trial=$(mktemp -d /tmp/web-pi-voice-trial.XXXXXX)
+mkdir -p "$trial/home" "$trial/agent" "$trial/project"
+install -m 600 "$source_agent/auth.json" "$trial/agent/auth.json"
+if test -f "$source_agent/models.json"; then
+  install -m 600 "$source_agent/models.json" "$trial/agent/models.json"
+fi
+printf '{"packages":[]}\n' > "$trial/agent/settings.json"
+printf 'Disposable voice trial. Work only in this folder.\n' > "$trial/project/README.md"
+printf 'Private trial directory: %s\n' "$trial"
+
+# Only after authorization for paid voice and coding calls:
+# supply OPENAI_API_KEY through this shell's private environment, not arguments.
+env HOME="$trial/home" PI_CODING_AGENT_DIR="$trial/agent" \
+  WEB_PI_DEFAULT_CWD="$trial/project" \
+  node bin/web-pi.js --runtime pi --host 127.0.0.1 --port 30143
+```
+
+Check the same free-port, readiness and shutdown conditions as the offline demo.
+No credentials are printed by these commands. Keep the private trial directory
+out of logs, archives and Git; after stopping, remove it only when its
+disposable work is no longer needed. Do not copy its settings or sessions back
+to the live store. Credentials present on disk establish availability, not valid
+quota or account access; only the separately authorized trial establishes that.
+
+For a phone, use an unused HTTPS port with the installed Tailscale Serve CLI,
+not a path under an existing service. Inspect `tailscale serve status --json`
+and listening sockets first. On hosts supporting foreground Serve, the shape is:
+
+```bash
+tailscale serve --https=8444 http://127.0.0.1:30143
+```
+
+Keep this second process supervised, without `--bg`. Its startup must say
+**within your tailnet**, and `https://<node-dns-name>:8444/new` must return 200.
+Confirm that port is not in `AllowFunnel`, and that existing handlers/services
+are unchanged. Do not reuse a Funnel-enabled port, run `serve reset`, use
+`--yes` to overwrite configuration, or change the primary service route. Stop
+this foreground process with Ctrl+C and verify its temporary route disappears. A
+fresh private browser context avoids cookies shared with other ports on the same
+hostname. The phone must be connected to the tailnet and allowed by its access
+policy; a successful host-side check is not a phone reachability test.
+
+Minimal paid smoke, only after explicit authorization:
+
+1. Open `/new`, choose an available coding model and create a disposable session
+   with: "Name this session Voice trial. Reply ready; do not run tools yet."
+2. While safely stationary, choose Start voice. Ask it to list sessions and say:
+   "Ask the Voice trial task to create first-proof.txt containing first proof in
+   this trial folder." A clear ordinary request sends directly. If the session
+   is saved, answer its specific ownership question only after ensuring it is
+   stopped in other apps.
+3. Check new persisted user input, the real tool result and assistant outcome;
+   an old file is not proof of this request. Then ask for second-proof.txt
+   containing second proof and check the same evidence for that second request.
+   The conversation records the rewritten instructions and admission results.
+   Approval dialogs remain paused for safe visible review, not spoken assent.
+4. Say "End voice." Verify capture stops, coding is not canceled, and inspect
+   any finalization warning while safely stationary. Stop both supervised
+   processes. If microphone automation is unavailable, use Start text only with
+   the same requests and label the evidence text-path only, not audio proof.
+
+Allow about two connected minutes: voice is approximately $0.10, plus separately
+metered coordinator and coding usage. Initialization bills 15 seconds credited
+against running duration, so do not add it again to that estimate. Failed
+initialization and unconfirmed shutdown can affect the actual charge. This smoke
+is not a 90-minute endurance, phone-background or wording-quality validation.
+
+### Phone and headphone trial limits
+
+Live provider operation, continuous 90-minute WebRTC use and physical-device
+behavior are unverified. This is not yet a validated locked-screen walking app.
+Do not supply a key or run the paid trial without separate authorization.
+
+Official sources checked on 2026-09-30:
+
+- OpenAI's
+  [Live session lifecycle](https://developers.openai.com/api/docs/guides/live-conversations)
+  documents an `expired` close reason, automatic context management and
+  application-controlled idle closing, but does not state a numeric WebRTC
+  session-duration cap. The
+  [create endpoint](https://developers.openai.com/api/reference/resources/live/methods/create)
+  specifies a two-hour connected-call limit for outbound SIP, not WebRTC. That
+  is not evidence of a WebRTC guarantee, and Realtime's limits are not Live's.
+- The
+  [Live sideband guide](https://developers.openai.com/api/docs/guides/voice-server-controls)
+  attaches a server WebSocket to the same session as the primary media and
+  requires finalization before cleanup. It does not establish a separate numeric
+  sideband/idle lifetime guarantee. No rollover or automatic reconnect has been
+  implemented to work around an assumed limit.
+- [Microphone capture](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
+  requires browser permission and a secure context. A permission prompt can
+  remain unanswered indefinitely. Use a trusted HTTPS origin on the phone;
+  localhost on the server is not localhost on the phone.
+- Chrome's
+  [Energy Saver policy](https://developer.chrome.com/blog/freezing-on-energy-saver)
+  excludes active conferencing/capture from that particular freezing policy, but
+  its
+  [page lifecycle documentation](https://developer.chrome.com/docs/web-platform/page-lifecycle-api)
+  explains that mobile operating systems may stop applications and discard pages
+  without callbacks. Neither is a locked-screen endurance guarantee.
+- A [WebKit change](https://trac.webkit.org/changeset/273069/webkit) explicitly
+  supports background/locked-screen MediaStream playback while audio capture is
+  active. This implementation evidence from 2021 is not validation of the
+  current iPhone/browser/headset combination or protection from interruption.
+
+The client uses the browser's default microphone and audio route, not a headset
+selector or native background service. Ordinary in-app session navigation keeps
+the coordinator; full navigation, reload, owner removal or SSE failure ends it.
+A failed or disconnected peer stops voice without retry or ICE restart. A
+Wi-Fi/cellular handoff can therefore require an explicit restart. Browser/OS
+suspension can interrupt audio even without a connection-state error; a
+"Listening" label alone does not prove the phone is still capturing.
+
+While unmuted, capture is continuous and includes nearby voices, not only
+commands. Collapsing the panel or putting the phone away does not intentionally
+mute it. Stop speaking mutes playback only. Use Mute microphone for privacy and
+End to release capture and stop the coordinator. Both provider requests use
+`store:false`, which does not disable ordinary abuse-monitoring retention.
+
+Before relying on a walk, a separately authorized trial must check the actual
+phone, OS/browser version and wired/Bluetooth headset: permission grant/denial,
+initial playback, foreground/background and screen lock/unlock, long pauses,
+headset disconnect/reconnect, an incoming call, Wi-Fi/cellular transitions,
+network loss, explicit mute/stop/end and provider finalization. Verify
+microphone indicators and that unrelated coding keeps running. Keep the page
+accessible for safe recovery while stopped. Clear ordinary coding requests can
+be sent hands-free; typed dialogs, trust, permissions and consequential actions
+remain paused for visible review while safely stopped. External writers must
+stay stopped after a session handoff; no cross-process lock is provided. No
+native app, wake lock, background service or public exposure is included.
+
 ## Web state cutover and reset
 
 Pi resolves the agent directory normally: `PI_CODING_AGENT_DIR` when set,

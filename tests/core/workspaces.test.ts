@@ -85,6 +85,7 @@ describe("project identity", () => {
   it("treats the main checkout as top level but not a worktree", () => {
     expect(projectIdentity(base)).toEqual({
       root: "/repo",
+      repositoryRoot: "/repo",
       branch: "main",
       isWorktree: false,
       isTopLevel: true,
@@ -102,6 +103,7 @@ describe("project identity", () => {
       }),
     ).toEqual({
       root: "/repo",
+      repositoryRoot: "/repo",
       branch: "feature",
       isWorktree: true,
       isTopLevel: true,
@@ -113,6 +115,7 @@ describe("project identity", () => {
     // repository's.
     expect(projectIdentity({ ...base, cwd: "/repo/src" })).toEqual({
       root: "/repo/src",
+      repositoryRoot: "/repo",
       branch: "main",
       isWorktree: false,
       isTopLevel: false,
@@ -132,6 +135,7 @@ describe("project identity", () => {
       }),
     ).toEqual({
       root: "/repo.git",
+      repositoryRoot: "/repo.git",
       branch: null,
       isWorktree: false,
       isTopLevel: true,

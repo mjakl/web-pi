@@ -40,6 +40,7 @@ function nonEmpty(value: string | undefined): string | undefined {
 
 export function liveUseCases({
   deps,
+  admit,
   entriesOf,
   folderAvailable,
   requireFolder,
@@ -110,9 +111,11 @@ export function liveUseCases({
     },
 
     async send(id: string, text: string, input?: PromptInput): Promise<void> {
-      await requireFolder(id);
-      const live = await liveOrOpen(id);
-      await live.prompt(text, input);
+      await admit(id, async () => {
+        await requireFolder(id);
+        const live = await liveOrOpen(id);
+        await live.prompt(text, input);
+      });
     },
 
     /** Stops the turn, or the shell command when that is what runs. */
@@ -226,9 +229,11 @@ export function liveUseCases({
       command: string,
       excludeFromContext: boolean,
     ): Promise<void> {
-      await requireFolder(id);
-      const live = await liveOrOpen(id);
-      await live.runBash(command, excludeFromContext);
+      await admit(id, async () => {
+        await requireFolder(id);
+        const live = await liveOrOpen(id);
+        await live.runBash(command, excludeFromContext);
+      });
     },
 
     /**

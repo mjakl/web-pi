@@ -4,6 +4,7 @@ import { staticAssets } from "@web/assets";
 import { honoFactory } from "@web/hono";
 import { HtmlLayout } from "@web/HtmlLayout";
 import { composerRoutes } from "@web/routes/composer";
+import { coordinatorRoutes } from "@web/routes/coordinator";
 import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
@@ -173,6 +174,7 @@ export function createWebApp(deps: WebDeps) {
   sidebarRoutes(app, context);
   transcriptRoutes(app, context);
   composerRoutes(app, context);
+  coordinatorRoutes(app, context);
   filesRoutes(app, context);
 
   return app;

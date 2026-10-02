@@ -284,6 +284,41 @@ describe("session commands", () => {
     expect(session.snapshot().turnStart).toBe(session.snapshot().branch.length);
   });
 
+  it("keeps coordinator prompts literal instead of invoking slash commands or templates", async () => {
+    const command = vi.fn();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.registerCommand("probe", {
+            description: "Probe",
+            handler: () => {
+              command();
+              return Promise.resolve();
+            },
+          });
+        },
+      ],
+    });
+    await mkdir(join(h.agentDir, "prompts"), { recursive: true });
+    await writeFile(
+      join(h.agentDir, "prompts", "greet.md"),
+      "EXPANDED TEMPLATE $1",
+    );
+    const session = await h.open();
+    for (const text of [
+      "/probe",
+      "/greet hello",
+      "!echo not-a-shell-command",
+    ]) {
+      h.script(reply("Received as text"));
+      const done = next(session, "turn_done");
+      await session.prompt(text, { literal: true });
+      await done;
+      expect(messages(session)).toContain(`user:${text}`);
+    }
+    expect(command).not.toHaveBeenCalled();
+  });
+
   it("lists commands from extensions, prompts, and skills, and the tools", async () => {
     h = await createHarness({
       extensions: [

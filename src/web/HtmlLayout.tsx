@@ -1,4 +1,5 @@
 import { ICONS } from "@web/pwa";
+import { CoordinatorPanel } from "@web/views/Coordinator";
 import type { AppEnvironment } from "@web/hono";
 import type { Context } from "hono";
 import { raw } from "hono/html";
@@ -106,6 +107,7 @@ export function HtmlLayout(
         data-sw-src={`/sw.js?v=${assets.js.split("=").at(-1) ?? "dev"}`}
       >
         {children}
+        <CoordinatorPanel />
       </body>
     </html>
   );

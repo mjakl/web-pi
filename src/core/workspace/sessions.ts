@@ -492,7 +492,6 @@ export function sessionUseCases({
               ...found,
               summary: { ...summary, ...found.summary },
               ...(children.length > 0 ? { childCount: children.length } : {}),
-              ...(!discovery.complete ? { childrenIncomplete: true } : {}),
               ...(preload
                 ? {
                     children: await pageOf({
@@ -511,7 +510,6 @@ export function sessionUseCases({
           ...(pageOptions.parentId === undefined
             ? {}
             : { parentId: pageOptions.parentId }),
-          ...(!discovery.complete ? { incomplete: true } : {}),
           ...(page.nextOffset === undefined
             ? {}
             : { nextOffset: page.nextOffset }),

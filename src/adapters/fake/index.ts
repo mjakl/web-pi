@@ -1053,7 +1053,6 @@ export function createFakeWorld(
             ...summaries,
             ...options.runtime.filter((summary) => !known.has(summary.id)),
           ],
-          complete: true,
         });
       },
       classification: (id) => {

@@ -16,8 +16,6 @@ export type SessionDiscoveryOptions = {
 };
 export type SessionDiscovery = {
   summaries: SessionSummary[];
-  /** False means every row's incoming children may still be incomplete. */
-  complete: boolean;
 };
 
 /** Lower times must dominate upper times, with the tree's actual ID tie break. */
@@ -113,7 +111,6 @@ export async function discoverSessionRoots(
           return summary ? [summary] : [];
         }),
       ],
-      complete: true,
     };
   }
   const sorted = [...headers].sort(
@@ -151,8 +148,7 @@ export async function discoverSessionRoots(
       next && idBound !== undefined
         ? { upperTime: next.modifiedAt, bestId: idBound }
         : undefined;
-    if (certified(tree, bound, k))
-      return { summaries, complete: next === undefined };
+    if (certified(tree, bound, k)) return { summaries };
     const before = summaries.length;
     await resolve(next);
     const added = summaries.slice(before);

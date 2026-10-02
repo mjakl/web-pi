@@ -289,7 +289,18 @@ export function createPiSessionCatalog(options: {
     return read;
   }
 
-  async function inventory(): Promise<
+  let pendingInventory: ReturnType<typeof readInventory> | undefined;
+
+  function inventory() {
+    // A cold direct link discovers its sidebar and session path concurrently.
+    // Share that scan, but enumerate again once it settles to see external edits.
+    pendingInventory ??= readInventory().finally(() => {
+      pendingInventory = undefined;
+    });
+    return pendingInventory;
+  }
+
+  async function readInventory(): Promise<
     { header: Header; summary: SessionSummary }[]
   > {
     const files: { header: Header; summary: SessionSummary }[] = [];

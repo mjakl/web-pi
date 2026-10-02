@@ -109,6 +109,84 @@ it("initial sidebar and a direct link do not scan a whole archive beyond the met
   expect(fs.createReadStream).toHaveBeenCalledTimes(51);
 });
 
+it("shares cold direct-link inventory with its concurrent sidebar read", async () => {
+  const files = Array.from({ length: 200 }, (_, index) => session(index));
+  const target = files.at(-1);
+  if (!target) throw new Error("Missing target");
+  const world = createFakeWorld();
+  world.sessions = createPiSessionCatalog({ agentDir: root });
+  const app = createWebApp({
+    workspace: createWorkspace(world),
+    defaultCwd: root,
+    staticRoot: "static",
+  });
+  resetReads();
+  const response = await app.request(`/sessions/${target.id}`);
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain("Saved answer");
+  // One inventory header per file, plus exact admission/row header reads.
+  expect(io.headerReads).toBeLessThanOrEqual(files.length + 3);
+  expect(fs.createReadStream).toHaveBeenCalledTimes(51);
+});
+
+it("uses adaptive discovery for lifecycle SSE updates and does not stream unchanged transcripts", async () => {
+  const files = Array.from({ length: 200 }, (_, index) => session(index));
+  const target = files[0];
+  if (!target) throw new Error("Missing target");
+  const world = createFakeWorld({
+    sessions: [
+      {
+        summary: {
+          id: target.id,
+          cwd: root,
+          createdAt: new Date(0).toISOString(),
+          modifiedAt: new Date(0).toISOString(),
+          fileSize: 0,
+        },
+        entries: [],
+      },
+    ],
+  });
+  world.sessions = createPiSessionCatalog({ agentDir: root });
+  const workspace = createWorkspace(world);
+  const app = createWebApp({
+    workspace,
+    defaultCwd: root,
+    staticRoot: "static",
+  });
+  // Lifecycle updates follow a mounted page, which already resolved its paths.
+  await world.sessions.folder(target.id);
+  const response = await app.request("/events");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Missing event stream");
+  const decoder = new TextDecoder();
+  const frame = async () => {
+    let received = "";
+    while (!received.includes("\n\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error("Event stream ended");
+      received += decoder.decode(chunk.value);
+    }
+    expect(received).toContain('hx-target="#session-list"');
+    expect(received).toContain(`id="row-${target.id}"`);
+    expect(received).not.toContain("Check sub-sessions");
+  };
+  try {
+    resetReads();
+    await workspace.activate(target.id);
+    await frame();
+    expect(io.headerReads).toBeLessThanOrEqual(files.length + 3);
+    expect(fs.createReadStream).toHaveBeenCalledTimes(51);
+    resetReads();
+    await workspace.stop(target.id);
+    await frame();
+    expect(io.headerReads).toBeLessThanOrEqual(files.length + 3);
+    expect(fs.createReadStream).not.toHaveBeenCalled();
+  } finally {
+    await reader.cancel();
+  }
+});
+
 it("resolves an unknown authoritative header ID without streaming archive bodies", async () => {
   const files = Array.from({ length: 60 }, (_, index) => session(index));
   const target = files[59];
@@ -120,7 +198,7 @@ it("resolves an unknown authoritative header ID without streaming archive bodies
   expect(fs.createReadStream).not.toHaveBeenCalled();
 });
 
-it("keeps older children discoverable and explicitly expands exact child pages", async () => {
+it("shows plain known-child counts without checking controls and retains exact child navigation", async () => {
   const files = Array.from({ length: 140 }, (_, index) => session(index));
   const parent = files[0],
     selected = files[139];
@@ -149,30 +227,32 @@ it("keeps older children discoverable and explicitly expands exact child pages",
     staticRoot: "static",
   });
   const initial = await workspace.sidebar();
-  expect(initial.rows[0]).toMatchObject({
-    summary: { id: parent.id },
-    childrenIncomplete: true,
-  });
+  expect(initial.rows[0]?.summary.id).toBe(parent.id);
   expect(initial.rows[0]?.childCount).toBeUndefined();
   const html = await (await app.request("/sidebar/rows")).text();
-  expect(html).toContain("Check sub-sessions");
+  expect(html).not.toContain("Check sub-sessions");
+  expect(html).not.toContain('class="session-children"');
   const linked = await workspace.sidebar({ selectedId: selected.id });
   expect(linked.rows[0]).toMatchObject({
     childCount: 1,
-    childrenIncomplete: true,
-    children: { incomplete: true },
+    children: { rows: [{ summary: { id: selected.id } }] },
   });
   const linkedHtml = await (
     await app.request(`/sidebar/rows?selected=${selected.id}`)
   ).text();
-  expect(linkedHtml).toContain("1+ sub-sessions");
-  expect(linkedHtml).toContain("Load all sub-sessions");
+  expect(linkedHtml).toContain("1 sub-session");
+  expect(linkedHtml).not.toContain("1+ sub-sessions");
+  expect(linkedHtml).not.toContain("Load all sub-sessions");
+  expect(linkedHtml).toContain(`href="/sessions/${selected.id}"`);
+  resetReads();
   const expanded = await workspace.sidebar({ parentId: parent.id });
   expect(expanded.rows).toHaveLength(50);
   expect(expanded.nextOffset).toBe(50);
-  expect(expanded.incomplete).toBeUndefined();
-  expect(expanded.rows.every((row) => !row.childrenIncomplete)).toBe(true);
+  // Expansion classifies the remaining inventory, sharing existing EOF reads.
+  expect(fs.createReadStream).toHaveBeenCalledTimes(88);
+  resetReads();
   const later = await workspace.sidebar({ parentId: parent.id, offset: 50 });
+  expect(fs.createReadStream).not.toHaveBeenCalled();
   expect(later.rows).toHaveLength(20);
   expect(later.nextOffset).toBeUndefined();
   const emptyChildPage = await (
@@ -368,7 +448,7 @@ it("measures cold, warm, changed and later-page discovery for 15000 real files w
   resetReads();
   const refreshed = await workspace.sidebar();
   expect(refreshed.rows[0]?.summary.id).toBe(oldest.id);
-  expect(refreshed.rows[0]?.childrenIncomplete).toBe(true);
+  expect(refreshed.rows[0]?.childCount).toBe(1);
   const changedRefresh = measured();
   expect(changedRefresh.streams).toBeLessThan(5);
   expect(weights.reduce((sum, n) => sum + n, 0)).toBe(8000000000);

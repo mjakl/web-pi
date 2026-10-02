@@ -378,7 +378,7 @@ describe("Pi session catalog", () => {
       const kept = makeSession(["kept"]);
       const file = fileOf(removed);
       const catalog = createPiSessionCatalog({ agentDir: root });
-      await catalog.list();
+      await catalog.pathOf(removed.getSessionId());
       if (phase === "header") {
         const stat = fsp.stat;
         vi.spyOn(fsp, "stat").mockImplementationOnce(async (...args) => {
@@ -406,7 +406,7 @@ describe("Pi session catalog", () => {
   it("does not hide unexpected errors while reading metadata", async () => {
     const manager = makeSession(["hello"]);
     const catalog = createPiSessionCatalog({ agentDir: root });
-    await catalog.list();
+    await catalog.pathOf(manager.getSessionId());
     vi.spyOn(fs, "createReadStream").mockImplementationOnce(() => {
       throw new TypeError("unexpected reader bug");
     });

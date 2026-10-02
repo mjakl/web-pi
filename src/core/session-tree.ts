@@ -6,9 +6,25 @@ export type SessionTreeNode = {
   parentId?: string;
 };
 
+export type SessionTreeScore = { rank: number; modifiedAt: string };
+
+export function compareSessionTreeScores(
+  left: SessionTreeScore,
+  leftId: string,
+  right: SessionTreeScore,
+  rightId: string,
+): number {
+  return (
+    left.rank - right.rank ||
+    right.modifiedAt.localeCompare(left.modifiedAt) ||
+    leftId.localeCompare(rightId)
+  );
+}
+
 export type SessionTree = {
   roots: SessionTreeNode[];
   byId: ReadonlyMap<string, SessionTreeNode>;
+  scores: ReadonlyMap<string, SessionTreeScore>;
 };
 
 /** Delegation is the only edge: Pi's parentId describes a fork, not a child. */
@@ -45,7 +61,7 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
   }
 
   const roots: SessionTreeNode[] = [];
-  const scores = new Map<string, { rank: number; modifiedAt: string }>();
+  const scores = new Map<string, SessionTreeScore>();
   const remaining = new Map<string, number>();
   for (const [id, node] of byId) {
     const parentId = parents.get(id);
@@ -68,11 +84,7 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
     const left = scores.get(a.summary.id);
     const right = scores.get(b.summary.id);
     if (!left || !right) throw new Error("Missing session tree rank");
-    return (
-      left.rank - right.rank ||
-      right.modifiedAt.localeCompare(left.modifiedAt) ||
-      a.summary.id.localeCompare(b.summary.id)
-    );
+    return compareSessionTreeScores(left, a.summary.id, right, b.summary.id);
   };
   // Leaves first avoids recursive walks even for deeply nested delegation.
   for (const node of ready) {
@@ -93,8 +105,10 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
     if (left === 0) ready.push(parent);
   }
   roots.sort(compare);
-  return { roots, byId };
+  return { roots, byId, scores };
 }
+
+export const SESSION_TREE_PAGE_SIZE = 50;
 
 export type SessionTreePageOptions = {
   offset?: number;
@@ -127,12 +141,18 @@ export function sessionTreePage(
     selectedPath.has(node.summary.id),
   );
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
-  const next = offset + 50;
+  const next = offset + SESSION_TREE_PAGE_SIZE;
   const nodes = siblings
     .slice(offset, next)
-    .filter((node) => offset === 0 || pinned < 50 || node !== siblings[pinned]);
+    .filter(
+      (node) =>
+        offset === 0 ||
+        pinned < SESSION_TREE_PAGE_SIZE ||
+        node !== siblings[pinned],
+    );
   const pinnedNode = siblings[pinned];
-  if (offset === 0 && pinned >= 50 && pinnedNode) nodes.push(pinnedNode);
+  if (offset === 0 && pinned >= SESSION_TREE_PAGE_SIZE && pinnedNode)
+    nodes.push(pinnedNode);
   return {
     nodes,
     selectedPath,

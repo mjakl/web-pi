@@ -460,9 +460,21 @@ export function sessionUseCases({
       return recentProjects(await listedSessions());
     },
 
-    /** Build the global tree before paging roots or any parent's children. */
+    /** Certify root order adaptively; explicit child pages resolve all edges. */
     async sidebar(options: SessionTreePageOptions = {}): Promise<SidebarView> {
-      const tree = sessionTree(await listedSessions());
+      const snapshots = new Map(
+        deps.runtime.live().map((live) => [live.id, live.snapshot()]),
+      );
+      const discovery = await deps.sessions.discover({
+        ...options,
+        exhaustive: options.parentId !== undefined,
+        runtime: [...snapshots.values()].map((snapshot) => ({
+          ...snapshot.summary,
+          live: true,
+          running: snapshot.status.running,
+        })),
+      });
+      const tree = sessionTree(await decorate(discovery.summaries, snapshots));
       async function pageOf(
         pageOptions: SessionTreePageOptions,
       ): Promise<SidebarView> {
@@ -480,6 +492,7 @@ export function sessionUseCases({
               ...found,
               summary: { ...summary, ...found.summary },
               ...(children.length > 0 ? { childCount: children.length } : {}),
+              ...(!discovery.complete ? { childrenIncomplete: true } : {}),
               ...(preload
                 ? {
                     children: await pageOf({
@@ -498,6 +511,7 @@ export function sessionUseCases({
           ...(pageOptions.parentId === undefined
             ? {}
             : { parentId: pageOptions.parentId }),
+          ...(!discovery.complete ? { incomplete: true } : {}),
           ...(page.nextOffset === undefined
             ? {}
             : { nextOffset: page.nextOffset }),

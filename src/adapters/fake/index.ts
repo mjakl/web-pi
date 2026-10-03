@@ -1,4 +1,5 @@
 import { createDirectoryBrowser } from "@adapters/fs/browse";
+import { createPushSuppression } from "@core/push-suppression";
 import {
   DEFAULT_WEB_SETTINGS,
   webSettingsPatch,
@@ -971,6 +972,10 @@ export function createFakeWorld(
   let settings = { ...DEFAULT_WEB_SETTINGS };
   let modelPatterns: string[] | null = null;
   const sent: PushMessage[] = [];
+  const pushSuppression = createPushSuppression({
+    consumed: false,
+    persist: () => {},
+  });
   let created = 0;
 
   function announce(event: RuntimeEvent): void {
@@ -1403,6 +1408,7 @@ export function createFakeWorld(
     },
     push: {
       sent,
+      reportPresence: pushSuppression.report,
       // A valid public P-256 point, with no private key or external push sender.
       publicKey: () =>
         "BMXGy05tVdLOgy_ESb48d-bhyRPewByAhqioc-LnQqJzSlFP_1d0wOfKbjc1eDyY3hFN3xv2X2RMOmLlJIfiI5o",
@@ -1430,7 +1436,8 @@ export function createFakeWorld(
         );
       },
       send: (message) => {
-        if (subscriptions.length > 0) sent.push(message);
+        if (subscriptions.length > 0 && pushSuppression.claim())
+          sent.push(message);
         return Promise.resolve();
       },
     },

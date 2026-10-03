@@ -763,7 +763,20 @@ it("retains progressively loaded global rows across cross-directory navigation",
   ).toHaveLength(68);
   const list = b.document.querySelector("#session-list");
   const stream = b.document.querySelector("#sidebar-events");
+  // Parallel DOM work can outlast the display poll while a valid swap is pending.
+  const navigationDone = b.window.eval(`new Promise((resolve, reject) => {
+    const finished = event => {
+      const ctx = event.detail.ctx;
+      if (new URL(ctx.request.action, location.href).pathname !== '/sessions/page-0') return;
+      document.removeEventListener('htmx:finally:request', finished);
+      if (ctx.request.signal.aborted || ctx.response?.status !== 200 || ctx.status !== 'swapped')
+        reject(new Error('Navigation did not finish successfully'));
+      else resolve();
+    };
+    document.addEventListener('htmx:finally:request', finished);
+  })`) as Promise<void>;
   click(b, "page-0");
+  await navigationDone;
   await displayed(b, "page-0");
   expect(
     b.document.querySelectorAll("#session-list .session-row"),

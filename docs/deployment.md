@@ -120,8 +120,11 @@ otherwise usually `~/.pi/agent`. Current web-pi owns these standalone files:
   stored here: Settings → Models edits Pi's global `enabledModels` in
   `<agentDir>/settings.json`, shared with terminal Pi. Project overrides remain
   in `.pi/settings.json` and apply only in trusted projects.
-- `<agentDir>/web-pi/push.json`: private VAPID identity and browser
-  subscriptions.
+- `<agentDir>/web-pi/push.json`: private VAPID identity, browser subscriptions,
+  and the global `awayConsumed` latch. `true` means the one away broadcast has
+  been used; `false` means a foreground return has rearmed it. A legacy file
+  without the latch allows one initial away broadcast. Malformed latch values
+  fail startup rather than resetting the allowance.
 - `<agentDir>/web-pi/worktree-projects.json`: remembered folder/project
   mappings.
 
@@ -129,6 +132,33 @@ Writes use private **0600** files and atomic replacement. The folder is created
 with mode **0700**. Shared Pi sessions, `settings.json`, trust, auth, models,
 skills and packages are not relocated or reset. Session-embedded web metadata,
 such as stars, stays in Pi's session files.
+
+### Push allowance persistence and failures
+
+The notifier synchronously writes and flushes `awayConsumed: true` before
+attempting any broadcast. Concurrent completions cannot claim the same
+allowance. Delivery failures still consume it: all subscriptions enrolled at
+admission are attempted once, there is no automatic retry until a foreground
+return, and HTTP 404/410 subscriptions are pruned as before. Other delivery
+failures retain enrollment. A foreground return durably writes `false` only when
+the latch needs rearming; active lease refreshes otherwise do not write.
+Enrollment changes, reading the public key and pruning do not rearm it.
+
+If consumption cannot be persisted, no broadcast starts and this running server
+keeps the allowance consumed in memory. Later enrollment writes preserve that
+conservative latch. If rearming cannot be persisted, it remains consumed in
+memory; a later foreground report retries the write. These failures log a safe
+diagnostic without endpoints or keys. A pruning write failure does not refund an
+already consumed allowance or retry delivery.
+
+No process can guarantee crash persistence when storage itself cannot be
+written. Atomic replacement can also finish before a later directory flush
+reports failure. On restart the server reads the file actually left on disk; it
+refuses unreadable or malformed state but cannot recover an in-memory latch that
+was never saved. Resolve storage errors before restarting rather than using
+restart to retry notifications. Foreground leases and their short-lived ordering
+records are memory-only and expire after 60 seconds; the durable latch survives
+ordinary restarts. Reporting remains best effort while clients reconnect.
 
 ### Upgrade an existing installation
 

@@ -10,12 +10,16 @@ import { setUpFiles } from "./files.ts";
 import { setUpRequestFields } from "./htmx.ts";
 import { setUpSseStartup } from "./sse.ts";
 import { setUpNavigation } from "./navigation.ts";
+import { setUpPushPresence } from "./push-presence.ts";
 
-setUpRequestFields();
-setUpSseStartup();
-setUpShell();
-setUpSidebar();
-setUpTranscript();
-setUpComposer();
-setUpFiles();
-setUpNavigation();
+setUpPushPresence();
+if (!document.body.hasAttribute("data-offline-page")) {
+  setUpRequestFields();
+  setUpSseStartup();
+  setUpShell();
+  setUpSidebar();
+  setUpTranscript();
+  setUpComposer();
+  setUpFiles();
+  setUpNavigation();
+}

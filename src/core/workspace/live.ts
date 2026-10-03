@@ -12,6 +12,7 @@ import type {
   LiveSession,
   PromptInput,
   PushSubscription,
+  PushPresence,
   ThinkingLevel,
   ToolView,
 } from "@core/ports";
@@ -47,9 +48,8 @@ export function liveUseCases({
   summaryOf,
 }: Shared) {
   /**
-   * A finished run reaches every subscribed browser, open tab or not. The
-   * service worker decides whether to show it: a visible window already heard
-   * about it through the session stream.
+   * Eligible root completions ask the notifier for the global away allowance.
+   * The worker always displays received pushes; suppression happens before send.
    */
   deps.runtime.subscribeAll((event) => {
     if (event.type !== "completed") return;
@@ -189,6 +189,10 @@ export function liveUseCases({
     /** The VAPID public key a browser needs to subscribe to push. */
     pushKey(): string {
       return deps.push.publicKey();
+    },
+
+    reportPushPresence(presence: PushPresence): void {
+      deps.push.reportPresence(presence);
     },
 
     subscribePush(subscription: PushSubscription): void {

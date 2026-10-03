@@ -349,6 +349,97 @@ describe("installable app", () => {
 });
 
 describe("web push routes", () => {
+  it("accepts enrollment-independent presence and suppresses completion delivery until all pages leave", async () => {
+    const { app, world } = testApp(() => [{ text: "done" }]);
+    world.push.subscribe({
+      endpoint: "https://push.example/enrolled-device",
+      keys: { p256dh: "p", auth: "a" },
+    });
+    const report = (clientId: string, sequence: number, foreground: boolean) =>
+      app.request("/push/presence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, sequence, foreground }),
+      });
+    const response = await report("settings-with-no-enrollment", 1, true);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await report("another-session-on-phone", 1, true);
+    await send(app, "go");
+    await settle();
+    expect(world.push.sent).toEqual([]);
+    await report("settings-with-no-enrollment", 2, false);
+    await send(app, "again");
+    await settle();
+    expect(world.push.sent).toEqual([]);
+    await report("another-session-on-phone", 2, false);
+    await send(app, "away");
+    await settle();
+    await send(app, "still away");
+    await settle();
+    expect(world.push.sent).toHaveLength(1);
+    await report("restored-page", 1, false);
+    await send(app, "hidden load");
+    await settle();
+    expect(world.push.sent).toHaveLength(1);
+    await report("restored-page", 2, true);
+    await report("restored-page", 3, false);
+    await send(app, "away again");
+    await settle();
+    expect(world.push.sent).toHaveLength(2);
+  });
+
+  it.each([
+    null,
+    { clientId: "", sequence: 1, foreground: true },
+    { clientId: "a".repeat(65), sequence: 1, foreground: true },
+    { clientId: "one", sequence: 0, foreground: true },
+    { clientId: "one", sequence: 1.5, foreground: true },
+    { clientId: "one", sequence: 1, foreground: "true" },
+  ])("rejects malformed presence %j", async (presence) => {
+    const { app } = testApp(() => []);
+    expect(
+      (
+        await app.request("/push/presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(presence),
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it("does not spend the global allowance on an inspection-only subagent completion", async () => {
+    const world = createFakeWorld({
+      delayMs: 1,
+      sessions: ["subagent.child", "root"].map((id) => ({
+        summary: {
+          id,
+          cwd: "/repo",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          modifiedAt: "2026-09-02T00:00:00.000Z",
+          fileSize: 10,
+        },
+        entries: [userEntry(`u-${id}`, null, "hello")],
+      })),
+      script: () => [{ text: "done" }],
+    });
+    createWorkspace(world);
+    world.push.subscribe({
+      endpoint: "https://push.example/one",
+      keys: { p256dh: "p", auth: "a" },
+    });
+    const child = await world.runtime.open({ sessionId: "subagent.child" });
+    await child.prompt("go");
+    await settle();
+    expect(world.push.sent).toEqual([]);
+    const root = await world.runtime.open({ sessionId: "root" });
+    await root.prompt("go");
+    await settle();
+    expect(world.push.sent).toHaveLength(1);
+    expect(world.push.sent[0]?.url).toBe("/sessions/root");
+  });
+
   it("hands out the public key", async () => {
     const { app } = testApp(() => []);
     const body = (await (await app.request("/push/config")).json()) as {

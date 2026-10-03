@@ -542,6 +542,13 @@ export type PushMessage = {
   tag: string;
 };
 
+/** A document's ordered, enrollment-independent foreground report. */
+export type PushPresence = {
+  clientId: string;
+  sequence: number;
+  foreground: boolean;
+};
+
 /**
  * Web Push, so a closed tab still hears about a finished turn. Keys and
  * subscriptions live in Pi's agent directory; nothing leaves this machine
@@ -554,6 +561,8 @@ export type PushNotifier = {
   subscribe(subscription: PushSubscription): void;
   has(subscription: PushSubscription): boolean;
   unsubscribe(subscription: PushSubscription): void;
-  /** Sends to every subscription, dropping the ones the service rejects. */
+  /** Refresh or release this document's foreground lease, rearming on foreground. */
+  reportPresence(presence: PushPresence): void;
+  /** Claims the durable away allowance, then broadcasts to every subscription. */
   send(message: PushMessage): Promise<void>;
 };

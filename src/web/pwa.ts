@@ -193,7 +193,7 @@ async function cacheFirst(request) {
 }
 
 /** Served from the cache when the local server is not answering. */
-export function offlinePage(): string {
+export function offlinePage(assets: Pick<StaticAssets, "js">): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -201,6 +201,7 @@ export function offlinePage(): string {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="${THEME_COLOUR}" />
     <title>web-pi is offline</title>
+    <script type="module" src="${assets.js}"></script>
     <style>
       :root { color-scheme: dark; background: ${THEME_COLOUR}; color: #e8e8e8;
         font-family: system-ui, sans-serif; }
@@ -213,7 +214,7 @@ export function offlinePage(): string {
         font: inherit; cursor: pointer; }
     </style>
   </head>
-  <body>
+  <body data-offline-page>
     <main>
       <h1>web-pi is offline</h1>
       <p>Start the local web-pi server, then try again.</p>

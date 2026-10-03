@@ -129,6 +129,8 @@ export async function htmxBrowser(
     }
   };`);
     window.document.write(markup);
+    // Detached realms have no OS window focus. Presence tests supply it explicitly.
+    window.document.hasFocus = () => false;
     options.afterMarkup?.(window);
     // happy-dom's ID cache uses insertion order for duplicate IDs. Native
     // hx-preserve temporarily puts the old ID in a pantry after body; browsers

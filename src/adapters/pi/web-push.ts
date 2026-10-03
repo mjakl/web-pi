@@ -6,6 +6,7 @@ import {
   writeWebState,
 } from "@adapters/fs/web-state";
 import { isPushSubscription } from "@core/push";
+import { createPushSuppression } from "@core/push-suppression";
 import { createECDH } from "node:crypto";
 import webpush from "web-push";
 
@@ -16,7 +17,12 @@ const SUBJECT = "https://github.com/mjakl/web-pi";
 
 type Keys = { publicKey: string; privateKey: string };
 
-type State = { vapidKeys: Keys; subscriptions: PushSubscription[] };
+type State = {
+  vapidKeys: Keys;
+  subscriptions: PushSubscription[];
+  /** Absent in legacy files: one initial away broadcast is allowed. */
+  awayConsumed?: boolean;
+};
 
 function parseState(value: unknown): State {
   if (!value || typeof value !== "object")
@@ -26,7 +32,9 @@ function parseState(value: unknown): State {
     typeof state.vapidKeys?.publicKey !== "string" ||
     typeof state.vapidKeys.privateKey !== "string" ||
     !Array.isArray(state.subscriptions) ||
-    !state.subscriptions.every(isPushSubscription)
+    !state.subscriptions.every(isPushSubscription) ||
+    (state.awayConsumed !== undefined &&
+      typeof state.awayConsumed !== "boolean")
   ) {
     throw new Error("Invalid push state");
   }
@@ -88,7 +96,26 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
     state = next;
   };
 
+  const suppression = createPushSuppression({
+    consumed: state.awayConsumed ?? false,
+    persist: (awayConsumed) => {
+      const next = { ...state, awayConsumed };
+      try {
+        save(next);
+      } catch {
+        // Never let a later enrollment write revive an unsuccessfully claimed
+        // allowance. Rearming, in contrast, takes effect only after a good save.
+        if (awayConsumed) state = next;
+        process.stderr.write(
+          "[web-pi] push allowance persistence failed; pushes suppressed until foreground persistence succeeds\n",
+        );
+        throw new Error("Cannot persist push allowance");
+      }
+    },
+  });
+
   return {
+    reportPresence: suppression.report,
     publicKey(): string {
       // Reading the key is what first persists a freshly generated pair: a
       // browser cannot subscribe to keys the next restart would throw away.
@@ -129,7 +156,7 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
       });
     },
     async send(message: PushMessage): Promise<void> {
-      if (state.subscriptions.length === 0) return;
+      if (state.subscriptions.length === 0 || !suppression.claim()) return;
       const payload = JSON.stringify(message);
       let pruned = false;
       for (const subscription of [...state.subscriptions]) {

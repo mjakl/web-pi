@@ -1,4 +1,4 @@
-import { isPushSubscription } from "@core/push";
+import { isPushPresence, isPushSubscription } from "@core/push";
 import { webSettingsPatch } from "@core/web-settings";
 // Pages, the top-bar panels, settings, extension dialogs, trust, push,
 // and the installable-app files. The shell area owns this module.
@@ -740,7 +740,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     return c.body(serviceWorker(assets));
   });
 
-  app.get(OFFLINE_URL, (c) => c.html(offlinePage()));
+  app.get(OFFLINE_URL, (c) => c.html(offlinePage(assets)));
 
   /** The key a browser needs before it can subscribe; the private one stays. */
   app.get("/push/config", (c) => {
@@ -750,6 +750,14 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/push/:action", async (c) => {
     const action = c.req.param("action");
+    if (action === "presence") {
+      const presence: unknown = await c.req.json().catch(() => undefined);
+      c.header("Cache-Control", "no-store");
+      if (!isPushPresence(presence))
+        return c.json({ error: "Invalid push presence" }, 400);
+      deps.workspace.reportPushPresence(presence);
+      return c.json({ ok: true });
+    }
     if (!["subscribe", "unsubscribe", "status"].includes(action))
       return c.notFound();
     const body: unknown = await c.req.json().catch(() => undefined);

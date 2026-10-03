@@ -138,11 +138,43 @@ and iPad, use an installed Home Screen web app, not an ordinary browser tab.
 Supported desktop tabs need not be installed. Delivery depends on the browser,
 push service and OS; enrollment is not a delivery guarantee.
 
-Every received push displays a system notification, even with a visible window.
-The page plays the completion tone but does not duplicate that notification.
-Extension input requests retain their browser dialog and tone. The generated
-service worker caches static assets and the offline page, not session history or
-commands.
+Outbound completion pushes use one app-wide away allowance. Foreground means a
+page is both visible and focused, on any device, in any session or Settings,
+even without push enrollment. While any page is foreground, this server
+suppresses system pushes to every subscription. After all pages leave, the first
+eligible completion broadcasts once to every enrolled subscription. Further
+completions are suppressed until a page genuinely returns to foreground; there
+is no queue or summary of skipped completions. The allowance is consumed before
+attempting delivery, even if every send fails, and survives server restarts. A
+completion with no enrolled subscriptions does not spend it.
+
+A visible, focused launch, focus return, restored page, PWA icon launch or
+notification navigation rearms the allowance. A hidden background load or
+notification dismissal does not. Each document reports immediately on foreground
+entry, refreshes every **20 seconds** while foreground, and releases its lease
+on blur, hiding or page departure. The server expires reports after **60
+seconds**, so a killed, suspended or offline page cannot suppress indefinitely.
+A resumed foreground refresh confirms presence and rearms a consumed allowance;
+ordinary active refreshes do not continually write or spend the allowance. Tabs
+and devices have separate leases, and out-of-order reports cannot override a
+newer report retained within that lease window.
+
+Foreground reporting and delivery are best effort. A lost foreground report can
+allow a push, and a lost departure can suppress it until expiry. Live leases are
+not persisted: after a restart, still-open pages reconfirm on their next refresh
+or lifecycle event. The cached offline page also loads the precached presence
+reporter and reconfirms foreground once connectivity returns. Pushes already in
+flight cannot be recalled on return; the whole admitted broadcast is still
+attempted. This policy covers one web-pi server per agent directory, not
+accounts or coordination between servers. See
+[Deployment](deployment.md#web-state-cutover-and-reset) for persistence and
+write-failure behavior.
+
+Every received push still displays a system notification, even with a visible
+window. The page's completion tone is unchanged and does not duplicate that
+notification. Extension input requests retain their browser dialog and tone. The
+generated service worker caches static assets and the offline page, not session
+history or commands.
 
 ## Unfinished work retained from the port
 

@@ -30,7 +30,7 @@ Internal interfaces, all consumers in this repository. Defined in
 | `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                            | `src/adapters/fs/file-tree.ts`       |
 | `Git`              | `git status` of a folder and the patch for one file                                                                                 | `src/adapters/git/git.ts`            |
 | `Watcher`          | One file's changes on disk, deduplicated                                                                                            | `src/adapters/fs/watch.ts`           |
-| `PushNotifier`     | VAPID identity, per-browser enrollment and encrypted completion messages                                                            | `src/adapters/pi/web-push.ts`        |
+| `PushNotifier`     | VAPID identity, per-browser enrollment, app-wide foreground leases and durable away-broadcast admission                             | `src/adapters/pi/web-push.ts`        |
 
 `WebSettingsStore` in `src/core/web-settings.ts` owns shared General
 preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
@@ -598,13 +598,28 @@ composition root and the only importer of Pi adapters.
   `src/core/turn-completion.ts` is pi-web's rule: a run has to have started, and
   the session has to be idle when it settles. A stop, an abort before the model
   answered, or a shell command on its own never notifies. The adapter turns that
-  into a `completed` runtime event; the server sends one Web Push from it, and
-  the session stream sends `done` to the page for the shared completion tone.
-  The service worker alone displays completion notifications, for every received
-  push even if a window is visible, as Apple requires. Extension input requests
-  retain their dialog and tone, not a second system-notification path. This
-  covers completed runs in this web server, not terminal Pi; OS delivery is not
-  guaranteed.
+  into a `completed` runtime event; eligible root completions ask `PushNotifier`
+  for the global away allowance, and the session stream sends `done` to the page
+  for the shared completion tone. The service worker alone displays completion
+  notifications, for every received push even if a window is visible, as Apple
+  requires. Extension input requests retain their dialog and tone, not a second
+  system-notification path. This covers completed runs in this web server, not
+  terminal Pi; OS delivery is not guaranteed.
+- **Outbound push suppression belongs to the server, not the worker.** Every
+  document reports visible-and-focused presence independently of session,
+  Settings and enrollment. The cached offline page loads the same client bundle
+  in presence-only mode, so it can reconfirm when connectivity returns without
+  initializing the ordinary app or HTMX. A foreground lease refreshes every 20 s
+  and expires after 60 s. `src/core/push-suppression.ts` aggregates leases,
+  rejects older report sequences within the lease window, and synchronously
+  claims the one away broadcast. `PushNotifier` persists its latch in
+  `web-pi/push.json` before sending to every subscription; a foreground return
+  durably rearms it. Live leases are memory-only. No skipped completion is
+  queued, and delivery failures do not refund the allowance. One server owns one
+  agent directory. The
+  [behavior contract](behavior.md#extensions-and-notifications) and
+  [persistence failure rules](deployment.md#push-allowance-persistence-and-failures)
+  describe the best-effort and restart limits.
 - **The service worker is generated, not shipped.** Its precache list has to
   name this build's hashed asset URLs, so `src/web/pwa.ts` writes the script and
   `/sw.js` serves it uncached with the asset hash as its version. It caches

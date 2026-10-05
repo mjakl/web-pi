@@ -1,35 +1,5 @@
-import { createWebApp } from "@web/app";
-import { serve } from "@hono/node-server";
-import { homedir } from "node:os";
-import { loadConfig } from "./config.ts";
-import { createDeps } from "./container.ts";
-import { configureHttpDispatcher } from "./http.ts";
-import { linkedPiVersion, webPiVersion } from "./host-pi.ts";
+import { bundledPiVersion } from "./pi-version.ts";
 
-configureHttpDispatcher();
-
-const config = loadConfig();
-const { workspace } = createDeps(config);
-const piVersion = linkedPiVersion() ?? "unknown";
-const app = createWebApp({
-  workspace,
-  staticRoot: config.staticRoot,
-  defaultCwd: config.defaultCwd,
-  home: homedir(),
-});
-
-const server = serve(
-  { fetch: app.fetch, hostname: config.host, port: config.port },
-  (info) => {
-    process.stdout.write(
-      `web-pi ${webPiVersion()} listening on http://${info.address}:${String(info.port)} (pi ${piVersion}, ${config.runtime} runtime)\n`,
-    );
-  },
-);
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    server.close();
-    setTimeout(() => process.exit(0), 2000).unref();
-  });
-}
+// Keep SDK imports behind ownership validation, including direct server starts.
+bundledPiVersion();
+await import(new URL("./server-runtime.js", import.meta.url).href);

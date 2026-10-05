@@ -1,23 +1,19 @@
+import { resolveBundledPi } from "@/pi-version";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { findPackageJSON } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 // Pi's HTML export lives behind the package's export map, so the CLI runs it,
 // the same way pi-web does. It is spawned under this process's own Node binary
-// (never `pi` from PATH) so the SDK that renders matches the one linked here.
+// (never `pi` from PATH) so the SDK that renders matches the local SDK loaded here.
 
 const run = promisify(execFile);
 
 function cliPath(): string {
-  const manifest = findPackageJSON(
-    "@earendil-works/pi-coding-agent",
-    import.meta.url,
-  );
-  if (!manifest) throw new Error("The Pi SDK is not linked into node_modules");
+  const manifest = resolveBundledPi().codingAgentManifest;
   return join(dirname(manifest), "dist", "bundle", "cli.js");
 }
 

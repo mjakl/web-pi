@@ -10,11 +10,12 @@ the browser keeps drafts and presentation preferences, not a second transcript.
 - Use `pnpm` and the tool pins in `mise.toml`. Automation lives in the
   `justfile`; do not add `package.json` scripts.
 - Run one complete final local gate before handoff: `just qa` (fix, lint, test),
-  or `just ci` (build, lint, test, package smoke) when non-mutating validation
-  is needed. Do not routinely run both on unchanged inputs. Keep focused
-  development checks and the distinct package checks required below. After
-  executable changes, rerun the gate; after prose-only corrections, recheck
-  content, links, and the diff, reusing still-relevant runtime evidence.
+  or `just ci` (build, lint, test, package smoke) when non-fixing validation is
+  needed (the build intentionally refreshes Pi dependencies). Do not routinely
+  run both on unchanged inputs. Keep focused development checks and the distinct
+  package checks required below. After executable changes, rerun the gate; after
+  prose-only corrections, recheck content, links, and the diff, reusing
+  still-relevant runtime evidence.
 - Non-executable documentation-only changes may use content, link/path, and diff
   checks instead of an application gate. Run
   `node scripts/check-doc-path-references.ts` (Node 24) and `git diff --check`,
@@ -34,12 +35,15 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   Pi's agent directory itself and installs into the real `~/.pi/agent/skills`
   and `~/.agents/.skill-lock.json` whatever `PI_CODING_AGENT_DIR` says. Do not
   run a skill install from a test or an unattended check.
-- The Pi SDK is never pinned: `src/host-pi.ts` points
-  `node_modules/@earendil-works/*` at the `pi` on `PATH`. In a checkout
-  `prepare` and every `just` recipe that compiles or runs code re-link first; in
-  an installed package the bin does it on every start. Pi must be installed
-  separately; `just doctor` reports which install was resolved. Never add an
-  `@earendil-works/*` dependency to `package.json`.
+- Pi is a local runtime dependency, not the system `pi`. Every `just build`
+  queries the stable `latest` tag and updates exact Pi dependencies and the
+  lockfile before typechecking and bundling. Keep the named Pi runtime
+  release-age exceptions in `pnpm-workspace.yaml` narrow; other dependencies
+  retain their 24-hour delay. Commit manifest and lockfile changes together.
+  `just doctor` validates ownership and versions as well as reporting the SDK.
+  Keep public startup paths behind the guarded `src/server.ts` bootstrap;
+  `src/server-runtime.ts` contains the SDK module graph. Startup must not
+  update, relink, or discover a system Pi.
 - `dependencies` are only what stays external in `dist/server.js` (the Pi SDK,
   `web-push`, `undici`); everything else esbuild bundles and belongs in
   `devDependencies`. Changing either list means running `just smoke`.
@@ -75,13 +79,14 @@ src/web        Hono routes, JSX views, HTMX/SSE delivery, client bundle, the
                item kind behind the views/Items.tsx barrel
 src/web/styles plain CSS, grouped by component owner; index.css fixes cascade
 src/container.ts  the only file that wires adapters into the core
-src/server.ts  process entrypoint; src/cli.ts the flags and startup behind the
-               bin, src/host-pi.ts the SDK resolution both of them use,
+src/server.ts  ownership-checked bootstrap; src/server-runtime.ts the server,
+               src/cli.ts the flags and startup behind the bin, src/dev.ts its
+               source entrypoint, src/pi-version.ts the runtime ownership check,
                src/http.ts the proxy-aware global dispatcher
 bin/web-pi.js  the published entry point: imports dist/cli.js, nothing else
 tests/         vitest, mirrors src/ and scripts/; tests/client runs the
                bundle's modules in happy-dom, tests/smoke only from `just smoke`
-scripts/       repository tooling: host Pi linking, doctor, doc checks
+scripts/       repository tooling: build-time Pi refresh, doctor, doc checks
 ```
 
 Rules enforced by `.oxlintrc.json`:
@@ -95,9 +100,10 @@ Rules enforced by `.oxlintrc.json`:
   and the client bundle all build markup from untrusted text, and a second
   escaper is how one of them ends up missing an entity.
 - Hono JSX uses `class`, never `className`. No dynamic imports in `src/`; the
-  two exceptions carry a narrowed lint override — `src/web/client/mermaid.ts`
-  loads the separately bundled `static/mermaid.js` by URL, and `src/cli.ts`
-  loads the server only after the SDK links are in place.
+  three exceptions carry a narrowed lint override — `src/web/client/mermaid.ts`
+  loads the separately bundled `static/mermaid.js` by URL, `src/cli.ts` loads
+  the server after flags reach the environment, and `src/server.ts` loads the
+  SDK module graph only after ownership validation.
 - `src/web/client/*` is bundled by esbuild and may import `@core/*`; anything it
   imports must run in a browser (no Node, no SDK). `main.ts` and
   `mermaid-lib.ts` are the two bundle entry points.

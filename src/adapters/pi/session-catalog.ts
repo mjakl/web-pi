@@ -219,7 +219,7 @@ export type PiSessionCatalog = SessionCatalog & {
  * Where Pi's own `SessionManager.create(cwd)` would store a new session for
  * this agent directory. The SDK derives that from `PI_CODING_AGENT_DIR` and
  * does not export the encoding, so it is mirrored here and checked against the
- * host Pi in session-files.test.ts; the runtime passes it so the agent
+ * bundled Pi in session-files.test.ts; the runtime passes it so the agent
  * directory it was given, not the environment, decides where sessions land.
  */
 export function defaultSessionDir(agentDir: string, cwd: string): string {

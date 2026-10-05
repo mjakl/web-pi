@@ -256,7 +256,7 @@ describe("Pi session catalog", () => {
     expect(await catalog.folder(manager.getSessionId())).toBeUndefined();
   });
 
-  it("stores a new session where the host Pi's SessionManager would", () => {
+  it("stores a new session where the bundled Pi's SessionManager would", () => {
     // The SDK reads its default store from PI_CODING_AGENT_DIR and keeps the
     // cwd encoding private, so this is the one test that sets the variable:
     // it pins the mirrored encoding to whatever Pi is on PATH.

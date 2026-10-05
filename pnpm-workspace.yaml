@@ -1,5 +1,17 @@
 packages: []
 
+# Builds follow Pi's stable latest immediately; other packages keep the delay.
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@earendil-works/pi-coding-agent"
+  - "@earendil-works/pi-ai"
+  - "@earendil-works/pi-agent-core"
+  - "@earendil-works/pi-tui"
+  - "@earendil-works/pi-codemode"
+  - "@earendil-works/pi-mcp"
+  - "@earendil-works/pi-telemetry"
+  - "@earendil-works/chord"
+
 allowBuilds:
   "@google/genai": false
   "@parcel/watcher": true

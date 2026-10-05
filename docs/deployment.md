@@ -7,9 +7,10 @@ journal.
 ## Install
 
 Build a tarball from a checkout and install it globally, as
-[the README](../README.md) describes. The install directory has to stay
-writable: the bin symlinks the Pi SDK into its own `node_modules` at startup,
-which is how a Pi upgrade reaches web-pi without a reinstall.
+[the README](../README.md) describes. The package installs its own exact Pi
+runtime; a separate system Pi and a writable package directory are not needed at
+startup. A Pi upgrade reaches web-pi through a new build and reinstall, not
+through a system Pi update.
 
 ## The unit
 
@@ -44,7 +45,41 @@ loginctl enable-linger "$USER"   # keep it running while you are logged out
 ```
 
 Upgrading is a new tarball, `npm install -g`, and
-`systemctl --user restart web-pi`.
+`systemctl --user restart web-pi`. Builds resolve stable latest Pi over the
+network and update `package.json` and `pnpm-lock.yaml`. Run `just ci` against
+the refreshed dependency set before installing it; this checks sources and the
+installed tarball without a model call. A failed refresh or validation is not a
+deployable upgrade. Record `web-pi --version` with deployment evidence.
+
+### Pi upgrade compatibility
+
+The eight named Pi runtime packages in `pnpm-workspace.yaml` bypass pnpm's
+24-hour release-age delay; all other dependencies retain it. This exception
+applies to `pi-coding-agent`, `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-codemode`,
+`pi-mcp`, `pi-telemetry`, and `chord` under `@earendil-works`, not the whole
+scope. Builds can therefore adopt breaking stable releases immediately. They
+fail on update/type errors rather than silently keeping a stale SDK.
+
+The bundled SDK still uses the existing agent directory and does not reset or
+move sessions, credentials, settings, trust, skills or extensions. Upstream Pi
+can change their interpretation. For example, Pi 1.0.3 renamed provider
+`azure-openai-responses` to `azure`: Azure users must deliberately update their
+provider references in `auth.json`, `models.json` and settings, or
+reauthenticate as upstream directs. web-pi does not rewrite these files during
+build/install.
+
+Review Pi's release notes and test needed user extensions before a production
+upgrade. The local suite checks SDK integration with disposable sessions, mock
+model streams and fixture extensions; it does not prove paid-provider access or
+compatibility with every installed extension. SDK sessions also do not
+automatically gain every CLI built-in extension.
+
+The runtime packages are exact build-version dependencies, but a consumer
+package manager resolves their transitive dependencies at install time; the
+checkout lockfile does not freeze the entire consumer dependency graph. Do not
+assume an older terminal Pi can read sessions subsequently changed by a newer
+bundled Pi. Keep backups and one writer per session; downgrading web-pi does not
+undo newer writes.
 
 ## Running from a checkout
 
@@ -238,7 +273,7 @@ For a local trial without touching live state:
    can discover `~/.agents/skills` independently of its agent directory. Review
    the copied settings and executable extensions before starting live turns.
 3. Build and install the web-pi tarball using the README commands, with Node 24+
-   and a compatible host Pi on `PATH`. Start it explicitly:
+   and its bundled Pi runtime. Start it explicitly:
 
    ```bash
    PI_CODING_AGENT_DIR=/absolute/path/to/trial-agent \
@@ -257,11 +292,11 @@ For a local trial without touching live state:
 
 ### Compatibility and rollback limits
 
-Both apps use Pi's session JSONL format and the host Pi SDK; compatibility
-therefore also depends on the installed Pi version. App-owned custom metadata is
-no longer shared, as described below. No database conversion is required, but
-this is not a guarantee that an older Pi can read files changed by a newer Pi,
-nor a guarantee of all extension/UI behavior.
+Both apps use Pi's session JSONL format. Current web-pi uses its bundled SDK;
+compatibility therefore also depends on the Pi versions used by each app.
+App-owned custom metadata is no longer shared, as described below. No database
+conversion is required, but this is not a guarantee that an older Pi can read
+files changed by a newer Pi, nor a guarantee of all extension/UI behavior.
 
 Web-owned push and worktree state now has a one-time cutover into `web-pi/`,
 with the reset and rollback limits described above. Pi settings, model
@@ -316,8 +351,9 @@ names. The later web-state cutover above supersedes the legacy storage paths.
 
 The GitHub workflow's application lane runs `just ci` on Node 24 with pnpm
 12.3.4. That command includes build, lint, typecheck, tests, and the
-installed-package smoke. Its host Pi version is a CI fixture, not a pinned
-product SDK dependency.
+installed-package smoke. CI installs no system Pi: the build refreshes the
+package-owned runtime to stable latest, and the smoke launches without system Pi
+on `PATH`.
 
 Changes limited to the workflow's explicit prose-documentation allowlist run
 only whitespace and documentation-path checks, without application installs,

@@ -57,6 +57,15 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     guard,
   } = ctx;
 
+  // These URLs serve both documents and HTMX fragments. Neither representation
+  // may be stored and reused for the other kind of request.
+  for (const path of ["/", "/new", "/sessions/:id", "/settings"]) {
+    app.get(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
+
   for (const action of [
     "tools",
     "system-prompt",

@@ -18,6 +18,10 @@ function staticRoot(css: string, js: string): string {
   root = mkdtempSync(join(tmpdir(), "web-pi-static-"));
   writeFileSync(join(root, "app.css"), css);
   writeFileSync(join(root, "client.js"), js);
+  writeFileSync(
+    join(root, "icon.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"/>',
+  );
   return root;
 }
 
@@ -50,20 +54,23 @@ describe("static asset caching", () => {
     return app.request(path);
   }
 
-  it("lets the browser keep hashed assets forever", async () => {
-    const res = await serve("/static/app.css?v=0123abcd");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
-    );
-  });
+  it.each(["app.css", "client.js", "icon.svg"])(
+    "lets the browser keep hashed %s forever",
+    async (asset) => {
+      const res = await serve(`/static/${asset}?v=0123abcd`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe(
+        "public, max-age=31536000, immutable",
+      );
+    },
+  );
 
-  it("caches unhashed and unbuilt assets for a day only", async () => {
-    expect(
-      (await serve("/static/client.js")).headers.get("cache-control"),
-    ).toBe("public, max-age=86400");
-    expect(
-      (await serve("/static/client.js?v=dev")).headers.get("cache-control"),
-    ).toBe("public, max-age=86400");
-  });
+  it.each(["app.css", "client.js", "icon.svg", "client.js?v=dev"])(
+    "caches unhashed or unbuilt %s for a day only",
+    async (asset) => {
+      const res = await serve(`/static/${asset}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    },
+  );
 });

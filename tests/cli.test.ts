@@ -32,35 +32,69 @@ describe("web-pi flags", () => {
 
   it.each([
     ["--help", /Usage: web-pi \[options\]/],
-    ["--version", /^web-pi \d+\.\d+\.\d+\npi not found on PATH\n$/],
-  ])("executes %s without Pi or starting the app", async (flag, expected) => {
-    const home = await mkdtemp(join(tmpdir(), "web-pi-cli-"));
-    try {
-      const cli = pathToFileURL(resolve("src/cli.ts")).href;
-      const { stdout, stderr } = await promisify(execFile)(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "--eval",
-          `import { run } from ${JSON.stringify(cli)}; await run(process.argv.slice(1));`,
-          "--",
-          flag,
-        ],
-        {
-          timeout: 5000,
-          // Startup must not resolve Pi, write state, or validate server flags.
-          env: {
-            PATH: "",
-            HOME: home,
-            PI_CODING_AGENT_DIR: join(home, "agent"),
-            WEB_PI_PORT: "not-a-port",
+    ["--version", /^web-pi \d+\.\d+\.\d+\npi \d+\.\d+\.\d+\n$/],
+  ])(
+    "executes %s without a system Pi or starting the app",
+    async (flag, expected) => {
+      const home = await mkdtemp(join(tmpdir(), "web-pi-cli-"));
+      try {
+        const cli = pathToFileURL(resolve("src/cli.ts")).href;
+        const { stdout, stderr } = await promisify(execFile)(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "--eval",
+            `import { run } from ${JSON.stringify(cli)}; await run(process.argv.slice(1));`,
+            "--",
+            flag,
+          ],
+          {
+            timeout: 5000,
+            // Startup must not discover system Pi, write state, or validate server flags.
+            env: {
+              PATH: "",
+              HOME: home,
+              PI_CODING_AGENT_DIR: join(home, "agent"),
+              WEB_PI_PORT: "not-a-port",
+            },
           },
-        },
-      );
-      expect(stdout).toMatch(expected);
-      expect(stderr).toBe("");
+        );
+        expect(stdout).toMatch(expected);
+        expect(stderr).toBe("");
+        expect(await readdir(home)).toEqual([]);
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("loads the source server through the guarded development entry point", async () => {
+    const home = await mkdtemp(join(tmpdir(), "web-pi-dev-cli-"));
+    try {
+      await expect(
+        promisify(execFile)(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "src/dev.ts",
+            "--runtime",
+            "fake",
+            "--port",
+            "not-a-port",
+          ],
+          {
+            timeout: 5000,
+            env: {
+              PATH: "",
+              HOME: home,
+              PI_CODING_AGENT_DIR: join(home, "agent"),
+            },
+          },
+        ),
+      ).rejects.toThrow(/WEB_PI_PORT must be a positive integer/);
       expect(await readdir(home)).toEqual([]);
     } finally {
       await rm(home, { recursive: true, force: true });

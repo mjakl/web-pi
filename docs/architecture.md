@@ -412,36 +412,46 @@ composition root and the only importer of Pi adapters.
   ignored, not imported. Drafts, navigation, panel geometry and notification
   permission remain device-local.
 
-- **Pi SDK resolved from the host `pi` on `PATH`**, never pinned. web-pi reads
-  and writes the same session files as the installed CLI, so a pin would let the
-  two drift apart silently. `src/host-pi.ts` walks `PATH` for the first `pi`
-  outside our own `node_modules/.bin`, finds the
-  `@earendil-works/pi-coding-agent` package that owns it (a bare version-manager
-  shim is rejected: it says nothing about the version), resolves `pi-ai`,
-  `pi-agent-core`, and `pi-tui` through Node from that package, checks all four
-  report the same version, and symlinks them into
-  `node_modules/@earendil-works/`. A checkout links from `prepare` and from
-  every `just` recipe that compiles or runs code; an installed package links
-  into itself from the bin, on every start, so upgrading Pi needs only a
-  restart. Trade-off: a fresh checkout needs Pi installed before `pnpm install`
-  succeeds, and an installed package needs a writable install directory.
+- **Pi is a package-owned runtime, refreshed at build time.** `just build` runs
+  `scripts/update-pi.ts`: a fresh registry query selects Pi's stable `latest`
+  tag, then pnpm installs matching exact versions of `pi-coding-agent`, `pi-ai`,
+  `pi-agent-core`, and `pi-tui` and updates the manifest and lockfile. These
+  stay external to esbuild so Pi retains its module identity, extension loader,
+  workers and assets. The build validates installed ownership and versions, then
+  typechecks against the selected SDK before emitting bundles. Registry, install
+  or type errors fail the build. The named Pi runtime release-age exceptions in
+  `pnpm-workspace.yaml` allow newly published stable Pi immediately; other
+  dependencies retain the 24-hour delay. Builds need network access and may
+  change dependency files. Installed launches use their own dependencies with no
+  system Pi lookup, update or filesystem relinking. The user's agent directory
+  stays independent of the runtime install. `src/pi-version.ts` checks direct
+  dependency paths (nested npm or isolated pnpm links), physical ownership and
+  exact manifest versions for all four packages; ordinary ancestor resolution
+  cannot supply a missing runtime. `src/server.ts` validates before importing
+  the SDK-bearing `src/server-runtime.ts`, including direct server launches.
+  Development and the installed bin go through the same guarded path.
+  Unsupported hoisted or global-store layouts fail closed; see
+  [Installation](../README.md#install-and-run). A terminal Pi can now differ in
+  version; use one writer per session and heed upstream upgrade/rollback limits
+  in [Deployment](deployment.md).
 - **The package ships a bundle; the checkout runs the sources.** `just build`
-  bundles `src/server.ts` and `src/cli.ts` with esbuild into `dist/`, leaving
-  only the Pi SDK, `web-push`, and `undici` external, so the published
-  `dependencies` list the latter two and a consumer install has no toolchain in
-  it. `just dev` and every test still run the TypeScript through `tsx`: tests
-  that ran against `dist/` would test the bundler. The one check that does run
-  against the package is `just smoke` (`tests/smoke/packaging.smoke.test.ts`),
-  which packs, installs into a throwaway project, and serves a fixture session
-  from the result — the only way to catch a missing `files` entry or an import
-  that resolves solely in a checkout. `dist/` is not minified: a stack trace
-  from an install should name real functions.
+  bundles `src/server.ts`, `src/server-runtime.ts`, and `src/cli.ts` with
+  esbuild into `dist/`, leaving only the Pi SDK, `web-push`, and `undici`
+  external. The published `dependencies` include them, so a consumer install has
+  its own runtime and no web-pi build toolchain. `just dev` and every test still
+  run the TypeScript through `tsx`: tests that ran against `dist/` would test
+  the bundler. The one check that does run against the package is `just smoke`
+  (`tests/smoke/packaging.smoke.test.ts`), which packs, installs into a
+  throwaway project, and serves a fixture session from the result — the only way
+  to catch a missing `files` entry or an import that resolves solely in a
+  checkout. `dist/` is not minified: a stack trace from an install should name
+  real functions.
 - **The bin is composition only.** `bin/web-pi.js` is three lines of JavaScript
   that need no build; `src/cli.ts` parses the flags into the environment
-  `loadConfig()` already reads, links the host Pi, warns when the bind address
-  is not loopback, and then imports `dist/server.js` — which must not load
-  earlier, because its module graph reaches the SDK the link step has yet to put
-  in place.
+  `loadConfig()` already reads, warns when the bind address is not loopback, and
+  then imports `dist/server.js`. The deferred import keeps flags ahead of
+  configuration loading and avoids starting the server for help or version
+  requests.
 - **One HTTP dispatcher, proxy-aware.** `src/http.ts` installs undici's
   `EnvHttpProxyAgent` globally, so `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
   are honoured by every server-side fetch — Node's built-in fetch ignores them,

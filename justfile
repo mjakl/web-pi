@@ -6,30 +6,30 @@ set quiet := true
 esbuild-css := "./node_modules/.bin/esbuild src/web/styles/index.css --bundle --target=chrome125,edge125,firefox147,safari26 '--external:/static/*' --outfile=static/app.css"
 esbuild := "./node_modules/.bin/esbuild src/web/client/main.ts --bundle --format=esm --target=es2022 --alias:@core=./src/core --outfile=static/client.js"
 esbuild-mermaid := "./node_modules/.bin/esbuild src/web/client/mermaid-lib.ts --bundle --format=esm --target=es2022 --outfile=static/mermaid.js"
-# The published server: everything bundled except the Pi SDK, which the bin
-# links at startup, and the runtime packages listed in AGENTS.md. Not
+# The published server: everything bundled except the locally installed Pi SDK
+# and the runtime packages listed in AGENTS.md. Not
 # minified, so a stack trace from an install still names real functions.
-esbuild-server := "./node_modules/.bin/esbuild src/server.ts src/cli.ts --bundle --platform=node --format=esm --target=node24 --jsx=automatic --jsx-import-source=hono/jsx --alias:@=./src --alias:@core=./src/core --alias:@adapters=./src/adapters --alias:@web=./src/web '--external:@earendil-works/*' --external:web-push --external:undici --outdir=dist"
+esbuild-server := "./node_modules/.bin/esbuild src/server.ts src/server-runtime.ts src/cli.ts --bundle --platform=node --format=esm --target=node24 --jsx=automatic --jsx-import-source=hono/jsx --alias:@=./src --alias:@core=./src/core --alias:@adapters=./src/adapters --alias:@web=./src/web '--external:@earendil-works/*' --external:web-push --external:undici --outdir=dist"
 smoke := "WEB_PI_SMOKE=1 pnpm exec vitest run tests/smoke"
 
 # INFO: List all available commands
 default:
     @just --list
 
-# DEV: Point node_modules/@earendil-works at the pi on PATH
-link-pi:
-    node --import tsx scripts/link-host-pi.ts
+# BUILD: Resolve stable latest Pi and freeze it in the manifest and lockfile
+update-pi:
+    node scripts/update-pi.ts
 
-# DEV: Report which Pi on PATH this checkout compiles and runs against
+# DEV: Report the Pi installed in this checkout
 doctor:
-    node --import tsx scripts/doctor.ts
+    pnpm exec tsx scripts/doctor.ts
 
 # DEV: Start the server with reload plus the CSS and client-script watchers
-dev: link-pi
+dev:
     {{ esbuild-css }}
     {{ esbuild-mermaid }}
     {{ esbuild }} --sourcemap
-    node --watch --import tsx src/server.ts & \
+    node --watch --import tsx src/dev.ts & \
     {{ esbuild }} --sourcemap --watch & \
     {{ esbuild-css }} --watch; \
     kill %1 %2
@@ -44,12 +44,12 @@ build-js:
     {{ esbuild-mermaid }} --minify
 
 # DEV: Build everything the package ships: assets and dist/
-build: link-pi build-css build-js
+build: update-pi doctor typecheck build-css build-js
     {{ esbuild-server }}
 
 # DEV: Start the built server, as the published bin does
 start: build
-    node dist/server.js
+    node bin/web-pi.js
 
 # DOCS: Serve fictional screenshot sessions on an ephemeral loopback port
 screenshots: build
@@ -64,7 +64,7 @@ style-scale url output="dist/style-scale":
     node --import tsx scripts/check-style-scale.ts '{{url}}' '{{output}}'
 
 # LINT: Formatting, lint, and types
-lint: link-pi typecheck
+lint: typecheck
     pnpm exec oxfmt --check .
     pnpm exec oxlint .
     pnpm exec stylelint "src/web/styles/**/*.css"
@@ -77,20 +77,20 @@ fix:
     pnpm exec oxfmt --write .
 
 # LINT: TypeScript only
-typecheck: link-pi
+typecheck:
     pnpm exec tsc --noEmit
 
 # TEST: Whole suite
-test: link-pi
+test:
     pnpm exec vitest run
 
 # TEST: Whole suite with line coverage; `--project client` narrows to the bundle
-coverage: link-pi
+coverage:
     pnpm exec vitest run --coverage
 
 # TEST: Selected tests, e.g. `just test-one tests/core`
 [positional-arguments]
-test-one *args: link-pi
+test-one *args:
     pnpm exec vitest run "$@"
 
 # TEST: Pack the package, install it, and serve a fixture session from it
@@ -98,12 +98,12 @@ smoke: build
     {{ smoke }}
 
 # QA: The handoff gate: fix, lint, test
-qa: link-pi
+qa:
     just fix
     just lint
     just test
 
-# CI: Non-mutating validation
+# CI: Refresh Pi, then run non-fixing validation
 ci: build
     just lint
     just test

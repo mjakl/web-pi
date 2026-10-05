@@ -1,13 +1,7 @@
 import { parseArgs } from "node:util";
-import {
-  linkHostPi,
-  PACKAGE_ROOT,
-  resolveHostPi,
-  webPiVersion,
-} from "./host-pi.ts";
+import { bundledPiVersion, webPiVersion } from "./pi-version.ts";
 
-// The `web-pi` bin is composition only: parse the flags, point
-// node_modules/@earendil-works at the installed Pi, then start the server.
+// The `web-pi` bin parses flags before loading the server module graph.
 
 const HELP = `web-pi — a web interface for the Pi coding agent
 
@@ -69,27 +63,7 @@ export function parseOptions(argv: string[]): CliOptions {
 }
 
 function versionLines(): string {
-  let pi = "not found on PATH";
-  try {
-    pi = resolveHostPi().version;
-  } catch {
-    // A real start reports why; --version stays useful without Pi.
-  }
-  return `web-pi ${webPiVersion()}\npi ${pi}\n`;
-}
-
-/** Link the host Pi into this package so `@earendil-works/*` resolves. */
-function linkPi(): void {
-  const host = resolveHostPi();
-  try {
-    linkHostPi(PACKAGE_ROOT, host);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `cannot link Pi ${host.version} into ${PACKAGE_ROOT}: ${message}\nInstall web-pi somewhere writable, or run it from a checkout.`,
-      { cause: error },
-    );
-  }
+  return `web-pi ${webPiVersion()}\npi ${bundledPiVersion()}\n`;
 }
 
 export async function run(argv: string[]): Promise<void> {
@@ -103,7 +77,6 @@ export async function run(argv: string[]): Promise<void> {
       process.stdout.write(versionLines());
       return;
     }
-    linkPi();
     Object.assign(process.env, options.env);
     const host = process.env["WEB_PI_HOST"] ?? "127.0.0.1";
     if (!LOOPBACK.has(host)) {
@@ -111,8 +84,8 @@ export async function run(argv: string[]): Promise<void> {
         `Warning: web-pi is listening on ${host} without any authentication. Use it only on a trusted network or behind an external security layer.\n`,
       );
     }
-    // Resolved at run time, not bundled: the server is its own entry point,
-    // and it must not load before the SDK links above are in place.
+    // The server is a separate built entry point. Load it only after flags
+    // reach the environment, and never for --help or --version.
     await import(new URL("./server.js", import.meta.url).href);
   } catch (error) {
     process.stderr.write(

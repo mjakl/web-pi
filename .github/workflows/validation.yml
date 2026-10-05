@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # A CI host fixture, not a pinned product SDK dependency.
-  PI_FIXTURE_VERSION: 0.86.1
-
 jobs:
   classify:
     name: Classify change and validate docs
@@ -81,11 +77,8 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.1
-      - name: Install host Pi outside the checkout
+      - name: Isolate validation from user Pi data
         run: |
-          npm install --prefix "$RUNNER_TEMP/host-pi" --ignore-scripts --no-audit --no-fund \
-            "@earendil-works/pi-coding-agent@$PI_FIXTURE_VERSION"
-          echo "$RUNNER_TEMP/host-pi/node_modules/.bin" >> "$GITHUB_PATH"
           mkdir -p "$RUNNER_TEMP/validation-home" "$RUNNER_TEMP/validation-agent"
           echo "PI_CODING_AGENT_DIR=$RUNNER_TEMP/validation-agent" >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile

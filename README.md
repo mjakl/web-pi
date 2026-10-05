@@ -103,31 +103,51 @@ remains unfinished.
 
 ## Install and run
 
-Use **Node 24 or newer**, with a separately installed `pi` on `PATH`. Host Pi
-executable discovery is POSIX-only; Windows is not currently supported.
-Configure a model provider in the Pi terminal before starting real turns.
+Use **Node 24 or newer**. web-pi installs its own Pi runtime; no system `pi` is
+required or changed. Configure provider credentials in the existing Pi agent
+directory before starting real turns. If you use terminal Pi for login, it
+continues to share those credentials. Windows is not currently supported.
 
-web-pi links the host installation's `pi-coding-agent`, `pi-ai`,
-`pi-agent-core`, and `pi-tui` packages rather than installing a pinned SDK. A
-generic version-manager shim that is not inside Pi's package is rejected; use
-the manager's active tool PATH. web-pi does not require `pi-server`.
+Every `just build` queries the npm registry for Pi's stable `latest` release,
+updates the exact local `pi-coding-agent`, `pi-ai`, `pi-agent-core`, and
+`pi-tui` dependencies and lockfile, then typechecks and bundles web-pi. Builds
+require network access and fail if the required update or typecheck fails. The
+named Pi runtime packages are exempt from pnpm's 24-hour release-age delay;
+other dependencies retain that delay. This follows new stable Pi releases
+immediately, including upstream breaking changes. web-pi does not require
+`pi-server`.
 
 web-pi is not on npm. From a checkout, install the development tools and build a
 tarball:
 
 ```bash
 mise install
-pnpm install --frozen-lockfile   # pnpm 12.3.4; needs pi on PATH
-just doctor                    # reports the resolved Pi installation
-just build
+pnpm install --frozen-lockfile   # pnpm 12.3.4
+just build                     # refreshes and records stable latest Pi
+just doctor                    # reports the locally installed Pi
 pnpm pack                      # web-pi-0.1.0.tgz
-npm install -g ./web-pi-0.1.0.tgz
+npm install -g --ignore-scripts ./web-pi-0.1.0.tgz
 web-pi                         # http://127.0.0.1:30142
 ```
 
-The installed bin relinks the SDK on startup. Keep its installation directory
-writable; after upgrading Pi, restart web-pi. Documentation and screenshots ship
-inside the tarball so these relative links also work in an installed package.
+The tarball declares the exact Pi runtime version used for its build. Installing
+it installs that runtime and its dependencies; startup performs no update or
+relink and needs no writable package directory. `web-pi --version` reports the
+installed web-pi and Pi versions. To upgrade Pi, rebuild, validate, and
+reinstall web-pi; upgrading a system Pi does not change web-pi. Documentation
+and screenshots ship inside the tarball so these relative links also work in an
+installed package.
+
+Use the documented global npm installation or pnpm 12.3.4's default isolated
+checkout/consumer layout. Runtime checks refuse ancestor SDKs, legacy links to
+system Pi, mismatched versions, hoisted local npm installs, and pnpm's global
+virtual store. These layouts cannot establish the same package-owned dependency
+edges; do not work around a missing runtime by putting system Pi on `PATH`.
+
+The agent directory remains `~/.pi/agent` (or `PI_CODING_AGENT_DIR`). Builds and
+installation do not move or reset sessions, credentials, extensions or settings.
+See [Pi upgrade compatibility](docs/deployment.md#pi-upgrade-compatibility)
+before starting a rebuilt version against your existing data.
 
 | Flag               | Default                       |
 | ------------------ | ----------------------------- |
@@ -194,14 +214,17 @@ After the checkout setup above:
 ```bash
 just dev              # http://127.0.0.1:30142, sources and asset watchers
 just qa               # format/fix, lint, typecheck, tests
-just ci               # non-fixing checks plus installed-package smoke
+just ci               # refresh/build, non-fixing checks, installed-package smoke
 just test-one tests/web
 ```
 
 `just build` writes the bundled server in `dist/` and built assets in `static/`.
 Tests run against sources; `just smoke` packs the build, installs it into a
-throwaway consumer, and serves a fictional session from the installed bin. After
-upgrading Pi, `just link-pi` or a recipe that runs code refreshes the links.
+throwaway consumer without system Pi, and serves a fictional session from the
+installed bin. Tests and `just dev` use the installed local dependencies without
+refreshing them; `just update-pi` refreshes Pi without building. A normal build
+may change `package.json` and `pnpm-lock.yaml`; commit both together after
+checks pass.
 
 Contributor guidance lives in `AGENTS.md` in the checkout, with `CLAUDE.md` as
 its symlink. Framework-independent workflows live in `.agents/skills`, with

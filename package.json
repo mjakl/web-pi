@@ -22,6 +22,10 @@
     "prepare": "scripts/prepare.sh"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "1.0.3",
+    "@earendil-works/pi-ai": "1.0.3",
+    "@earendil-works/pi-coding-agent": "1.0.3",
+    "@earendil-works/pi-tui": "1.0.3",
     "undici": "8.10.0",
     "web-push": "3.6.7"
   },

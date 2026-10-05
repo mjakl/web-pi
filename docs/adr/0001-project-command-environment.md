@@ -20,7 +20,7 @@ commands look right and behave differently than they would in a terminal.
 
 - `PORT`, `NODE_ENV`, and every `WEB_PI_*` variable are removed (compared
   case-insensitively on Windows, where variable names are). That helper behavior
-  does not imply Windows support: host Pi executable discovery is POSIX-only.
+  does not imply Windows support; web-pi currently targets POSIX systems.
 - `<agentDir>/bin` is prepended to `PATH` when it is not already there, so tools
   an extension installed are found, as they are in Pi's terminal.
 - Everything else — `PATH`, Pi's own `PI_*` session metadata, per-command

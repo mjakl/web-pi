@@ -120,7 +120,7 @@
       }
     },
     {
-      "files": ["src/web/client/mermaid.ts", "src/cli.ts"],
+      "files": ["src/web/client/mermaid.ts", "src/cli.ts", "src/server.ts"],
       "rules": {
         "eslint-js/no-restricted-syntax": [
           "error",

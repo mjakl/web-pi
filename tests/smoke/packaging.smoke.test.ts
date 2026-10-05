@@ -1,17 +1,23 @@
 import { assistantEntry } from "@adapters/fake/index";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { bundledPiVersion, webPiVersion } from "@/pi-version";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { findPackageJSON } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -32,6 +38,10 @@ let closed: Promise<unknown> | undefined;
 let origin = "";
 let sessionId = "";
 let output = "";
+let isolatedEnv: NodeJS.ProcessEnv;
+let preservedFiles: Map<string, string>;
+let installedBin = "";
+let npmBin = "";
 
 /** A port the OS picked, so a developer's own server is never disturbed. */
 async function freePort(): Promise<number> {
@@ -63,12 +73,13 @@ function installTarball(consumer: string): string {
     join(consumer, "package.json"),
     JSON.stringify({
       name: "web-pi-smoke-consumer",
+      packageManager: "pnpm@12.3.4",
       private: true,
       version: "0.0.0",
       dependencies: { "web-pi": `file:${tarball}` },
     }),
   );
-  run("pnpm", ["install", "--prod"], consumer);
+  run("pnpm", ["install", "--prod", "--ignore-scripts"], consumer);
   return tarball;
 }
 
@@ -91,32 +102,78 @@ function writeFixture(agentDir: string, cwd: string): string {
     timestamp: 1,
   });
   manager.appendMessage(reply.message);
+  const file = manager.getSessionFile();
+  if (!file) throw new Error("fixture has no session file");
+  preservedFiles.set(file, readFileSync(file, "utf8"));
   return manager.getSessionId();
 }
 
 beforeAll(async () => {
   base = mkdtempSync(join(tmpdir(), "web-pi-smoke-"));
   const consumer = join(base, "consumer");
-  installTarball(consumer);
+  const tarball = installTarball(consumer);
+  const npmPrefix = join(base, "npm-prefix");
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--global",
+      "--prefix",
+      npmPrefix,
+      "--cache",
+      join(base, "npm-cache"),
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      tarball,
+    ],
+    {
+      cwd: consumer,
+      encoding: "utf8",
+      env: { ...process.env, MISE_SKIP_RESHIM: "1" },
+    },
+  );
+  npmBin = join(npmPrefix, "lib", "node_modules", "web-pi", "bin", "web-pi.js");
 
   const home = join(base, "home");
   const agentDir = join(home, ".pi", "agent");
   mkdirSync(agentDir, { recursive: true });
+  preservedFiles = new Map();
+  for (const name of ["auth.json", "models.json", "settings.json"]) {
+    const file = join(agentDir, name);
+    writeFileSync(file, "{}\n");
+    preservedFiles.set(file, readFileSync(file, "utf8"));
+  }
   sessionId = writeFixture(agentDir, home);
+
+  // Only Node and a deliberately unusable Pi are reachable on PATH. The app
+  // and its export subprocess must use installed package modules, not this Pi.
+  const path = join(base, "path");
+  mkdirSync(path);
+  symlinkSync(process.execPath, join(path, "node"));
+  writeFileSync(
+    join(path, "pi"),
+    "#!/bin/sh\necho 'system Pi must not be used' >&2\nexit 99\n",
+    { mode: 0o755 },
+  );
+  isolatedEnv = {
+    PATH: path,
+    HOME: home,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+    PI_SKIP_VERSION_CHECK: "1",
+  };
+  installedBin = join(consumer, "node_modules", "web-pi", "bin", "web-pi.js");
 
   const port = await freePort();
   origin = `http://127.0.0.1:${String(port)}`;
   child = spawn(
-    join(consumer, "node_modules", ".bin", "web-pi"),
-    ["--host", "127.0.0.1", "--port", String(port)],
+    process.execPath,
+    [installedBin, "--host", "127.0.0.1", "--port", String(port)],
     {
       cwd: home,
       // A bare environment: no credentials, no loader hooks, no live Pi state.
-      env: {
-        PATH: process.env["PATH"] ?? "",
-        HOME: home,
-        PI_CODING_AGENT_DIR: agentDir,
-      },
+      env: isolatedEnv,
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -186,8 +243,103 @@ it("ships documentation link targets and both product license notices", () => {
   );
 });
 
-it("reports its own version and the Pi it linked", () => {
-  expect(output).toMatch(/web-pi \d+\.\d+\.\d+ listening on .*\(pi \d+\./);
+it("uses its exact build-version Pi without a working system Pi", () => {
+  const version = bundledPiVersion();
+  expect(output).toContain(`(pi ${version}, pi runtime)`);
+  const reported = execFileSync(process.execPath, [installedBin, "--version"], {
+    env: isolatedEnv,
+    encoding: "utf8",
+  });
+  expect(reported).toBe(`web-pi ${webPiVersion()}\npi ${version}\n`);
+  const server = join(
+    base,
+    "consumer",
+    "node_modules",
+    "web-pi",
+    "dist",
+    "server.js",
+  );
+  for (const name of ["pi-coding-agent", "pi-ai", "pi-agent-core", "pi-tui"]) {
+    const manifest = findPackageJSON(
+      `@earendil-works/${name}`,
+      realpathSync(server),
+    );
+    expect(manifest).toContain(join(base, "consumer"));
+    const installed = JSON.parse(readFileSync(manifest ?? "", "utf8")) as {
+      version: string;
+    };
+    expect(installed.version).toBe(version);
+  }
+});
+
+it("accepts the documented npm global tarball installation", () => {
+  const reported = execFileSync(process.execPath, [npmBin, "--version"], {
+    env: isolatedEnv,
+    encoding: "utf8",
+  });
+  expect(reported).toBe(`web-pi ${webPiVersion()}\npi ${bundledPiVersion()}\n`);
+});
+
+it("fails rather than falling back to system Pi when local Pi is absent", () => {
+  const globalModules = join(base, "global", "lib", "node_modules");
+  const incomplete = join(globalModules, "web-pi");
+  mkdirSync(incomplete, { recursive: true });
+  for (const name of ["pi-coding-agent", "pi-ai", "pi-agent-core", "pi-tui"]) {
+    const sdk = join(globalModules, "@earendil-works", name);
+    mkdirSync(sdk, { recursive: true });
+    writeFileSync(
+      join(sdk, "package.json"),
+      JSON.stringify({
+        name: `@earendil-works/${name}`,
+        version: bundledPiVersion(),
+        type: "module",
+        main: "index.js",
+      }),
+    );
+    writeFileSync(
+      join(sdk, "index.js"),
+      'throw new Error("ancestor SDK was loaded");\n',
+    );
+  }
+  const installed = join(base, "consumer", "node_modules", "web-pi");
+  cpSync(join(installed, "dist"), join(incomplete, "dist"), {
+    recursive: true,
+  });
+  cpSync(join(installed, "bin"), join(incomplete, "bin"), { recursive: true });
+  copyFileSync(
+    join(installed, "package.json"),
+    join(incomplete, "package.json"),
+  );
+  for (const args of [
+    [join(incomplete, "bin", "web-pi.js"), "--version"],
+    [
+      join(incomplete, "bin", "web-pi.js"),
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "0",
+    ],
+    [join(incomplete, "dist", "server.js")],
+  ]) {
+    expect(() =>
+      execFileSync(process.execPath, args, { env: isolatedEnv, stdio: "pipe" }),
+    ).toThrow(/not owned by web-pi/);
+  }
+});
+
+it("exports through its packaged Pi CLI without changing user configuration or the saved session", async () => {
+  const exported = await fetch(`${origin}/sessions/${sessionId}/export`);
+  expect(exported.status).toBe(200);
+  const encoded =
+    /<script id="session-data" type="application\/json">([^<]+)<\/script>/.exec(
+      await exported.text(),
+    )?.[1];
+  expect(encoded).toBeDefined();
+  expect(Buffer.from(encoded ?? "", "base64").toString("utf8")).toContain(
+    "A packaged answer",
+  );
+  for (const [file, original] of preservedFiles)
+    expect(readFileSync(file, "utf8")).toBe(original);
 });
 
 it("serves the index and the stored session", async () => {

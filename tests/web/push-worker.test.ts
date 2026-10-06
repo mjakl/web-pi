@@ -12,7 +12,6 @@ describe("received push", () => {
         serviceWorker({
           css: "/static/app.css",
           js: "/static/client.js",
-          mermaid: "/static/mermaid.js",
         }),
         {
           URL,

@@ -38,7 +38,6 @@ describe("static asset URLs", () => {
     expect(staticAssets("/nonexistent")).toEqual({
       css: "/static/app.css?v=dev",
       js: "/static/client.js?v=dev",
-      mermaid: "/static/mermaid.js?v=dev",
     });
   });
 });

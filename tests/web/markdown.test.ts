@@ -18,13 +18,17 @@ describe("renderMarkdown", () => {
     expect(html).toContain("const a = 1;");
   });
 
-  it("marks a mermaid fence for the preview toggle, disabled while live", () => {
-    expect(renderMarkdown("```mermaid\ngraph TD;\n```")).toContain(
-      "data-mermaid-toggle",
+  it("renders a mermaid fence as escaped code with only a Copy action", () => {
+    const html = renderMarkdown(
+      '```mermaid\ngraph TD;\nA["<script>alert(1)</script> & label"]\n```',
     );
-    expect(
-      renderMarkdown("```mermaid\ngraph TD;\n```", { live: true }),
-    ).toContain("disabled");
+    expect(html).toContain('<span class="markdown-code-lang">mermaid</span>');
+    expect(html).toContain('<code class="language-mermaid">');
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt; &amp; label");
+    expect(html).toContain("data-copy-code>Copy</button>");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("data-mermaid");
+    expect(html).not.toContain("Preview");
   });
 
   it("prefixes heading ids and rewrites anchors to match", () => {

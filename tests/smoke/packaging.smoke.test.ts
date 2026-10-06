@@ -368,17 +368,14 @@ it("serves the built assets and the manifest", async () => {
   expect(manifest.status).toBe(200);
   const described = (await manifest.json()) as { name?: string };
   expect(described.name).toBe("web-pi");
-  for (const path of [
-    HTMX_SRC,
-    HTMX_SSE_SRC,
-    "/static/client.js",
-    "/static/mermaid.js",
-  ]) {
+  for (const path of [HTMX_SRC, HTMX_SSE_SRC, "/static/client.js"]) {
     const script = await fetch(`${origin}${path}`);
     expect(script.status, path).toBe(200);
     expect(script.headers.get("content-type"), path).toContain("javascript");
     expect((await script.text()).length, path).toBeGreaterThan(1000);
   }
+  const retired = await fetch(`${origin}/static/mermaid.js`);
+  expect(retired.status).toBe(404);
   const worker = await fetch(`${origin}/sw.js`);
   expect(worker.status).toBe(200);
   expect(worker.headers.get("content-type")).toContain("javascript");

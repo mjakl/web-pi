@@ -99,7 +99,6 @@ export function HtmlLayout(
         }}
         translate="no"
         class="notranslate"
-        data-mermaid-src={assets.mermaid}
         // The service worker is registered with this build's asset hash, so a
         // new build replaces the worker and its cache instead of being served
         // stale assets from the old one.

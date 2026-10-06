@@ -709,12 +709,10 @@ composition root and the only importer of Pi adapters.
   is how a link into an unloaded part of a long session works. Once a page
   carries more than 20,000 characters of thinking, the older blocks are sent as
   placeholders that fetch their text when opened.
-- **Two lazily-loaded libraries, each in its own bundle.** highlight.js is part
-  of `static/client.js` and colours settled code blocks (never the running turn,
-  whose text changes every frame). Mermaid is larger than everything else put
-  together, so `src/web/client/mermaid-lib.ts` builds to `static/mermaid.js` and
-  the page imports it by URL only when a reader asks for a diagram preview.
-  Source is the default view, as in pi-web.
+- **Code fences keep their source and Copy action.** highlight.js is part of
+  `static/client.js` and colours settled code blocks (never the running turn,
+  whose text changes every frame). Unsupported languages, including Mermaid,
+  remain plain code; web-pi does not render diagrams.
 - **One client bundle besides htmx.** `src/web/client/main.ts` (scroll-follow,
   theme, keyboard shortcuts) is bundled by esbuild into `static/client.js` and
   loaded as a module with a content hash in its URL. The only inline script is

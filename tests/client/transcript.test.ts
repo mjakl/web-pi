@@ -208,6 +208,48 @@ describe("copy buttons", () => {
     expect(write).toHaveBeenCalledWith("const a = 1;\nconst b = 2;");
   });
 
+  it.each([false, true])(
+    "keeps mermaid source escaped and copyable with live = %s",
+    async (live) => {
+      const write = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockResolvedValue(undefined);
+      const source = 'graph TD;\nA["<script>alert(1)</script> & label"]';
+      const content = render(
+        Item({
+          item: {
+            ...answerItem,
+            blocks: [
+              { kind: "text", text: `\`\`\`mermaid\n${source}\n\`\`\`` },
+            ],
+          },
+          actions: {
+            sessionId: "s1",
+            cwd: "/repo/one",
+            starred: new Set(),
+            live,
+          },
+        }),
+      );
+      await load(live ? "" : content);
+      if (live) {
+        byId("turn").innerHTML = content;
+        htmxEvent(byId("turn"), "htmx:after:settle");
+      }
+      const block = query(".markdown-code-block");
+      expect(block.querySelector("script")).toBeNull();
+      expect(block.textContent).toContain("<script>alert(1)</script> & label");
+      expect(block.querySelectorAll("button")).toHaveLength(1);
+      const copy = query("[data-copy-code]");
+      expect(copy.textContent).toBe("Copy");
+      expect(copy.hasAttribute("disabled")).toBe(false);
+      expect(query("code").dataset["highlighted"]).toBe(live ? undefined : "1");
+      click(copy);
+      await flush();
+      expect(write).toHaveBeenCalledWith(source);
+    },
+  );
+
   it("does nothing visible when the clipboard refuses", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(
       new Error("no"),

@@ -45,8 +45,8 @@ shared in-memory settings, not your real Pi agent directory. Theme is no longer
 read from localStorage; use the same General controls for scripted captures.
 
 Refresh the accessibility snapshot after navigation and lazy row loading, then
-use the current references. Wait for fonts, requested file content, Mermaid
-SVGs, and panel animations before capturing. For example:
+use the current references. Wait for fonts, requested file content, syntax
+highlighting, and panel animations before capturing. For example:
 
 ```bash
 agent-browser eval 'Promise.all(document.getAnimations().map(a => a.finished.catch(() => {}))).then(() => document.fonts.ready).then(() => true)'
@@ -67,8 +67,7 @@ Capture these states:
   Process details, then Subagent · reviewer. Keep Prompt, Run details, Raw
   input, and Raw output collapsed beneath the rendered review.
 - **conversation-light.png**, 1440 × 1000, light: Plan the next release. Switch
-  appearance to light, then select Preview on the Mermaid block. Wait for the
-  diagram, not merely the Preview button response.
+  appearance to light and show the release table and highlighted shell commands.
 - **mobile.png**, 390 × 844, dark: Release checklist with sidebar and file panel
   closed and an empty composer. This is viewport emulation, not a device test.
 
@@ -117,10 +116,10 @@ not simulate a physical keyboard or prove layout in other browser engines.
 
 The committed images were visually inspected after capture with local headless
 Chromium **153**. They show the current Hono diff, rail/stars, structured
-subagent result, rendered Mermaid diagram in light mode, and mobile composer.
-Desktop captures use 1440 × 1000; mobile uses 390 × 844. No public listener or
-external provider was used. These captures do not establish minimum-version
-Firefox, Safari, Edge, or physical-device compatibility.
+subagent result, release commands in light mode, and mobile composer. Desktop
+captures use 1440 × 1000; mobile uses 390 × 844. No public listener or external
+provider was used. These captures do not establish minimum-version Firefox,
+Safari, Edge, or physical-device compatibility.
 
 `just smoke` verifies that the documentation and image links in the installed
 README and docs resolve after packing and consumer installation. It also checks

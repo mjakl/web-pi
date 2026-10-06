@@ -880,39 +880,6 @@ export function WidgetPlacementIcon({
   );
 }
 
-/* 56 · the mermaid zoom dialog's toolbar */
-export function ZoomOutIcon({ size = 13 }: IconProps) {
-  return (
-    <Stroked size={size} width={2}>
-      <path d="M5 12h14" />
-    </Stroked>
-  );
-}
-
-export function ZoomInIcon({ size = 13 }: IconProps) {
-  return (
-    <Stroked size={size} width={2}>
-      <path d="M12 5v14M5 12h14" />
-    </Stroked>
-  );
-}
-
-export function ZoomFitIcon({ size = 13 }: IconProps) {
-  return (
-    <Stroked size={size} width={2}>
-      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
-    </Stroked>
-  );
-}
-
-export function ZoomCloseIcon({ size = 13 }: IconProps) {
-  return (
-    <Stroked size={size} width={2}>
-      <path d="M6 6l12 12M18 6 6 18" />
-    </Stroked>
-  );
-}
-
 /* 57 · close the image lightbox */
 export function LightboxCloseIcon({ size = 16 }: IconProps) {
   return (

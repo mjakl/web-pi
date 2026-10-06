@@ -5,7 +5,6 @@
 .DS_Store
 /static/app.css
 /static/client.js
-/static/mermaid.js
 /static/client.js.map
 /coverage
 *.log

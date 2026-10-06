@@ -1,9 +1,5 @@
 packages: []
 
-# The matching Mermaid patch renders math-looking labels as plain text.
-overrides:
-  "mermaid@11.17.2>katex": "-"
-
 # Builds follow Pi's stable latest immediately; other packages keep the delay.
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
@@ -22,5 +18,3 @@ allowBuilds:
   esbuild: true
   protobufjs: false
   unrs-resolver: true
-patchedDependencies:
-  mermaid@11.17.2: patches/mermaid@11.17.2.patch

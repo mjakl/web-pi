@@ -1,7 +1,6 @@
 import { requestContext, settledContent, swapTasks } from "./htmx.ts";
 import { codeText, highlightIn } from "./highlight.ts";
 import { setUpImagePreview } from "./images.ts";
-import { setUpMermaid } from "./mermaid.ts";
 import { setUpMarkdownLinks } from "./markdown-links.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpRail } from "./rail.ts";
@@ -91,7 +90,6 @@ export function setUpTranscript(): void {
   setUpRail();
   setUpImagePreview();
   setUpCopy();
-  setUpMermaid();
   setUpMarkdownLinks();
   // Native cleanup removes triggers, but does not abort ordinary requests.
   // A rewritten transcript must not keep fetching or accept a late old page.
@@ -248,7 +246,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   );
 
   view.scrollTop = view.scrollHeight;
-  // Images, mermaid diagrams and the highlighter all resize the transcript
+  // Images and the highlighter resize the transcript
   // after this first jump, which would leave the page a screenful short of
   // the tail with the jump button showing. Follow the growth until the
   // reader scrolls away from the bottom themselves.

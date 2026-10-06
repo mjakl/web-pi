@@ -5,7 +5,6 @@ set quiet := true
 # esbuild's, so they stay external. Target = the browserslist floor.
 esbuild-css := "./node_modules/.bin/esbuild src/web/styles/index.css --bundle --target=chrome125,edge125,firefox147,safari26 '--external:/static/*' --outfile=static/app.css"
 esbuild := "./node_modules/.bin/esbuild src/web/client/main.ts --bundle --format=esm --target=es2022 --alias:@core=./src/core --outfile=static/client.js"
-esbuild-mermaid := "./node_modules/.bin/esbuild src/web/client/mermaid-lib.ts --bundle --format=esm --target=es2022 --outfile=static/mermaid.js"
 # The published server: everything bundled except the locally installed Pi SDK
 # and the runtime packages listed in AGENTS.md. Not
 # minified, so a stack trace from an install still names real functions.
@@ -27,7 +26,6 @@ doctor:
 # DEV: Start the server with reload plus the CSS and client-script watchers
 dev:
     {{ esbuild-css }}
-    {{ esbuild-mermaid }}
     {{ esbuild }} --sourcemap
     node --watch --import tsx src/dev.ts & \
     {{ esbuild }} --sourcemap --watch & \
@@ -38,10 +36,11 @@ dev:
 build-css:
     {{ esbuild-css }} --minify
 
-# DEV: Build the client script bundles once
+# DEV: Build the client script once
 build-js:
+    # Packing includes static/ bundles left by older checkouts.
+    rm -f static/mermaid.js
     {{ esbuild }} --minify
-    {{ esbuild-mermaid }} --minify
 
 # DEV: Build everything the package ships: assets and dist/
 build: update-pi doctor typecheck build-css build-js

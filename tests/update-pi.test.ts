@@ -2,7 +2,6 @@ import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
-  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -130,12 +129,10 @@ it("normal builds refresh a locked Pi, freeze the version, and fail before compi
     const checkout = join(root, "checkout");
     mkdirSync(join(checkout, "scripts"), { recursive: true });
     copyFileSync(resolve("justfile"), join(checkout, "justfile"));
-    // This Pi-only fixture does not install the patched browser dependencies.
-    writeFileSync(
+    copyFileSync(
+      resolve("pnpm-workspace.yaml"),
       join(checkout, "pnpm-workspace.yaml"),
-      `${readFileSync(resolve("pnpm-workspace.yaml"), "utf8")}\nallowUnusedPatches: true\n`,
     );
-    cpSync(resolve("patches"), join(checkout, "patches"), { recursive: true });
     copyFileSync(
       resolve("scripts/update-pi.ts"),
       join(checkout, "scripts", "update-pi.ts"),

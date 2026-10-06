@@ -11,6 +11,7 @@ import {
   type Harness,
   next,
   reply,
+  until,
 } from "./pi-harness.ts";
 
 let h: Harness | undefined;
@@ -370,6 +371,16 @@ describe("SDK built-ins", () => {
       await writeFile(join(h.agentDir, "settings.json"), "{}");
       await expect(session.reload()).rejects.toThrow("Set PI_CODING_AGENT_DIR");
       expect(await fixtureEvents("wrong")).toEqual([]);
+      await writeFile(
+        join(h.agentDir, "settings.json"),
+        JSON.stringify({ extensions: ["-builtin:mcp"] }),
+      );
+      await session.reload();
+      expect(session.commands().some((command) => command.name === "mcp")).toBe(
+        false,
+      );
+      await session.stop();
+      expect(h.runtime.live()).toEqual([]);
     } finally {
       process.env["PI_CODING_AGENT_DIR"] = selected;
     }
@@ -519,6 +530,14 @@ describe("SDK built-ins", () => {
     await entered.wait;
     const queuedReload = session.reload();
     const stopping = session.stop();
+    expect(session.stop()).toBe(stopping);
+    await expect(session.reload()).rejects.toThrow("stopping or stopped");
+    await expect(session.prompt("Too late")).rejects.toThrow(
+      "stopping or stopped",
+    );
+    await expect(session.runBash("printf unused", false)).rejects.toThrow(
+      "stopping or stopped",
+    );
     // Let stop reach its awaits while reload is held in an SDK lifecycle hook.
     await Promise.race([
       stopping,
@@ -538,13 +557,34 @@ describe("SDK built-ins", () => {
     await expect(session.reload()).rejects.toThrow("stopping or stopped");
   });
 
-  it("leaves no MCP connection open when stop overlaps a resource reload", async () => {
+  it("cancels reload startup UI and closes MCP when Stop overlaps reload", async () => {
     const entered = gate();
     const release = gate();
+    const cleared = gate();
+    const asked = gate();
+    const lifecycle: string[] = [];
+    let answer: boolean | undefined;
     h = await createHarness({
       extensions: [
         (pi) => {
+          pi.registerCommand("waiting", {
+            description: "Hold a dialog",
+            handler: async (_args, ctx) => {
+              await ctx.ui.input("Before Stop");
+            },
+          });
+          pi.on("session_start", () => {
+            lifecycle.push("start");
+          });
+          pi.on("session_start", async (event, ctx) => {
+            if (event.reason === "reload") {
+              const confirming = ctx.ui.confirm("Reload startup", "Continue?");
+              asked.open();
+              answer = await confirming;
+            }
+          });
           pi.on("session_shutdown", async (event) => {
+            lifecycle.push(event.reason);
             if (event.reason === "reload") {
               entered.open();
               await release.wait;
@@ -562,11 +602,31 @@ describe("SDK built-ins", () => {
         await callTool(session, "mcp__local__echo", { text: "connected" }),
       ),
     ).toBe("fixture: connected");
+    const waiting = session.prompt("/waiting");
+    await until(
+      session,
+      (snapshot) => snapshot.status.dialog?.title === "Before Stop",
+    );
+    let reentrantStop: Promise<void> | undefined;
+    session.subscribe(() => {
+      if (session.snapshot().status.dialog === null) {
+        reentrantStop ??= session.stop();
+        cleared.open();
+      }
+    });
     const reloading = session.reload();
     await entered.wait;
     const stopping = session.stop();
+    await cleared.wait;
+    expect(reentrantStop).toBe(stopping);
     release.open();
-    await Promise.all([reloading, stopping]);
+    await asked.wait;
+    const pending = session.snapshot().status.dialog;
+    if (pending) session.answerDialog(pending.id, { cancelled: true });
+    await Promise.all([waiting, reloading, stopping]);
+    expect(pending).toBeNull();
+    expect(answer).toBe(false);
+    expect(lifecycle).toEqual(["start", "reload", "start", "quit"]);
     // Flush the SDK's deferred connection startup after final shutdown.
     await new Promise<void>((resolve) => setImmediate(resolve));
     const events = await fixtureEvents("local");
@@ -579,6 +639,101 @@ describe("SDK built-ins", () => {
     expect(started.length).toBeGreaterThan(0);
     expect(closed).toEqual(started);
     expect(h.runtime.live()).toEqual([]);
+  });
+
+  it("cancels unsignaled UI requested by a tool hook after Stop aborts the turn", async () => {
+    const entered = gate();
+    const asked = gate();
+    let answer: boolean | undefined;
+    h = await createHarness({
+      extensions: [
+        (pi) => {
+          pi.on("tool_call", async (_event, ctx) => {
+            const aborted = gate();
+            ctx.signal?.addEventListener(
+              "abort",
+              () => {
+                aborted.open();
+              },
+              { once: true },
+            );
+            entered.open();
+            await aborted.wait;
+            const confirming = ctx.ui.confirm("Late tool dialog", "Continue?");
+            asked.open();
+            answer = await confirming;
+            return { block: true, reason: "Stopped" };
+          });
+        },
+      ],
+    });
+    const session = await h.open();
+    h.script((turn) => {
+      turn.toolCall("read", { path: "unused.txt" });
+      turn.done();
+    });
+    await session.prompt("Run the scripted tool call.");
+    await entered.wait;
+    const stopping = session.stop();
+    await asked.wait;
+    const pending = session.snapshot().status.dialog;
+    // Recover on the unfixed runtime so the reproduction leaves no live wait.
+    if (pending) session.answerDialog(pending.id, { cancelled: true });
+    await stopping;
+    expect(pending).toBeNull();
+    expect(answer).toBe(false);
+    expect(h.calls).toHaveLength(1);
+  });
+
+  it("owns startup through an extension shutdown request before admitting the session", async () => {
+    const entered = gate();
+    const release = gate();
+    const lifecycle: string[] = [];
+    const events: string[] = [];
+    h = await createHarness({
+      extensions: [
+        (pi) => {
+          pi.on("session_start", async (_event, ctx) => {
+            lifecycle.push("start");
+            ctx.shutdown();
+            entered.open();
+            await release.wait;
+            lifecycle.push("start-settled");
+          });
+          pi.on("session_shutdown", (event) => {
+            lifecycle.push(event.reason);
+          });
+        },
+      ],
+    });
+    await configureMcp({ local: fixtureServer("local") });
+    h.runtime.subscribeAll((event) => events.push(event.type));
+    const opening = h.open();
+    const result = opening.then(
+      () => "opened",
+      (error: unknown) => String(error),
+    );
+    await entered.wait;
+    // Flush admitted work while the real SDK startup handler remains held.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const prematureShutdown = lifecycle.includes("quit");
+    release.open();
+    expect(await result).toContain("Session stopped during startup");
+    expect(prematureShutdown).toBe(false);
+    expect(lifecycle).toEqual(["start", "start-settled", "quit"]);
+    expect(events).toEqual(["stopped"]);
+    expect(h.runtime.live()).toEqual([]);
+    const transports = await fixtureEvents("local");
+    expect(
+      transports
+        .filter((event) => event.event === "close")
+        .map((event) => event.pid),
+    ).toEqual(
+      transports
+        .filter((event) => event.event === "start")
+        .map((event) => event.pid),
+    );
+    expect(h.calls).toHaveLength(0);
   });
 
   it("closes an MCP transport whose initialization has not finished", async () => {

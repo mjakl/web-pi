@@ -63,6 +63,7 @@ export function createDialogHost(onChange: () => void = () => {}) {
     { request: DialogRequest; settle: (answer: DialogAnswer) => void }
   >();
   let counter = 0;
+  let disposed = false;
 
   function resolve(id: string, answer: DialogAnswer): boolean {
     const entry = pending.get(id);
@@ -79,7 +80,8 @@ export function createDialogHost(onChange: () => void = () => {}) {
       return [...pending.values()].at(-1)?.request ?? null;
     },
     ask(spec: DialogSpec, options: DialogOptions = {}): Promise<DialogAnswer> {
-      if (options.signal?.aborted) return Promise.resolve(CANCELLED);
+      if (disposed || options.signal?.aborted)
+        return Promise.resolve(CANCELLED);
       counter += 1;
       const id = `d${String(counter)}`;
       const request: DialogRequest = {
@@ -114,8 +116,12 @@ export function createDialogHost(onChange: () => void = () => {}) {
     answer(id: string, answer: DialogAnswer): boolean {
       return resolve(id, answer);
     },
-    /** Session stop: every waiting extension gets its method's default. */
     cancelAll(): void {
+      for (const id of [...pending.keys()]) resolve(id, CANCELLED);
+    },
+    /** Session stop also cancels all future requests. */
+    dispose(): void {
+      disposed = true;
       for (const id of [...pending.keys()]) resolve(id, CANCELLED);
     },
   };
@@ -159,6 +165,7 @@ export function createCustomUiHost(onChange: () => void = () => {}) {
     }
   >();
   let counter = 0;
+  let disposed = false;
 
   function draw(id: string): void {
     const entry = active.get(id);
@@ -199,6 +206,15 @@ export function createCustomUiHost(onChange: () => void = () => {}) {
     ): string {
       counter += 1;
       const id = `c${String(counter)}`;
+      if (disposed) {
+        try {
+          component.dispose?.();
+        } catch {
+          // Disposal failure must not leave the caller waiting.
+        }
+        onClose?.();
+        return id;
+      }
       active.set(id, { component, width, lines: [], onClose });
       draw(id);
       return id;
@@ -233,6 +249,11 @@ export function createCustomUiHost(onChange: () => void = () => {}) {
       const ids = [...active.keys()];
       for (const id of ids) close(id);
       return ids;
+    },
+    /** Disposal is terminal, including opens attempted by a close callback. */
+    dispose(): void {
+      disposed = true;
+      for (const id of [...active.keys()]) close(id);
     },
   };
 }

@@ -33,6 +33,32 @@ afterEach(async () => {
   await h.dispose();
 });
 
+describe("stopped session contract", () => {
+  it.each(["SDK", "fake"])(
+    "shares Stop and refuses new work in the %s adapter",
+    async (adapter) => {
+      h = await createHarness();
+      const runtime = adapter === "SDK" ? h.runtime : createFakeWorld().runtime;
+      const session = await runtime.open({ cwd: h.cwd });
+      const events: string[] = [];
+      session.subscribe((event) => events.push(event.type));
+      const stopping = session.stop();
+      expect(session.stop()).toBe(stopping);
+      await stopping;
+      expect(events.filter((event) => event === "stopped")).toHaveLength(1);
+      expect(runtime.get(session.id)).toBeUndefined();
+      await expect(session.reload()).rejects.toThrow("stopping or stopped");
+      await expect(session.prompt("Late")).rejects.toThrow(
+        "stopping or stopped",
+      );
+      await expect(session.runBash("unused", false)).rejects.toThrow(
+        "stopping or stopped",
+      );
+      expect(h.calls).toHaveLength(0);
+    },
+  );
+});
+
 describe("opening", () => {
   it("replaces only web-pi's addition at runtime start, retaining Pi and user instructions", async () => {
     h = await createHarness();

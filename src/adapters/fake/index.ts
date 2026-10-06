@@ -363,6 +363,7 @@ class FakeLiveSession implements LiveSession {
   private running = false;
   private compacting = false;
   private bashRunning = false;
+  private stopTask: Promise<void> | undefined;
   private bash: { command: string; output: string } | undefined;
   private queue: QueuedMessage[] = [];
   private compaction: LiveStatus["compaction"] = null;
@@ -689,6 +690,11 @@ class FakeLiveSession implements LiveSession {
   }
 
   prompt(text: string, input: PromptInput = {}): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot prompt a stopping or stopped session."),
+      );
+    }
     const storedText = input.skills?.length
       ? encodeSkillPrompt(text, input.skills, text)
       : text;
@@ -795,6 +801,11 @@ class FakeLiveSession implements LiveSession {
   }
 
   reload(): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot reload a stopping or stopped session."),
+      );
+    }
     this.notices.push({ level: "info", message: "Resources reloaded." });
     this.emit({ type: "activity" });
     return Promise.resolve();
@@ -827,6 +838,13 @@ class FakeLiveSession implements LiveSession {
 
   /** Echoes the command back, one chunk at a time, like a real shell run. */
   runBash(command: string, excludeFromContext: boolean): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error(
+          "Cannot run a shell command in a stopping or stopped session.",
+        ),
+      );
+    }
     this.bashRunning = true;
     this.turnStart = branchOf(this.stored).length;
     this.bash = { command, output: "" };
@@ -888,13 +906,17 @@ class FakeLiveSession implements LiveSession {
   }
 
   stop(): Promise<void> {
-    this.dialogs.cancelAll();
-    this.custom.closeAll();
+    if (this.stopTask) return this.stopTask;
+    this.stopTask = Promise.resolve();
+    this.running = false;
+    this.bashRunning = false;
+    this.dialogs.dispose();
+    this.custom.dispose();
     this.customResolve?.();
     this.onStop();
     this.emit({ type: "stopped" });
     this.listeners.clear();
-    return Promise.resolve();
+    return this.stopTask;
   }
 }
 

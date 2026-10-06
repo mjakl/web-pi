@@ -104,7 +104,7 @@ class PiLiveSession implements LiveSession {
   private bash: { command: string; output: string } | undefined;
   private bashTask: Promise<void> | undefined;
   private stopTask: Promise<void> | undefined;
-  private reloadTask: Promise<void> | undefined;
+  private lifecycleTask: Promise<void> = Promise.resolve();
   private pendingPrompts = 0;
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
@@ -145,6 +145,49 @@ class PiLiveSession implements LiveSession {
     this.unsubscribe = inner.subscribe((event) => {
       this.handle(event);
     });
+  }
+
+  /** Initial binding, runner replacement, and final shutdown have one owner. */
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const task = this.lifecycleTask.catch(() => {}).then(operation);
+    this.lifecycleTask = task;
+    return task;
+  }
+
+  start(): Promise<void> {
+    return this.enqueueLifecycle(() =>
+      this.inner.bindExtensions({
+        uiContext: this.ui.context,
+        mode: "rpc",
+        // web-pi owns navigation; extensions cannot replace the page's session.
+        commandContextActions: {
+          waitForIdle: () => this.inner.agent.waitForIdle(),
+          newSession: () => Promise.resolve({ cancelled: true }),
+          fork: () => Promise.resolve({ cancelled: true }),
+          switchSession: () => Promise.resolve({ cancelled: true }),
+          navigateTree: (targetId, navigate) =>
+            this.navigate(targetId, navigate?.summarize),
+          reload: () => this.reload(),
+        },
+        shutdownHandler: () => {
+          this.ui.context.notify(
+            "An extension asked to shut this session down.",
+            "warning",
+          );
+          void this.stop();
+        },
+        onError: (error) => {
+          this.ui.context.notify(
+            `${error.extensionPath}: ${error.error}`,
+            "error",
+          );
+        },
+      }),
+    );
+  }
+
+  get stopping(): boolean {
+    return this.stopTask !== undefined;
   }
 
   readonly ui = createExtensionUi({
@@ -447,6 +490,11 @@ class PiLiveSession implements LiveSession {
   }
 
   prompt(text: string, input: PromptInput = {}): Promise<void> {
+    if (this.stopping) {
+      return Promise.reject(
+        new Error("Cannot prompt a stopping or stopped session."),
+      );
+    }
     if (this.bash || this.inner.isBashRunning) {
       return Promise.reject(
         new Error(
@@ -646,11 +694,7 @@ class PiLiveSession implements LiveSession {
         new Error("Cannot reload a stopping or stopped session."),
       );
     }
-    // Keep each requested reload, but never rebuild SDK runners concurrently.
-    this.reloadTask = (this.reloadTask ?? Promise.resolve())
-      .catch(() => {})
-      .then(() => this.reloadResources());
-    return this.reloadTask;
+    return this.enqueueLifecycle(() => this.reloadResources());
   }
 
   private async reloadResources(): Promise<void> {
@@ -711,6 +755,13 @@ class PiLiveSession implements LiveSession {
 
   /** Resolves on admission, like prompt(); this session owns the whole shell run. */
   runBash(command: string, excludeFromContext: boolean): Promise<void> {
+    if (this.stopping) {
+      return Promise.reject(
+        new Error(
+          "Cannot run a shell command in a stopping or stopped session.",
+        ),
+      );
+    }
     if (this.busy || this.compacting || this.pendingPrompts > 0) {
       return Promise.reject(
         new Error(
@@ -784,27 +835,36 @@ class PiLiveSession implements LiveSession {
   }
 
   stop(): Promise<void> {
-    return (this.stopTask ??= this.stopSession());
-  }
-
-  private async stopSession(): Promise<void> {
-    this.inner.abortBash();
-    await this.bashTask;
-    this.unsubscribe();
+    if (this.stopTask) return this.stopTask;
+    // Latch admission before UI cleanup or abort can call back into this owner.
+    this.stopTask = this.enqueueLifecycle(() => this.stopSession(work));
     this.run.cancel();
     this.ui.dispose();
-    // A failed reload still needs final cleanup; its caller receives the error.
-    await this.reloadTask?.catch(() => {});
-    await this.inner.abort();
-    // dispose() invalidates contexts but does not close extension-owned resources.
-    await this.inner.extensionRunner.emit({
-      type: "session_shutdown",
-      reason: "quit",
-    });
-    this.inner.dispose();
-    this.onStop();
-    this.emit({ type: "stopped" });
-    this.listeners.clear();
+    this.inner.abortBash();
+    const work = Promise.all([this.inner.abort(), this.bashTask]);
+    // Abort is signalled now, but its result is collected after lifecycle work.
+    void work.catch(() => {});
+    return this.stopTask;
+  }
+
+  private async stopSession(work: Promise<unknown>): Promise<void> {
+    try {
+      await work;
+    } finally {
+      try {
+        // dispose() alone does not close extension-owned resources.
+        await this.inner.extensionRunner.emit({
+          type: "session_shutdown",
+          reason: "quit",
+        });
+      } finally {
+        this.unsubscribe();
+        this.inner.dispose();
+        this.onStop();
+        this.emit({ type: "stopped" });
+        this.listeners.clear();
+      }
+    }
   }
 }
 
@@ -1045,36 +1105,16 @@ export function createPiAgentRuntime(options: {
       } else resetIdle();
     });
     resetIdle();
-    await session.bindExtensions({
-      uiContext: wrapper.ui.context,
-      mode: "rpc",
-      // What an extension-registered command may do to the session it runs
-      // in. Everything that would replace the session is refused: web-pi owns
-      // navigation, and an extension swapping the page's session underneath
-      // the reader is not something the browser could follow.
-      commandContextActions: {
-        waitForIdle: () => session.agent.waitForIdle(),
-        newSession: () => Promise.resolve({ cancelled: true }),
-        fork: () => Promise.resolve({ cancelled: true }),
-        switchSession: () => Promise.resolve({ cancelled: true }),
-        navigateTree: (targetId, navigate) =>
-          wrapper.navigate(targetId, navigate?.summarize),
-        reload: () => wrapper.reload(),
-      },
-      shutdownHandler: () => {
-        wrapper.ui.context.notify(
-          "An extension asked to shut this session down.",
-          "warning",
-        );
-        void wrapper.stop();
-      },
-      onError: (error) => {
-        wrapper.ui.context.notify(
-          `${error.extensionPath}: ${error.error}`,
-          "error",
-        );
-      },
-    });
+    try {
+      await wrapper.start();
+    } catch (error) {
+      await wrapper.stop();
+      throw error;
+    }
+    if (wrapper.stopping) {
+      await wrapper.stop();
+      throw new Error("Session stopped during startup.");
+    }
     const file = manager.getSessionFile();
     if (file) options.catalog.remember(id, file);
     live.set(id, wrapper);

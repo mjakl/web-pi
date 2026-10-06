@@ -40,6 +40,22 @@ does not justify retention.
   or empirical evaluation. Deterministic assertions cannot establish subjective
   quality; surrounding deterministic logic can still benefit from TDD.
 
+## Gate new permanent tests
+
+Every change needs adequate verification, not necessarily a new permanent test.
+Before adding one, name the concrete failure it would catch and check whether
+existing verification already protects against that failure adequately.
+
+Failures include violations of contracts that callers or operators rely on,
+including security, data integrity, compatibility, concurrency, and resource or
+performance limits. If the justification is only implementation structure, choose
+a better testing boundary or do not add the test. Additional coverage must address
+a distinct failure risk.
+
+Temporary diagnostic checks are allowed. Retain them only if they meet this bar.
+When adding no new test, name the existing verification used and its relevant
+limits.
+
 ## Test outcomes at a useful boundary
 
 Treat a unit as coherent behavior, possibly spanning cooperating functions or

@@ -34,6 +34,7 @@ The repository revisions above record earlier source consultation, not a new ups
 
 ## Durable decisions
 
+- Add the user-approved permanent-test admission gate: name a concrete failure and check existing verification before retaining new coverage. Preserve safety and technical-contract protection, report verification limits when adding no test.
 - Replace the stable-seam and regression-mode structure with a feedback loop: establish the intended result and a plausible mistake, ground expectations independently, choose cheap credible evidence, run and correct while the change is small, then decide retention.
 - Trigger ordinary implementation that benefits from runtime feedback as well as explicit testing. Exclude prose and static-only edits from a runtime ritual; keep planning-level evidence needs and general review distinct from concrete test design.
 - Preserve the earlier behavior focus, independent expected values, and small implementation increments. Stable caller-visible seams remain useful for lasting tests, not a prerequisite for every temporary check.

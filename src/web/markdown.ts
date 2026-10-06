@@ -13,8 +13,6 @@ export type MarkdownOptions = {
   cwd?: string;
   /** Opens local paths in the file panel and serves local images. */
   sessionId?: string;
-  /** Inside the live turn: no diagram preview until the text settles. */
-  live?: boolean;
   /** File previews render fully; messages retain the oversized-source fallback. */
   filePreview?: boolean;
 };
@@ -49,27 +47,17 @@ function formatBytes(bytes: number): string {
 
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
 
-/**
- * pi-web's CodeBlock (§4.5): a header carrying the language and a copy
- * button, then the code on a tinted body. A mermaid fence gets the extra
- * Preview/Source action and the `.mermaid-block` the client renders into.
- */
-function codeBlock(code: string, language: string, live: boolean): string {
+/** pi-web's CodeBlock (§4.5): a language header, copy button and tinted body. */
+function codeBlock(code: string, language: string): string {
   const label = language === "" ? "text" : language;
   const body =
     `<pre class="markdown-code-body">` +
     `<code class="language-${attribute(label)}">${escapeHtml(code)}</code></pre>`;
   const copy = `<button type="button" class="markdown-code-action" data-copy-code>Copy</button>`;
-  const header = (actions: string) =>
+  const header =
     `<div class="markdown-code-header"><span class="markdown-code-lang">${escapeHtml(label)}</span>` +
-    `<div class="markdown-code-actions">${actions}</div></div>`;
-  if (label !== "mermaid") {
-    return `<div class="markdown-code-block">${header(copy)}${body}</div>`;
-  }
-  const toggle = `<button type="button" class="markdown-code-action" data-mermaid-toggle${
-    live ? ' disabled title="Preview available after streaming"' : ""
-  }>Preview</button>`;
-  return `<div class="markdown-code-block" data-mermaid>${header(`${toggle}${copy}`)}${body}<div class="mermaid-block" hidden></div></div>`;
+    `<div class="markdown-code-actions">${copy}</div></div>`;
+  return `<div class="markdown-code-block">${header}${body}</div>`;
 }
 
 /**
@@ -100,7 +88,7 @@ function markedFor(options: MarkdownOptions): Marked {
       },
       code({ text, lang }: Tokens.Code) {
         const language = (lang ?? "").trim().split(/\s+/)[0] ?? "";
-        return codeBlock(text, language.toLowerCase(), options.live === true);
+        return codeBlock(text, language.toLowerCase());
       },
       codespan({ text }: Tokens.Codespan) {
         return `<code class="markdown-inline-code">${escapeHtml(text)}</code>`;

@@ -23,7 +23,7 @@ export type ItemActions = {
   inspectionOnly?: boolean;
   /** Entry ids whose message shows a time. */
   timestamps?: Set<string>;
-  /** Inside the running turn: no actions, no diagram preview. */
+  /** Inside the running turn: no history actions. */
   live?: boolean;
   /**
    * A turn is in flight. pi-web keeps the history row rendered and disables
@@ -94,7 +94,6 @@ export function Markdown({
           ...(actions
             ? { cwd: actions.cwd, sessionId: actions.sessionId }
             : {}),
-          ...(actions?.live ? { live: true } : {}),
         }),
       )}
     </div>

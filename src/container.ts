@@ -63,7 +63,7 @@ function demoSessions(cwd: string): FakeStoredSession[] {
 
 /**
  * The demo answer: reasoning, a tool call with progress, an edit with a diff,
- * a subagent, and prose with a code fence and a diagram. Everything the
+ * a subagent, and prose with code fences and a table. Everything the
  * transcript can render, without a model.
  */
 /**
@@ -194,7 +194,7 @@ function demoScript(cwd: string, prompt: string): ScriptedStep[] {
     },
     { status: "git", statusText: "\u001B[32mmain\u001B[0m ● 1 changed" },
     {
-      text: `You asked: **${prompt}**\n\nThis reply comes from the fake runtime, streamed word by word so the page can be checked without a model.\n\n\`\`\`ts\nexport const answer = 42;\n\`\`\`\n\n\`\`\`mermaid\nflowchart LR\n  ask --> think --> tools --> answer\n\`\`\`\n\n| step | state |\n| --- | --- |\n| edit | done |`,
+      text: `You asked: **${prompt}**\n\nThis reply comes from the fake runtime, streamed word by word so the page can be checked without a model.\n\n\`\`\`ts\nexport const answer = 42;\n\`\`\`\n\n\`\`\`sh\njust test-one tests/web\n\`\`\`\n\n| step | state |\n| --- | --- |\n| edit | done |`,
     },
   ];
 }

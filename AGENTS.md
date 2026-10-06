@@ -100,13 +100,12 @@ Rules enforced by `.oxlintrc.json`:
   and the client bundle all build markup from untrusted text, and a second
   escaper is how one of them ends up missing an entity.
 - Hono JSX uses `class`, never `className`. No dynamic imports in `src/`; the
-  three exceptions carry a narrowed lint override — `src/web/client/mermaid.ts`
-  loads the separately bundled `static/mermaid.js` by URL, `src/cli.ts` loads
-  the server after flags reach the environment, and `src/server.ts` loads the
-  SDK module graph only after ownership validation.
+  two exceptions carry a narrowed lint override — `src/cli.ts` loads the server
+  after flags reach the environment, and `src/server.ts` loads the SDK module
+  graph only after ownership validation.
 - `src/web/client/*` is bundled by esbuild and may import `@core/*`; anything it
-  imports must run in a browser (no Node, no SDK). `main.ts` and
-  `mermaid-lib.ts` are the two bundle entry points.
+  imports must run in a browser (no Node, no SDK). `main.ts` is the client
+  bundle entry point.
 - Anything a page can do without script does: the workspace menu is a native
   `popover` anchored in CSS, and the subagent fold and the extension widget
   panel are `<details>` elements the server fills on demand.

@@ -211,8 +211,8 @@ tools.entries.splice(1, 0, call, result);
 const light = session(
   "light",
   "Plan the next release",
-  "Show a small release plan with the path from draft to shipped.",
-  "## A release in three steps\n\n| Step | Result |\n| --- | --- |\n| Prepare | A short checklist |\n| Review | A tested change |\n| Ship | A tagged release |\n\n```mermaid\nflowchart LR\n  Draft --> Review --> Shipped\n```\n\nKeep the checklist beside the change so the release decision is easy to revisit.",
+  "Show the release checks and commands for shipping a tested change.",
+  "## A release in three steps\n\n| Step | Result |\n| --- | --- |\n| Prepare | A short checklist |\n| Review | A tested change |\n| Ship | A tagged release |\n\n```sh\njust ci\ngit tag v1.4.0\ngit push origin v1.4.0\n```\n\nKeep the checklist beside the change so the release decision is easy to revisit.",
 );
 const scale = session(
   "scale",

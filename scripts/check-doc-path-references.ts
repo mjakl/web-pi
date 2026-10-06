@@ -3,11 +3,7 @@ import { join } from "node:path";
 
 // Source references must exist even in a checkout that has not been built.
 // Only these known justfile outputs may legitimately be absent.
-const generatedOutputs = new Set([
-  "static/app.css",
-  "static/client.js",
-  "static/mermaid.js",
-]);
+const generatedOutputs = new Set(["static/app.css", "static/client.js"]);
 const roots = ["AGENTS.md", "README.md", "docs"];
 const pattern = /`((?:src|tests|scripts|docs|static)\/[\w./-]+)`/g;
 

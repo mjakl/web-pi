@@ -5,7 +5,7 @@ import { join } from "node:path";
 // Built assets are hashed once at boot so the browser can cache them hard and
 // still pick up a rebuild; nothing rebuilds them while the server runs.
 
-export type StaticAssets = { css: string; js: string; mermaid: string };
+export type StaticAssets = { css: string; js: string };
 
 function assetUrl(root: string, file: string): string {
   let version = "dev";
@@ -24,7 +24,5 @@ export function staticAssets(root: string): StaticAssets {
   return {
     css: assetUrl(root, "app.css"),
     js: assetUrl(root, "client.js"),
-    // Fetched only when a reader opens a diagram preview.
-    mermaid: assetUrl(root, "mermaid.js"),
   };
 }

@@ -43,7 +43,6 @@
     "htmx.org": "4.0.0",
     "husky": "9.1.7",
     "marked": "18.0.14",
-    "mermaid": "11.17.2",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "oxlint-plugin-eslint": "^1.86.0",

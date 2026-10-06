@@ -49,11 +49,10 @@ Subagent tools and orchestration come from your installed Pi extensions.
 
 ### Discuss a plan in more than plain text
 
-Read formatted tables and highlighted code alongside the answer. Mermaid blocks
-switch between source and diagram preview. Choose light, dark, or system
-appearance in Settings.
+Read formatted tables and highlighted code alongside the answer, and copy code
+blocks directly. Choose light, dark, or system appearance in Settings.
 
-![A release plan and Mermaid diagram in light mode](docs/images/conversation-light.png)
+![A release plan and shell commands in light mode](docs/images/conversation-light.png)
 
 ### Keep working on a smaller screen
 

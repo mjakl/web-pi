@@ -166,6 +166,32 @@ describe("dialogs", () => {
     expect(answers).toEqual(["2", undefined]);
   });
 
+  it("keeps UI usable after aborting a persisted session's turn", async () => {
+    let answer: boolean | undefined;
+    const { session } = await withCommands({
+      ask: async (_args, ctx) => {
+        answer = await ctx.ui.confirm("After abort", "Continue?");
+      },
+    });
+    h.script(reply("saved"));
+    const saved = next(session, "turn_done");
+    await session.prompt("Create a saved transcript.");
+    await saved;
+    h.script((turn) => {
+      turn.text("running");
+    });
+    const streaming = next(session, "activity");
+    await session.prompt("Start a turn to abort.");
+    await streaming;
+    await session.abort();
+    expect(h.runtime.get(session.id)).toBe(session);
+    const asked = session.prompt("/ask");
+    const request = await dialog(session);
+    session.answerDialog(request.id, { confirmed: true });
+    await asked;
+    expect(answer).toBe(true);
+  });
+
   it("keeps a pending dialog across a reload but drops statuses and widgets", async () => {
     let received: string | undefined = "unset";
     let disposed = 0;

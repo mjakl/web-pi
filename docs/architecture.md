@@ -101,6 +101,34 @@ exclusive initial flush and then return to SDK appends. `!!` entries retain
 `excludeFromContext`; no assistant message is invented. Stopping a session
 aborts its shell and awaits settlement before disposal.
 
+Each session's resource loader registers Pi's `codemode`, `tool-search`, and
+`mcp` as replaceable built-in extensions. The SDK owns their setting-based
+exclusions, user replacements, tool exposure, and per-session state. Existing
+extension binding emits `session_start`, which starts MCP connections.
+`PiLiveSession` owns one sequential lifecycle lane for initial binding, admitted
+resource reloads, and final shutdown. Reload emits shutdown before rebuilding.
+Stop immediately closes admission and extension UI, cancels completion tracking,
+and signals shell and turn cancellation before waiting for owned work. It
+rejects new prompts, shell commands, compaction, tree navigation, and reloads.
+It then awaits `session_shutdown` before SDK disposal and shares one completion
+promise across concurrent stops. Admitted reloads retain their individual
+results; a failed operation does not prevent final cleanup. Final shutdown
+follows the last start, so extensions cannot restart after disposal. A session
+stopped during initial binding is never registered as live; opening rejects with
+`Session stopped during startup.` Arbitrary extension work that ignores
+cancellation and does not await UI can still delay shutdown.
+
+Production chooses one process-wide agent directory with Pi's `getAgentDir()` in
+`loadConfig()` and passes it through the container. MCP independently uses that
+same upstream resolver. After the loader applies exclusions and replacements,
+the runtime checks that a loaded `builtin:mcp` agrees with its supplied
+directory. A mismatch rejects startup or reload before MCP can read
+configuration, credentials, or logs from a different directory. Disabled or
+replaced MCP does not impose this restriction. The runtime never swaps the
+process environment to support several directories. See
+[Codemode, tool search, and MCP](../README.md#codemode-tool-search-and-mcp) for
+settings and browser limitations.
+
 Settings → Models lists the full `ModelRuntime.getAvailable()` catalog before
 `enabledModels` narrowing: built-in and configured models with credentials, not
 the unauthenticated registry. Like the existing catalog, it does not load
@@ -583,7 +611,12 @@ composition root and the only importer of Pi adapters.
   SDK's promise, so the first tab to answer wins and the others watch the dialog
   disappear on the next render. A cancel carries no value at all, which is
   exactly how the SDK spells its default (`undefined`, or `false` for
-  `confirm`): an extension cannot tell a cancel from an empty answer.
+  `confirm`): an extension cannot tell a cancel from an empty answer. Session
+  Stop permanently closes both hosts. Pending and future requests receive those
+  cancellation defaults, including UI requested by an admitted reload's startup
+  hook. Custom and widget factories cannot start after closure; already-created
+  components are disposed, including components returned by an asynchronous
+  factory after closure. Ordinary turn abort does not close the hosts.
 - **A custom UI is a pi-tui component with no terminal under it.**
   `src/adapters/pi/extension-ui.ts` hands the factory a `TUI` that is a size and
   a `requestRender` callback, and a theme that applies no colour.

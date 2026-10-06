@@ -169,6 +169,47 @@ popovers, CSS anchor positioning, `@starting-style`, `:has()`, and
 support floors, not a claim that every minimum browser was exercised for this
 change.
 
+## Codemode, tool search, and MCP
+
+Live sessions load Pi's built-in codemode, tool-search, and MCP extensions.
+Codemode and tool search are registered but inactive by default. Enable them in
+Pi's `settings.json` without replacing the default tools:
+
+```json
+{
+  "defaultTools": ["+codemode", "+tool_search"]
+}
+```
+
+MCP reads `<agentDir>/mcp.json` and, after project trust, `.pi/mcp.json`.
+Starting or activating a live session connects enabled servers. Servers with
+`codemode` exposure activate codemode automatically; `deferred` exposure
+activates tool search; `direct` exposure declares their tools to the model.
+`enabled: false`, hidden tool exposure, and `autoEnableCodemode: false` retain
+Pi's behavior. Codemode's `mode` and `inlineBudget` settings also apply. Calls
+made through codemode still pass through extension permission hooks.
+
+Disable built-ins with `extensions` entries such as `"-builtin:mcp"`,
+`"-builtin:codemode"`, or `"-builtin:tool-search"`. User extensions that
+register `/mcp`, `codemode`, or `tool_search` replace the corresponding
+built-in. Run `/reload` after changing configuration. Reload and session stop
+close the old MCP connections. In the browser, `/mcp` reports status; the
+terminal manager is not provided. Pi's `/mcp login`, `/mcp logout`, and
+`/mcp reconnect` commands are available through the extension.
+
+One web-pi process uses one Pi agent directory, selected before startup through
+`PI_CODING_AGENT_DIR` or Pi's default. Built-in MCP refuses a mismatched runtime
+directory rather than reading another directory's configuration or credentials.
+Set the intended directory and restart to recover. Independent MCP agent
+directories within one process are not supported.
+
+See Pi's
+[Codemode](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/codemode.md)
+and
+[MCP](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/mcp.md)
+documentation for configuration and tool exposure. These features do not require
+`pi-server` or change web-pi's session transport.
+
 ## Settings and notifications
 
 **Settings → General** holds shared appearance (default **auto**), dumb-zone

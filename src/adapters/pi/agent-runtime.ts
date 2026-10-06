@@ -40,12 +40,17 @@ import {
   type BashOperations,
   createAgentSessionFromServices,
   createAgentSessionServices,
+  createCodemodeExtension,
+  createMcpExtension,
+  createToolSearchExtension,
   estimateTokens as estimateMessageTokens,
+  getAgentDir,
   type InlineExtension,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   createProjectBashExtension,
   createProjectBashOperations,
@@ -98,6 +103,8 @@ class PiLiveSession implements LiveSession {
   private compactionError: LiveStatus["compactionError"] = null;
   private bash: { command: string; output: string } | undefined;
   private bashTask: Promise<void> | undefined;
+  private stopTask: Promise<void> | undefined;
+  private lifecycleTask: Promise<void> = Promise.resolve();
   private pendingPrompts = 0;
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
@@ -138,6 +145,49 @@ class PiLiveSession implements LiveSession {
     this.unsubscribe = inner.subscribe((event) => {
       this.handle(event);
     });
+  }
+
+  /** Initial binding, runner replacement, and final shutdown have one owner. */
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const task = this.lifecycleTask.catch(() => {}).then(operation);
+    this.lifecycleTask = task;
+    return task;
+  }
+
+  start(): Promise<void> {
+    return this.enqueueLifecycle(() =>
+      this.inner.bindExtensions({
+        uiContext: this.ui.context,
+        mode: "rpc",
+        // web-pi owns navigation; extensions cannot replace the page's session.
+        commandContextActions: {
+          waitForIdle: () => this.inner.agent.waitForIdle(),
+          newSession: () => Promise.resolve({ cancelled: true }),
+          fork: () => Promise.resolve({ cancelled: true }),
+          switchSession: () => Promise.resolve({ cancelled: true }),
+          navigateTree: (targetId, navigate) =>
+            this.navigate(targetId, navigate?.summarize),
+          reload: () => this.reload(),
+        },
+        shutdownHandler: () => {
+          this.ui.context.notify(
+            "An extension asked to shut this session down.",
+            "warning",
+          );
+          void this.stop();
+        },
+        onError: (error) => {
+          this.ui.context.notify(
+            `${error.extensionPath}: ${error.error}`,
+            "error",
+          );
+        },
+      }),
+    );
+  }
+
+  get stopping(): boolean {
+    return this.stopTask !== undefined;
   }
 
   readonly ui = createExtensionUi({
@@ -440,6 +490,11 @@ class PiLiveSession implements LiveSession {
   }
 
   prompt(text: string, input: PromptInput = {}): Promise<void> {
+    if (this.stopping) {
+      return Promise.reject(
+        new Error("Cannot prompt a stopping or stopped session."),
+      );
+    }
     if (this.bash || this.inner.isBashRunning) {
       return Promise.reject(
         new Error(
@@ -560,6 +615,9 @@ class PiLiveSession implements LiveSession {
     targetId: string,
     summarize?: boolean,
   ): Promise<{ cancelled: boolean; editorText?: string }> {
+    if (this.stopping) {
+      throw new Error("Cannot navigate a stopping or stopped session.");
+    }
     const target = resolveSnapshotEntryId(
       this.inner.sessionManager.getEntries(),
       targetId,
@@ -622,6 +680,9 @@ class PiLiveSession implements LiveSession {
   }
 
   async compact(instructions?: string): Promise<void> {
+    if (this.stopping) {
+      throw new Error("Cannot compact a stopping or stopped session.");
+    }
     this.compaction = null;
     this.compactionError = null;
     await this.inner.compact(instructions);
@@ -633,7 +694,16 @@ class PiLiveSession implements LiveSession {
   }
 
   /** Rebuilds the extensions; their statuses and widgets go with them. */
-  async reload(): Promise<void> {
+  reload(): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot reload a stopping or stopped session."),
+      );
+    }
+    return this.enqueueLifecycle(() => this.reloadResources());
+  }
+
+  private async reloadResources(): Promise<void> {
     this.ui.resetForReload();
     this.statuses.clear();
     this.widgets.clear();
@@ -691,6 +761,13 @@ class PiLiveSession implements LiveSession {
 
   /** Resolves on admission, like prompt(); this session owns the whole shell run. */
   runBash(command: string, excludeFromContext: boolean): Promise<void> {
+    if (this.stopping) {
+      return Promise.reject(
+        new Error(
+          "Cannot run a shell command in a stopping or stopped session.",
+        ),
+      );
+    }
     if (this.busy || this.compacting || this.pendingPrompts > 0) {
       return Promise.reject(
         new Error(
@@ -763,17 +840,37 @@ class PiLiveSession implements LiveSession {
     return () => this.listeners.delete(listener);
   }
 
-  async stop(): Promise<void> {
-    this.inner.abortBash();
-    await this.bashTask;
-    this.unsubscribe();
+  stop(): Promise<void> {
+    if (this.stopTask) return this.stopTask;
+    // Latch admission before UI cleanup or abort can call back into this owner.
+    this.stopTask = this.enqueueLifecycle(() => this.stopSession(work));
     this.run.cancel();
     this.ui.dispose();
-    await this.inner.abort();
-    this.inner.dispose();
-    this.onStop();
-    this.emit({ type: "stopped" });
-    this.listeners.clear();
+    this.inner.abortBash();
+    const work = Promise.all([this.inner.abort(), this.bashTask]);
+    // Abort is signalled now, but its result is collected after lifecycle work.
+    void work.catch(() => {});
+    return this.stopTask;
+  }
+
+  private async stopSession(work: Promise<unknown>): Promise<void> {
+    try {
+      await work;
+    } finally {
+      try {
+        // dispose() alone does not close extension-owned resources.
+        await this.inner.extensionRunner.emit({
+          type: "session_shutdown",
+          reason: "quit",
+        });
+      } finally {
+        this.unsubscribe();
+        this.inner.dispose();
+        this.onStop();
+        this.emit({ type: "stopped" });
+        this.listeners.clear();
+      }
+    }
   }
 }
 
@@ -851,6 +948,24 @@ export function createPiAgentRuntime(options: {
         appendSystemPromptOverride: (base) =>
           addition === "" ? base : [...base, addition],
         extensionFactories: [
+          {
+            name: "codemode",
+            builtin: true,
+            replaceable: true,
+            factory: createCodemodeExtension(),
+          },
+          {
+            name: "tool-search",
+            builtin: true,
+            replaceable: true,
+            factory: createToolSearchExtension(),
+          },
+          {
+            name: "mcp",
+            builtin: true,
+            replaceable: true,
+            factory: createMcpExtension(),
+          },
           createProjectBashExtension({
             cwd,
             agentDir: options.agentDir,
@@ -881,7 +996,22 @@ export function createPiAgentRuntime(options: {
             },
           },
         ],
-        extensionsOverride: preferUserBashExtension,
+        extensionsOverride: (base) => {
+          const loaded = preferUserBashExtension(base);
+          // MCP uses Pi's process-wide directory, not the services' agentDir.
+          // Check after exclusions/replacements, and again on resource reload.
+          if (
+            loaded.extensions.some(
+              (extension) => extension.path === "builtin:mcp",
+            ) &&
+            resolve(getAgentDir()) !== resolve(options.agentDir)
+          ) {
+            throw new Error(
+              'Built-in MCP requires the runtime agent directory to match Pi\'s process-wide directory. Set PI_CODING_AGENT_DIR to the intended agent directory before starting web-pi, then restart. Alternatively, disable built-in MCP with extensions: ["-builtin:mcp"].',
+            );
+          }
+          return loaded;
+        },
       },
       ...(trust ? { resourceLoaderReloadOptions: trust } : {}),
     });
@@ -981,36 +1111,16 @@ export function createPiAgentRuntime(options: {
       } else resetIdle();
     });
     resetIdle();
-    await session.bindExtensions({
-      uiContext: wrapper.ui.context,
-      mode: "rpc",
-      // What an extension-registered command may do to the session it runs
-      // in. Everything that would replace the session is refused: web-pi owns
-      // navigation, and an extension swapping the page's session underneath
-      // the reader is not something the browser could follow.
-      commandContextActions: {
-        waitForIdle: () => session.agent.waitForIdle(),
-        newSession: () => Promise.resolve({ cancelled: true }),
-        fork: () => Promise.resolve({ cancelled: true }),
-        switchSession: () => Promise.resolve({ cancelled: true }),
-        navigateTree: (targetId, navigate) =>
-          wrapper.navigate(targetId, navigate?.summarize),
-        reload: () => wrapper.reload(),
-      },
-      shutdownHandler: () => {
-        wrapper.ui.context.notify(
-          "An extension asked to shut this session down.",
-          "warning",
-        );
-        void wrapper.stop();
-      },
-      onError: (error) => {
-        wrapper.ui.context.notify(
-          `${error.extensionPath}: ${error.error}`,
-          "error",
-        );
-      },
-    });
+    try {
+      await wrapper.start();
+    } catch (error) {
+      await wrapper.stop();
+      throw error;
+    }
+    if (wrapper.stopping) {
+      await wrapper.stop();
+      throw new Error("Session stopped during startup.");
+    }
     const file = manager.getSessionFile();
     if (file) options.catalog.remember(id, file);
     live.set(id, wrapper);

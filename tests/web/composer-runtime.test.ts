@@ -15,6 +15,8 @@ import type { HTMLButtonElement, HTMLSelectElement } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createHarness,
+  gate,
+  reply,
   MODEL_ID,
   MODEL_2,
   PROVIDER,
@@ -102,6 +104,71 @@ async function composer(app: App, id?: string) {
   browsers.push(browser);
   return browser;
 }
+
+it("refuses the compact route after Stop without invoking the provider or rewriting history", async () => {
+  const entered = gate();
+  const release = gate();
+  h = await createHarness({
+    settings: {
+      compaction: { enabled: true, reserveTokens: 1000, keepRecentTokens: 20 },
+    },
+    extensions: [
+      (pi) => {
+        pi.on("session_shutdown", async () => {
+          entered.open();
+          await release.wait;
+        });
+      },
+    ],
+  });
+  const session = await h.open();
+  for (const text of ["first", "second"]) {
+    h.script(reply(`${text} answer `.repeat(20)));
+    const done = next(session, "turn_done");
+    await session.prompt(text);
+    await done;
+  }
+  const workspace = createWorkspace({
+    ...createFakeWorld(),
+    runtime: h.runtime,
+    sessions: h.catalog,
+  });
+  const app = createWebApp({
+    workspace,
+    defaultCwd: h.cwd,
+    staticRoot: "static",
+  });
+  const stopping = session.stop();
+  await entered.wait;
+  const before = session.snapshot().branch;
+  const callsBefore = h.calls.length;
+  h.script(
+    reply("Unexpected compaction summary"),
+    reply("Unexpected second summary"),
+  );
+  let response: Response;
+  let callsAfter: number;
+  let branchAfter: typeof before;
+  try {
+    expect(h.runtime.get(session.id)).toBe(session);
+    response = await app.request(`/sessions/${session.id}/compact`, {
+      method: "POST",
+    });
+    callsAfter = h.calls.length;
+    branchAfter = session.snapshot().branch;
+    expect(session.stop()).toBe(stopping);
+  } finally {
+    release.open();
+    await stopping;
+  }
+  expect(callsAfter).toBe(callsBefore);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("HX-Trigger")).toContain(
+    "Cannot compact a stopping or stopped session",
+  );
+  expect(response.headers.get("HX-Reswap")).toBe("none");
+  expect(branchAfter).toEqual(before);
+});
 
 function shell() {
   const finish = Promise.withResolvers<{ exitCode: number | null }>();

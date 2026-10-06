@@ -148,6 +148,8 @@ export function createExtensionUi(sink: ExtensionUiSink) {
   const custom = createCustomUiHost(changed);
   /** Factory widgets, so a reload can dispose the components they own. */
   const widgetComponents = new Map<string, FrameComponent>();
+  const pendingCustom = new Set<() => void>();
+  let disposed = false;
 
   function disposeWidget(key: string): void {
     const component = widgetComponents.get(key);
@@ -166,16 +168,18 @@ export function createExtensionUi(sink: ExtensionUiSink) {
     component: FrameComponent,
     placement: ExtensionWidget["placement"],
   ): void {
-    if (widgetComponents.get(key) !== component) return;
+    if (disposed || widgetComponents.get(key) !== component) return;
     try {
       const lines = component.render(COLUMNS);
       if (!Array.isArray(lines))
         throw new TypeError("render must return lines");
-      sink.setWidget(key, lines, placement);
+      if (!disposed) sink.setWidget(key, lines, placement);
     } catch (error) {
       disposeWidget(key);
-      sink.setWidget(key, undefined, placement);
-      sink.notify("error", `Extension widget "${key}": ${message(error)}`);
+      if (!disposed) {
+        sink.setWidget(key, undefined, placement);
+        sink.notify("error", `Extension widget "${key}": ${message(error)}`);
+      }
     }
   }
 
@@ -215,7 +219,8 @@ export function createExtensionUi(sink: ExtensionUiSink) {
       );
     },
     custom<T>(factory: unknown, options?: unknown): Promise<T> {
-      if (typeof factory !== "function") return Promise.resolve(undefined as T);
+      if (disposed || typeof factory !== "function")
+        return Promise.resolve(undefined as T);
       const width = widthFrom(options);
       return new Promise<T>((resolve) => {
         let id: string | undefined;
@@ -223,25 +228,35 @@ export function createExtensionUi(sink: ExtensionUiSink) {
         const finish = (value: T) => {
           if (settled) return;
           settled = true;
+          pendingCustom.delete(cancel);
           if (id !== undefined) custom.close(id);
           resolve(value);
         };
+        const cancel = () => {
+          finish(undefined as T);
+        };
+        pendingCustom.add(cancel);
         const tui = headlessTui(width, () => {
           if (id !== undefined) custom.redraw(id);
         });
         Promise.resolve()
-          .then(() =>
-            (
+          .then(() => {
+            if (disposed || settled) return undefined;
+            return (
               factory as (
                 tui: TUI,
                 theme: Theme,
                 keybindings: KeybindingsManager,
                 done: (value: T) => void,
               ) => FrameComponent | Promise<FrameComponent>
-            )(tui, PLAIN_TEXT_THEME, KEYBINDINGS, finish),
-          )
+            )(tui, PLAIN_TEXT_THEME, KEYBINDINGS, finish);
+          })
           .then((component) => {
-            if (settled) {
+            if (!component) {
+              cancel();
+              return;
+            }
+            if (disposed || settled) {
               component.dispose?.();
               return;
             }
@@ -256,19 +271,20 @@ export function createExtensionUi(sink: ExtensionUiSink) {
             });
           })
           .catch((error: unknown) => {
-            sink.notify("error", `Extension UI: ${message(error)}`);
+            if (!disposed)
+              sink.notify("error", `Extension UI: ${message(error)}`);
             finish(undefined as T);
           });
       });
     },
     notify(text, type) {
-      sink.notify(type ?? "info", text);
+      if (!disposed) sink.notify(type ?? "info", text);
     },
     onTerminalInput() {
       return () => {};
     },
     setStatus(key, text) {
-      sink.setStatus(key, text);
+      if (!disposed) sink.setStatus(key, text);
     },
     setWorkingMessage() {},
     setWorkingVisible() {},
@@ -279,8 +295,10 @@ export function createExtensionUi(sink: ExtensionUiSink) {
       content: unknown,
       options?: { placement?: ExtensionWidget["placement"] },
     ) {
+      if (disposed) return;
       const placement = options?.placement ?? "aboveEditor";
       disposeWidget(key);
+      if (disposed) return;
       if (content === undefined) {
         sink.setWidget(key, undefined, placement);
         return;
@@ -299,24 +317,29 @@ export function createExtensionUi(sink: ExtensionUiSink) {
           }),
           PLAIN_TEXT_THEME,
         );
+        if (disposed) {
+          component.dispose?.();
+          return;
+        }
         widgetComponents.set(key, component);
         drawWidget(key, component, placement);
       } catch (error) {
-        sink.notify("error", `Extension widget "${key}": ${message(error)}`);
+        if (!disposed)
+          sink.notify("error", `Extension widget "${key}": ${message(error)}`);
       }
     },
     setFooter() {},
     setHeader() {},
     setTitle(title) {
-      if (title) sink.setTitle(title);
+      if (!disposed && title) sink.setTitle(title);
     },
     // `setEditorText` and `pasteToEditor` are one insertion at the cursor, as
     // in pi-web: the composer belongs to the reader, not to the extension.
     pasteToEditor(text) {
-      if (text) sink.insertEditorText(text);
+      if (!disposed && text) sink.insertEditorText(text);
     },
     setEditorText(text) {
-      if (text) sink.insertEditorText(text);
+      if (!disposed && text) sink.insertEditorText(text);
     },
     getEditorText() {
       return "";
@@ -366,11 +389,17 @@ export function createExtensionUi(sink: ExtensionUiSink) {
         sink.setWidget(key, undefined, "aboveEditor");
       }
     },
-    /** Session stop: every waiting extension call settles with its default. */
+    /** Terminal closure: even a later lifecycle hook cannot reopen UI. */
     dispose(): void {
-      dialogs.cancelAll();
-      custom.closeAll();
-      for (const key of [...widgetComponents.keys()]) disposeWidget(key);
+      if (disposed) return;
+      disposed = true;
+      dialogs.dispose();
+      for (const cancel of [...pendingCustom]) cancel();
+      custom.dispose();
+      for (const key of [...widgetComponents.keys()]) {
+        disposeWidget(key);
+        sink.setWidget(key, undefined, "aboveEditor");
+      }
     },
   };
 }

@@ -86,6 +86,18 @@ describe("dialog host", () => {
     expect(host.pending()).toBeNull();
   });
 
+  it("permanently cancels pending and future requests on disposal", async () => {
+    const host = createDialogHost();
+    const pending = host.ask({ method: "input", title: "Pending" });
+    host.dispose();
+    host.dispose();
+    expect(answerText(await pending)).toBeUndefined();
+    expect(
+      answerConfirmed(await host.ask({ method: "confirm", title: "Late" })),
+    ).toBe(false);
+    expect(host.pending()).toBeNull();
+  });
+
   it("reports every change so the session can re-render", () => {
     const changed = vi.fn();
     const host = createDialogHost(changed);
@@ -154,6 +166,24 @@ describe("custom UI host", () => {
     expect(host.closeAll()).toHaveLength(2);
     expect(closed).toHaveBeenCalledTimes(2);
     expect(host.frame()).toBeNull();
+  });
+
+  it("disposes existing and late components without reopening", () => {
+    const host = createCustomUiHost();
+    const disposed = vi.fn();
+    const closed = vi.fn();
+    host.open({ render: () => ["pending"], dispose: disposed }, 40, closed);
+    host.dispose();
+    host.dispose();
+    const id = host.open(
+      { render: () => ["late"], dispose: disposed },
+      40,
+      closed,
+    );
+    expect(host.has(id)).toBe(false);
+    expect(host.frame()).toBeNull();
+    expect(disposed).toHaveBeenCalledTimes(2);
+    expect(closed).toHaveBeenCalledTimes(2);
   });
 
   it("shows a failed render instead of losing the panel", () => {

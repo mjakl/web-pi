@@ -108,12 +108,13 @@ extension binding emits `session_start`, which starts MCP connections.
 `PiLiveSession` owns one sequential lifecycle lane for initial binding, admitted
 resource reloads, and final shutdown. Reload emits shutdown before rebuilding.
 Stop immediately closes admission and extension UI, cancels completion tracking,
-and signals shell and turn cancellation before waiting for owned work. It then
-awaits `session_shutdown` before SDK disposal and shares one completion promise
-across concurrent stops. Admitted reloads retain their individual results; a
-failed operation does not prevent final cleanup. Final shutdown follows the last
-start, so extensions cannot restart after disposal. A session stopped during
-initial binding is never registered as live; opening rejects with
+and signals shell and turn cancellation before waiting for owned work. It
+rejects new prompts, shell commands, compaction, tree navigation, and reloads.
+It then awaits `session_shutdown` before SDK disposal and shares one completion
+promise across concurrent stops. Admitted reloads retain their individual
+results; a failed operation does not prevent final cleanup. Final shutdown
+follows the last start, so extensions cannot restart after disposal. A session
+stopped during initial binding is never registered as live; opening rejects with
 `Session stopped during startup.` Arbitrary extension work that ignores
 cancellation and does not await UI can still delay shutdown.
 

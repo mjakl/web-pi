@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_WINDOW,
   createHarness,
+  gate,
   type Harness,
   messages,
   MODEL_2,
@@ -54,9 +55,76 @@ describe("stopped session contract", () => {
       await expect(session.runBash("unused", false)).rejects.toThrow(
         "stopping or stopped",
       );
+      await expect(session.compact()).rejects.toThrow("stopping or stopped");
+      await expect(session.navigateTree("unused")).rejects.toThrow(
+        "stopping or stopped",
+      );
       expect(h.calls).toHaveLength(0);
     },
   );
+});
+
+it("refuses branch-summary navigation requested by an admitted command after Stop", async () => {
+  const entered = gate();
+  const navigate = gate();
+  const shutdown = gate();
+  let result: string | undefined;
+  h = await createHarness({
+    settings: { branchSummary: { reserveTokens: 1000 } },
+    extensions: [
+      (pi) => {
+        pi.registerCommand("navigate-later", {
+          description: "Hold a navigation request",
+          handler: async (target, ctx) => {
+            entered.open();
+            await navigate.wait;
+            try {
+              await ctx.navigateTree(target, { summarize: true });
+              result = "accepted";
+            } catch (error) {
+              result = String(error);
+            }
+          },
+        });
+        pi.on("session_shutdown", async () => {
+          await shutdown.wait;
+        });
+      },
+    ],
+  });
+  const session = await h.open();
+  for (const text of ["first", "second"]) {
+    h.script(reply(`${text} answer`));
+    const done = next(session, "turn_done");
+    await session.prompt(text);
+    await done;
+  }
+  const target = session
+    .snapshot()
+    .branch.find(
+      (entry) => entry.type === "message" && entry.message.role === "assistant",
+    );
+  if (!target) throw new Error("Missing navigation target");
+  const before = session.snapshot().branch;
+  const command = session.prompt(`/navigate-later ${target.id}`);
+  await entered.wait;
+  const stopping = session.stop();
+  const callsBefore = h.calls.length;
+  h.script(reply("Unexpected branch summary"));
+  navigate.open();
+  let callsAfter: number;
+  let branchAfter: typeof before;
+  try {
+    await command;
+    callsAfter = h.calls.length;
+    branchAfter = session.snapshot().branch;
+  } finally {
+    shutdown.open();
+    await stopping;
+  }
+  expect(callsAfter).toBe(callsBefore);
+  expect(result).toContain("Cannot navigate a stopping or stopped session");
+  expect(branchAfter).toEqual(before);
 });
 
 describe("opening", () => {

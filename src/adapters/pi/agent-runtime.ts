@@ -615,6 +615,9 @@ class PiLiveSession implements LiveSession {
     targetId: string,
     summarize?: boolean,
   ): Promise<{ cancelled: boolean; editorText?: string }> {
+    if (this.stopping) {
+      throw new Error("Cannot navigate a stopping or stopped session.");
+    }
     const target = resolveSnapshotEntryId(
       this.inner.sessionManager.getEntries(),
       targetId,
@@ -677,6 +680,9 @@ class PiLiveSession implements LiveSession {
   }
 
   async compact(instructions?: string): Promise<void> {
+    if (this.stopping) {
+      throw new Error("Cannot compact a stopping or stopped session.");
+    }
     this.compaction = null;
     this.compactionError = null;
     await this.inner.compact(instructions);

@@ -773,6 +773,11 @@ class FakeLiveSession implements LiveSession {
   }
 
   compact(instructions?: string): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot compact a stopping or stopped session."),
+      );
+    }
     this.compacting = true;
     this.compaction = null;
     this.compactionError = null;
@@ -887,6 +892,11 @@ class FakeLiveSession implements LiveSession {
   }
 
   navigateTree(targetId: string): Promise<string | undefined> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot navigate a stopping or stopped session."),
+      );
+    }
     const entry = this.stored.entries.find((item) => item.id === targetId);
     if (!entry) throw new Error("Select an existing conversation message");
     this.stored.leafId = targetId;

@@ -5,7 +5,13 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, type Harness, next, reply } from "./pi-harness.ts";
+import {
+  createHarness,
+  gate,
+  type Harness,
+  next,
+  reply,
+} from "./pi-harness.ts";
 
 let h: Harness | undefined;
 
@@ -486,6 +492,93 @@ describe("SDK built-ins", () => {
     const events = await fixtureEvents("local");
     expect(events.filter((event) => event.event === "start")).toHaveLength(3);
     expect(events.filter((event) => event.event === "close")).toHaveLength(3);
+  });
+
+  it("serializes admitted reloads before final shutdown and refuses later reloads", async () => {
+    const entered = gate();
+    const release = gate();
+    const lifecycle: string[] = [];
+    h = await createHarness({
+      extensions: [
+        (pi) => {
+          pi.on("session_start", () => {
+            lifecycle.push("start");
+          });
+          pi.on("session_shutdown", async (event) => {
+            lifecycle.push(event.reason);
+            if (event.reason === "reload") {
+              entered.open();
+              await release.wait;
+            }
+          });
+        },
+      ],
+    });
+    const session = await h.open();
+    const reloading = session.reload();
+    await entered.wait;
+    const queuedReload = session.reload();
+    const stopping = session.stop();
+    // Let stop reach its awaits while reload is held in an SDK lifecycle hook.
+    await Promise.race([
+      stopping,
+      new Promise<void>((resolve) => setImmediate(resolve)),
+    ]);
+    release.open();
+    await Promise.all([reloading, queuedReload, stopping]);
+    expect(lifecycle).toEqual([
+      "start",
+      "reload",
+      "start",
+      "reload",
+      "start",
+      "quit",
+    ]);
+    expect(h.runtime.get(session.id)).toBeUndefined();
+    await expect(session.reload()).rejects.toThrow("stopping or stopped");
+  });
+
+  it("leaves no MCP connection open when stop overlaps a resource reload", async () => {
+    const entered = gate();
+    const release = gate();
+    h = await createHarness({
+      extensions: [
+        (pi) => {
+          pi.on("session_shutdown", async (event) => {
+            if (event.reason === "reload") {
+              entered.open();
+              await release.wait;
+            }
+          });
+        },
+      ],
+    });
+    await configureMcp({
+      local: fixtureServer("local", { exposure: "direct" }),
+    });
+    const session = await h.open();
+    expect(
+      resultText(
+        await callTool(session, "mcp__local__echo", { text: "connected" }),
+      ),
+    ).toBe("fixture: connected");
+    const reloading = session.reload();
+    await entered.wait;
+    const stopping = session.stop();
+    release.open();
+    await Promise.all([reloading, stopping]);
+    // Flush the SDK's deferred connection startup after final shutdown.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const events = await fixtureEvents("local");
+    const started = events
+      .filter((event) => event.event === "start")
+      .map((event) => event.pid);
+    const closed = events
+      .filter((event) => event.event === "close")
+      .map((event) => event.pid);
+    expect(started.length).toBeGreaterThan(0);
+    expect(closed).toEqual(started);
+    expect(h.runtime.live()).toEqual([]);
   });
 
   it("closes an MCP transport whose initialization has not finished", async () => {

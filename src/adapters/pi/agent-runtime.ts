@@ -104,6 +104,7 @@ class PiLiveSession implements LiveSession {
   private bash: { command: string; output: string } | undefined;
   private bashTask: Promise<void> | undefined;
   private stopTask: Promise<void> | undefined;
+  private reloadTask: Promise<void> | undefined;
   private pendingPrompts = 0;
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
@@ -639,7 +640,20 @@ class PiLiveSession implements LiveSession {
   }
 
   /** Rebuilds the extensions; their statuses and widgets go with them. */
-  async reload(): Promise<void> {
+  reload(): Promise<void> {
+    if (this.stopTask) {
+      return Promise.reject(
+        new Error("Cannot reload a stopping or stopped session."),
+      );
+    }
+    // Keep each requested reload, but never rebuild SDK runners concurrently.
+    this.reloadTask = (this.reloadTask ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.reloadResources());
+    return this.reloadTask;
+  }
+
+  private async reloadResources(): Promise<void> {
     this.ui.resetForReload();
     this.statuses.clear();
     this.widgets.clear();
@@ -779,6 +793,8 @@ class PiLiveSession implements LiveSession {
     this.unsubscribe();
     this.run.cancel();
     this.ui.dispose();
+    // A failed reload still needs final cleanup; its caller receives the error.
+    await this.reloadTask?.catch(() => {});
     await this.inner.abort();
     // dispose() invalidates contexts but does not close extension-owned resources.
     await this.inner.extensionRunner.emit({

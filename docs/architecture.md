@@ -107,7 +107,9 @@ exclusions, user replacements, tool exposure, and per-session state. Existing
 extension binding emits `session_start`, which starts MCP connections. Resource
 reload emits shutdown before rebuilding; `LiveSession.stop()` also awaits
 `session_shutdown` before SDK disposal and shares one completion promise across
-concurrent stops.
+concurrent stops. Resource reload requests run sequentially. Stop rejects later
+reloads and waits for admitted reloads before final shutdown, so they cannot
+restart extensions after disposal.
 
 Production chooses one process-wide agent directory with Pi's `getAgentDir()` in
 `loadConfig()` and passes it through the container. MCP independently uses that

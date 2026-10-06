@@ -1,0 +1,50 @@
+diff --git a/dist/chunks/mermaid.core/chunk-DU6HZSFF.mjs b/dist/chunks/mermaid.core/chunk-DU6HZSFF.mjs
+index 6cf3bfc46907f0764cb316d6686d5c558336b92c..f0d6b06c5a19263bad15dd94220485db63a607ba 100644
+--- a/dist/chunks/mermaid.core/chunk-DU6HZSFF.mjs
++++ b/dist/chunks/mermaid.core/chunk-DU6HZSFF.mjs
+@@ -5208,9 +5208,8 @@ var processSet = /* @__PURE__ */ __name((input) => {
+   }
+   return chars.join("");
+ }, "processSet");
+-var isMathMLSupported = /* @__PURE__ */ __name(() => window.MathMLElement !== void 0, "isMathMLSupported");
+-var katexRegex = /\$\$(.*?)\$\$/g;
+-var hasKatex = /* @__PURE__ */ __name((text) => (text.match(katexRegex)?.length ?? 0) > 0, "hasKatex");
++// web-pi does not render TeX; keep math-looking labels on the plain-text path.
++var hasKatex = /* @__PURE__ */ __name(() => false, "hasKatex");
+ var calculateMathMLDimensions = /* @__PURE__ */ __name(async (text, config2) => {
+   const divElem = document.createElement("div");
+   divElem.innerHTML = await renderKatexSanitized(text, config2);
+@@ -5224,32 +5223,7 @@ var calculateMathMLDimensions = /* @__PURE__ */ __name(async (text, config2) =>
+   divElem.remove();
+   return dim;
+ }, "calculateMathMLDimensions");
+-var renderKatexUnsanitized = /* @__PURE__ */ __name(async (text, config2) => {
+-  if (!hasKatex(text)) {
+-    return text;
+-  }
+-  if (!(isMathMLSupported() || config2.legacyMathML || config2.forceLegacyMathML)) {
+-    return text.replace(katexRegex, "MathML is unsupported in this environment.");
+-  }
+-  if (true) {
+-    const { default: katex } = await import("katex");
+-    const outputMode = config2.forceLegacyMathML || !isMathMLSupported() && config2.legacyMathML ? "htmlAndMathml" : "mathml";
+-    return text.split(lineBreakRegex).map(
+-      (line) => hasKatex(line) ? `<div style="display: flex; align-items: center; justify-content: center; white-space: nowrap;">${line}</div>` : `<div>${line}</div>`
+-    ).join("").replace(
+-      katexRegex,
+-      (_, c) => katex.renderToString(c, {
+-        throwOnError: true,
+-        displayMode: true,
+-        output: outputMode
+-      }).replace(/\n/g, " ").replace(/<annotation.*<\/annotation>/g, "")
+-    );
+-  }
+-  return text.replace(
+-    katexRegex,
+-    "Katex is not supported in @mermaid-js/tiny. Please use the full mermaid library."
+-  );
+-}, "renderKatexUnsanitized");
++var renderKatexUnsanitized = /* @__PURE__ */ __name(async (text) => text, "renderKatexUnsanitized");
+ var renderKatexSanitized = /* @__PURE__ */ __name(async (text, config2) => {
+   return sanitizeText(await renderKatexUnsanitized(text, config2), config2);
+ }, "renderKatexSanitized");

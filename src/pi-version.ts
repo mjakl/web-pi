@@ -33,11 +33,11 @@ export function webPiVersion(): string {
 }
 
 /** Validate the exact dependency edges, not Node's permissive ancestor lookup. */
-export function resolveBundledPi(root = PACKAGE_ROOT): {
+export function resolveBundledPi(packageRoot = PACKAGE_ROOT): {
   version: string;
   codingAgentManifest: string;
 } {
-  root = realpathSync(root);
+  const root = realpathSync(packageRoot);
   const ownManifest = join(root, "package.json");
   const declared = manifestAt(ownManifest).dependencies;
   const moduleRoots = [join(root, "node_modules")];

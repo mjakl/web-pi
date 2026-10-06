@@ -1,6 +1,6 @@
 # Reproduce the README screenshots
 
-The five PNGs in `docs/images` are captured from the real Hono app, its built
+The seven PNGs in `docs/images` are captured from the real Hono app, its built
 CSS and client bundle, and a fictional **Field Notes** project. Sessions use the
 existing in-memory fake world. Files and Git diffs come from a temporary Git
 repository. No model, credentials, installed extensions, or real session store
@@ -14,17 +14,34 @@ From a development checkout with dependencies installed:
 just screenshots
 ```
 
-The command builds assets, then runs `scripts/screenshot-fixture.ts`. It binds
-only `127.0.0.1` on an OS-assigned port and prints the release-session URL. Do
-not use the normal server or port 30141. Stop with Ctrl+C; the fixture removes
-its temporary project. A forced kill may leave a `web-pi-screenshots-*`
-directory in the system temporary directory, containing only fictional files.
+The command refreshes the pinned Pi dependencies and builds the app, then runs
+`scripts/screenshot-fixture.ts`. It binds only `127.0.0.1` on an OS-assigned
+port and prints the release-session URL. Do not use the normal server or
+port 30141. Stop with Ctrl+C; the fixture removes its temporary project. A
+forced kill may leave a `web-pi-screenshots-*` directory in the system temporary
+directory, containing only fictional files.
+
+On macOS, use `TMPDIR=/private/tmp just screenshots` so the fixture and Git
+agree on the canonical project path. A symlinked temporary directory can hide
+changed files from the explorer's containment filter.
+
+For a documentation capture using the already installed runtime, build only the
+browser assets and start the same fixture directly:
+
+```bash
+just build-css build-js
+TMPDIR=/private/tmp node --import tsx scripts/screenshot-fixture.ts
+```
+
+This was the workflow used for the 6 October 2026 refresh; it does not refresh
+Pi or change the dependency manifest and lockfile.
 
 The README scenarios are `/sessions/release`, `/sessions/navigation`,
-`/sessions/tools`, and `/sessions/light`. A fifth session, `/sessions/scale`,
-covers long code and compaction for the [style-scale checks](style-scale.md).
-Use sidebar links to move between them. All controls are the application's own
-controls, not screenshot-only markup.
+`/sessions/tools`, and `/sessions/light`; `/sessions/review-1` shows nested
+saved sub-sessions. The additional session `/sessions/scale` covers long code
+and compaction for the [style-scale checks](style-scale.md). Use sidebar links
+to move between them. All controls are the application's own controls, not
+screenshot-only markup.
 
 ## Capture
 
@@ -63,13 +80,26 @@ Capture these states:
 - **session-navigation.png**, 1440 × 1000, dark: Decisions worth keeping. Hide
   the file panel and show the three requests, saved decision, sidebar star
   counts, and conversation rail.
+- **sub-sessions.png**, 1440 × 1000, dark: Open `/sessions/review-1`. Its
+  ancestors open automatically. Expand Review detail 1's **1 sub-session**
+  disclosure to show Review detail 2. Collapse EXPLORER and scroll the session
+  list to the top so the parent, children, worktree labels and inspection-only
+  notice are visible.
+- **skill-selection.png**, 1440 × 1000, dark: Release checklist with the file
+  panel hidden. Open Skills and select **release-planning** and **testing**.
+  Keep the picker open, its Manual badge and **Skills (2)** label visible. Enter
+  “Plan the next release and test the label helper.” without sending it.
 - **session-tools.png**, 1440 × 1000, dark: Review the release helper. Open
   Process details, then Subagent · reviewer. Keep Prompt, Run details, Raw
-  input, and Raw output collapsed beneath the rendered review.
+  input, and Raw output collapsed beneath the rendered review. Its parent
+  session and siblings appear in the sidebar; its inspection-only notice
+  replaces the composer.
 - **conversation-light.png**, 1440 × 1000, light: Plan the next release. Switch
   appearance to light and show the release table and highlighted shell commands.
 - **mobile.png**, 390 × 844, dark: Release checklist with sidebar and file panel
-  closed and an empty composer. This is viewport emulation, not a device test.
+  closed and an empty composer with no selected skills. If the sidebar opens as
+  an overlay, dismiss it with the backdrop before capturing. This is viewport
+  emulation, not a device test.
 
 Use `agent-browser close` when finished and stop the fixture. Do not commit
 browser profiles, cookies, HAR files, or temporary session data. Relative
@@ -115,8 +145,9 @@ not simulate a physical keyboard or prove layout in other browser engines.
 ## Verification record
 
 The committed images were visually inspected after capture with local headless
-Chromium **153**. They show the current Hono diff, rail/stars, structured
-subagent result, release commands in light mode, and mobile composer. Desktop
+Chromium **147** on **6 October 2026**. They show the current Hono diff,
+rail/stars, structured subagent result, nested inspection-only conversations,
+multi-skill picker, release commands in light mode, and mobile composer. Desktop
 captures use 1440 × 1000; mobile uses 390 × 844. No public listener or external
 provider was used. These captures do not establish minimum-version Firefox,
 Safari, Edge, or physical-device compatibility.

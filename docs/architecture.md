@@ -101,6 +101,25 @@ exclusive initial flush and then return to SDK appends. `!!` entries retain
 `excludeFromContext`; no assistant message is invented. Stopping a session
 aborts its shell and awaits settlement before disposal.
 
+Each session's resource loader registers Pi's `codemode`, `tool-search`, and
+`mcp` as replaceable built-in extensions. The SDK owns their setting-based
+exclusions, user replacements, tool exposure, and per-session state. Existing
+extension binding emits `session_start`, which starts MCP connections. Resource
+reload emits shutdown before rebuilding; `LiveSession.stop()` also awaits
+`session_shutdown` before SDK disposal and shares one completion promise across
+concurrent stops.
+
+Production chooses one process-wide agent directory with Pi's `getAgentDir()` in
+`loadConfig()` and passes it through the container. MCP independently uses that
+same upstream resolver. After the loader applies exclusions and replacements,
+the runtime checks that a loaded `builtin:mcp` agrees with its supplied
+directory. A mismatch rejects startup or reload before MCP can read
+configuration, credentials, or logs from a different directory. Disabled or
+replaced MCP does not impose this restriction. The runtime never swaps the
+process environment to support several directories. See
+[Codemode, tool search, and MCP](../README.md#codemode-tool-search-and-mcp) for
+settings and browser limitations.
+
 Settings → Models lists the full `ModelRuntime.getAvailable()` catalog before
 `enabledModels` narrowing: built-in and configured models with credentials, not
 the unauthenticated registry. Like the existing catalog, it does not load

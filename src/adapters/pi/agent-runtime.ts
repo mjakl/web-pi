@@ -40,12 +40,17 @@ import {
   type BashOperations,
   createAgentSessionFromServices,
   createAgentSessionServices,
+  createCodemodeExtension,
+  createMcpExtension,
+  createToolSearchExtension,
   estimateTokens as estimateMessageTokens,
+  getAgentDir,
   type InlineExtension,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   createProjectBashExtension,
   createProjectBashOperations,
@@ -98,6 +103,7 @@ class PiLiveSession implements LiveSession {
   private compactionError: LiveStatus["compactionError"] = null;
   private bash: { command: string; output: string } | undefined;
   private bashTask: Promise<void> | undefined;
+  private stopTask: Promise<void> | undefined;
   private pendingPrompts = 0;
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
@@ -763,13 +769,22 @@ class PiLiveSession implements LiveSession {
     return () => this.listeners.delete(listener);
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    return (this.stopTask ??= this.stopSession());
+  }
+
+  private async stopSession(): Promise<void> {
     this.inner.abortBash();
     await this.bashTask;
     this.unsubscribe();
     this.run.cancel();
     this.ui.dispose();
     await this.inner.abort();
+    // dispose() invalidates contexts but does not close extension-owned resources.
+    await this.inner.extensionRunner.emit({
+      type: "session_shutdown",
+      reason: "quit",
+    });
     this.inner.dispose();
     this.onStop();
     this.emit({ type: "stopped" });
@@ -851,6 +866,24 @@ export function createPiAgentRuntime(options: {
         appendSystemPromptOverride: (base) =>
           addition === "" ? base : [...base, addition],
         extensionFactories: [
+          {
+            name: "codemode",
+            builtin: true,
+            replaceable: true,
+            factory: createCodemodeExtension(),
+          },
+          {
+            name: "tool-search",
+            builtin: true,
+            replaceable: true,
+            factory: createToolSearchExtension(),
+          },
+          {
+            name: "mcp",
+            builtin: true,
+            replaceable: true,
+            factory: createMcpExtension(),
+          },
           createProjectBashExtension({
             cwd,
             agentDir: options.agentDir,
@@ -881,7 +914,22 @@ export function createPiAgentRuntime(options: {
             },
           },
         ],
-        extensionsOverride: preferUserBashExtension,
+        extensionsOverride: (base) => {
+          const loaded = preferUserBashExtension(base);
+          // MCP uses Pi's process-wide directory, not the services' agentDir.
+          // Check after exclusions/replacements, and again on resource reload.
+          if (
+            loaded.extensions.some(
+              (extension) => extension.path === "builtin:mcp",
+            ) &&
+            resolve(getAgentDir()) !== resolve(options.agentDir)
+          ) {
+            throw new Error(
+              'Built-in MCP requires the runtime agent directory to match Pi\'s process-wide directory. Set PI_CODING_AGENT_DIR to the intended agent directory before starting web-pi, then restart. Alternatively, disable built-in MCP with extensions: ["-builtin:mcp"].',
+            );
+          }
+          return loaded;
+        },
       },
       ...(trust ? { resourceLoaderReloadOptions: trust } : {}),
     });

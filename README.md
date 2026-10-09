@@ -225,6 +225,11 @@ Environment: `WEB_PI_HOST`, `WEB_PI_PORT`, `WEB_PI_RUNTIME`,
 Pi's agent directory). Server-side HTTP honors `HTTP_PROXY`, `HTTPS_PROXY`, and
 `NO_PROXY`.
 
+`WEB_PI_NOTIFICATION_GRACE_PERIOD` sets the completion-notification delay in
+whole minutes (default **15**). Values from **0 to 35791** are accepted; **0**
+sends immediately while away. Invalid or empty values fail startup rather than
+removing the delay. This is a server setting, not a browser preference.
+
 Browser baseline: **Chrome/Edge 125+, Firefox 147+, Safari 26+**. Native
 popovers, CSS anchor positioning, `@starting-style`, `:has()`, and
 `field-sizing` are required, not optional enhancements. These are the declared
@@ -288,10 +293,13 @@ and nothing subscribes automatically. Notifications cover completed runs in this
 web server, not terminal Pi, and OS delivery is not guaranteed.
 
 Completion pushes stay quiet while any web-pi page is visible and focused on any
-device. After you leave the app, the first eligible completion sends one
-notification to each subscribed browser. Further completions stay quiet until
-you return; there is no queued summary. The page's completion sound remains
-separate. See
+device. While away, the first eligible completion starts a fixed grace period
+(default **15 minutes**). Further completions join one notification without
+extending its deadline. Returning before the deadline cancels all pending
+completions. If you stay away, one notification is sent to each subscribed
+browser, then further completions stay quiet until you return. Pending timers
+are memory-only and are lost on server restart. The page's completion sound
+remains separate. See
 [notification behavior](docs/behavior.md#extensions-and-notifications) for the
 timing and delivery limits.
 

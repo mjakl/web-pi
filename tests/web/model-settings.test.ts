@@ -411,6 +411,7 @@ it("wires Models to global Pi persistence through the production composition", a
     host: "127.0.0.1",
     port: 0,
     staticRoot: "static",
+    notificationGracePeriodMs: 15 * 60_000,
   });
   const app = createWebApp({
     workspace,

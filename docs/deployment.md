@@ -51,6 +51,25 @@ the refreshed dependency set before installing it; this checks sources and the
 installed tarball without a model call. A failed refresh or validation is not a
 deployable upgrade. Record `web-pi --version` with deployment evidence.
 
+### Completion-notification grace period
+
+Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the
+fixed delay after the first eligible completion while away. The default is **15
+minutes**. Acceptable values are decimal whole minutes from **0 to 35791**, with
+surrounding whitespace allowed. **0** means immediate delivery while away, not
+disabled notifications. Empty, fractional, negative, nonnumeric or larger values
+fail startup with a configuration error. The upper bound keeps timers within
+Node's signed 32-bit millisecond limit instead of overflowing into immediate
+delivery. Changing the setting takes effect on the next server start; there is
+no UI preference.
+
+For example, `WEB_PI_NOTIFICATION_GRACE_PERIOD=30` delays the broadcast thirty
+minutes from the first completion. More completions do not extend that deadline,
+and any visible, focused web-pi page cancels the pending broadcast. Pending
+timers and counts live only in memory; a restart loses them without consuming
+the durable away allowance. See the
+[notification contract](behavior.md#extensions-and-notifications).
+
 ### Pi upgrade compatibility
 
 The eight named Pi runtime packages in `pnpm-workspace.yaml` bypass pnpm's
@@ -170,14 +189,16 @@ such as stars, stays in Pi's session files.
 
 ### Push allowance persistence and failures
 
-The notifier synchronously writes and flushes `awayConsumed: true` before
-attempting any broadcast. Concurrent completions cannot claim the same
-allowance. Delivery failures still consume it: all subscriptions enrolled at
-admission are attempted once, there is no automatic retry until a foreground
-return, and HTTP 404/410 subscriptions are pruned as before. Other delivery
-failures retain enrollment. A foreground return durably writes `false` only when
-the latch needs rearming; active lease refreshes otherwise do not write.
-Enrollment changes, reading the public key and pruning do not rearm it.
+Scheduling or coalescing a grace-period completion does not write the allowance.
+At the deadline the notifier rechecks presence and synchronously writes and
+flushes `awayConsumed: true` before attempting any broadcast. Concurrent
+completions cannot claim the same allowance. Delivery failures still consume it:
+all subscriptions enrolled at admission are attempted once, there is no
+automatic retry until a foreground return, and HTTP 404/410 subscriptions are
+pruned as before. Other delivery failures retain enrollment. A foreground return
+durably writes `false` only when the latch needs rearming; active lease
+refreshes otherwise do not write. Enrollment changes, reading the public key and
+pruning do not rearm it.
 
 If consumption cannot be persisted, no broadcast starts and this running server
 keeps the allowance consumed in memory. Later enrollment writes preserve that
@@ -193,7 +214,10 @@ refuses unreadable or malformed state but cannot recover an in-memory latch that
 was never saved. Resolve storage errors before restarting rather than using
 restart to retry notifications. Foreground leases and their short-lived ordering
 records are memory-only and expire after 60 seconds; the durable latch survives
-ordinary restarts. Reporting remains best effort while clients reconnect.
+ordinary restarts. Pending timers and completion counts do not survive restart
+or shutdown, and disposal cancels scheduling without recalling an already
+admitted broadcast. A future completion can start a new timer if the allowance
+remains available. Reporting remains best effort while clients reconnect.
 
 ### Upgrade an existing installation
 

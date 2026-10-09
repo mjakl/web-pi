@@ -7,6 +7,8 @@ export const PUSH_PRESENCE_LEASE_MS = 60_000;
 export function createPushSuppression(options: {
   consumed: boolean;
   persist: (consumed: boolean) => void;
+  /** Accepted foreground cancels pending work even when durable rearming fails. */
+  onForeground?: () => void;
 }) {
   const clients = new Map<string, PushPresence & { expires: number }>();
   let consumed = options.consumed;
@@ -18,7 +20,15 @@ export function createPushSuppression(options: {
     }
   }
 
+  function available(): boolean {
+    expire();
+    return (
+      !consumed && ![...clients.values()].some((client) => client.foreground)
+    );
+  }
+
   return {
+    available,
     report: (presence: PushPresence): void => {
       expire();
       const previous = clients.get(presence.clientId);
@@ -29,15 +39,16 @@ export function createPushSuppression(options: {
         ...presence,
         expires: Date.now() + PUSH_PRESENCE_LEASE_MS,
       });
-      if (presence.foreground && consumed) {
-        options.persist(false);
-        consumed = false;
+      if (presence.foreground) {
+        options.onForeground?.();
+        if (consumed) {
+          options.persist(false);
+          consumed = false;
+        }
       }
     },
     claim: (): boolean => {
-      expire();
-      if (consumed || [...clients.values()].some((client) => client.foreground))
-        return false;
+      if (!available()) return false;
       // No await between checking and consuming: concurrent completions cannot
       // share an allowance. A failed write still suppresses this runtime.
       consumed = true;

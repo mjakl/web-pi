@@ -563,6 +563,8 @@ export type PushNotifier = {
   unsubscribe(subscription: PushSubscription): void;
   /** Refresh or release this document's foreground lease, rearming on foreground. */
   reportPresence(presence: PushPresence): void;
-  /** Claims the durable away allowance, then broadcasts to every subscription. */
+  /** Schedules an away broadcast; zero grace awaits its admitted delivery. */
   send(message: PushMessage): Promise<void>;
+  /** Cancel pending work and close admission, without recalling admitted sends. */
+  dispose(): void;
 };

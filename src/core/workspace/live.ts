@@ -26,6 +26,7 @@ import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
 import { recallSkillPrompts, type QueueRecall } from "@core/skill-prompt";
 import { isSubagentSession } from "@core/sessions";
+import { delegationFold } from "@core/session-delegation";
 import type { Shared } from "./deps.ts";
 import { ForbiddenPath } from "./views.ts";
 
@@ -53,17 +54,20 @@ export function liveUseCases({
    */
   deps.runtime.subscribeAll((event) => {
     if (event.type !== "completed") return;
-    void summaryOf(event.sessionId)
-      .then((summary) =>
-        summary && isSubagentSession(summary)
-          ? undefined
-          : deps.push.send({
-              title: nonEmpty(summary?.name) ?? "Session complete",
-              body: "Task finished.",
-              url: `/sessions/${event.sessionId}`,
-              tag: `web-pi:session-complete:${event.sessionId}`,
-            }),
-      )
+    const snapshot = deps.runtime.get(event.sessionId)?.snapshot();
+    if (!snapshot || snapshot.summary.id !== event.sessionId) return;
+    const origin = delegationFold(event.sessionId);
+    for (const entry of snapshot.entries) origin.add(entry);
+    if (isSubagentSession(snapshot.summary) || origin.finish().inspectionOnly)
+      return;
+    // Admission must precede any await: return cannot cancel an unseen completion.
+    void deps.push
+      .send({
+        title: nonEmpty(snapshot.summary.name) ?? "Session complete",
+        body: "Task finished.",
+        url: `/sessions/${event.sessionId}`,
+        tag: `web-pi:session-complete:${event.sessionId}`,
+      })
       .catch(() => {
         // Push is best effort: a failing subscription must not break a turn.
       });

@@ -65,6 +65,8 @@ function httpStatus(error: unknown): number | undefined {
 
 export type WebPushOptions = {
   agentDir: string;
+  /** Fixed delay from the first eligible completion; defaults to fifteen minutes. */
+  gracePeriodMs?: number;
   /** Injected by the tests; the real one talks to the browser's push service. */
   send?: (
     subscription: PushSubscription,
@@ -96,8 +98,24 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
     state = next;
   };
 
+  const gracePeriodMs = options.gracePeriodMs ?? 15 * 60_000;
+  let disposed = false;
+  let pending:
+    | {
+        message: PushMessage;
+        count: number;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    | undefined;
+
+  function cancelPending(): void {
+    if (pending) clearTimeout(pending.timer);
+    pending = undefined;
+  }
+
   const suppression = createPushSuppression({
     consumed: state.awayConsumed ?? false,
+    onForeground: cancelPending,
     persist: (awayConsumed) => {
       const next = { ...state, awayConsumed };
       try {
@@ -114,8 +132,37 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
     },
   });
 
+  async function broadcast(message: PushMessage): Promise<void> {
+    if (disposed || state.subscriptions.length === 0 || !suppression.claim())
+      return;
+    const payload = JSON.stringify(message);
+    let pruned = false;
+    for (const subscription of [...state.subscriptions]) {
+      try {
+        await send(subscription, payload, state.vapidKeys);
+      } catch (error) {
+        const status = httpStatus(error);
+        if (status !== 404 && status !== 410) {
+          process.stderr.write(
+            `[web-pi] push delivery failed (${status === undefined ? "no HTTP status" : `HTTP ${String(status)}`}); subscription retained\n`,
+          );
+          continue;
+        }
+        state.subscriptions = state.subscriptions.filter(
+          (known) => known.endpoint !== subscription.endpoint,
+        );
+        pruned = true;
+      }
+    }
+    if (pruned) save();
+  }
+
   return {
     reportPresence: suppression.report,
+    dispose(): void {
+      disposed = true;
+      cancelPending();
+    },
     publicKey(): string {
       // Reading the key is what first persists a freshly generated pair: a
       // browser cannot subscribe to keys the next restart would throw away.
@@ -156,27 +203,42 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
       });
     },
     async send(message: PushMessage): Promise<void> {
-      if (state.subscriptions.length === 0 || !suppression.claim()) return;
-      const payload = JSON.stringify(message);
-      let pruned = false;
-      for (const subscription of [...state.subscriptions]) {
-        try {
-          await send(subscription, payload, state.vapidKeys);
-        } catch (error) {
-          const status = httpStatus(error);
-          if (status !== 404 && status !== 410) {
-            process.stderr.write(
-              `[web-pi] push delivery failed (${status === undefined ? "no HTTP status" : `HTTP ${String(status)}`}); subscription retained\n`,
-            );
-            continue;
-          }
-          state.subscriptions = state.subscriptions.filter(
-            (known) => known.endpoint !== subscription.endpoint,
-          );
-          pruned = true;
-        }
+      if (
+        disposed ||
+        state.subscriptions.length === 0 ||
+        !suppression.available()
+      )
+        return;
+      if (gracePeriodMs === 0) {
+        await broadcast(message);
+        return;
       }
-      if (pruned) save();
+      if (pending) {
+        pending.count++;
+        return;
+      }
+      const timer = setTimeout(() => {
+        const completed = pending;
+        pending = undefined;
+        if (!completed) return;
+        const notification =
+          completed.count === 1
+            ? completed.message
+            : {
+                title: `${String(completed.count)} tasks completed`,
+                body: `${String(completed.count)} tasks finished while you were away.`,
+                url: "/",
+                tag: "web-pi:session-complete",
+              };
+        // The scheduled caller has already returned; never leave failures unhandled.
+        void broadcast(notification).catch(() => {
+          process.stderr.write(
+            "[web-pi] push grace-period delivery failed; no retry scheduled\n",
+          );
+        });
+      }, gracePeriodMs);
+      timer.unref();
+      pending = { message: { ...message }, count: 1, timer };
     },
   };
 }

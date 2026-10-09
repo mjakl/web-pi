@@ -52,6 +52,18 @@ const status: LiveStatus = {
   notices: [],
 };
 
+const runningSubagentCall: ToolCallView = {
+  id: "active-subagent",
+  name: "subagent",
+  arguments: { calls: [{ agent: "researcher", prompt: "look around" }] },
+  preview: "researcher",
+  subagent: {
+    calls: [{ agent: "researcher", prompt: "look around" }],
+    runs: null,
+    failed: false,
+  },
+};
+
 const html = (node: unknown) => String(node);
 
 const windows: Window[] = [];
@@ -212,6 +224,101 @@ describe("transcript items", () => {
       "denied <script>alert(1)</script> & retry",
     );
     expect(document.querySelector("script, img")).toBeNull();
+  });
+
+  it.each([undefined, "Subagents: 0/1 done, 1 running..."])(
+    "lets the matching running subagent header own activity with progress=%s",
+    (progress) => {
+      const call = runningSubagentCall;
+      const document = rendered(
+        <TurnFragment
+          items={[{ ...answerItem, blocks: [{ kind: "tool", call }] }]}
+          actions={actions}
+          status={{
+            ...status,
+            tools: [{ id: call.id, name: call.name, progress }],
+          }}
+        />,
+      );
+      const card = document.querySelector(".subagent-card");
+      expect(card?.hasAttribute("open")).toBe(false);
+      expect(card?.querySelector("summary")?.textContent).toContain(
+        "Subagent · researcher",
+      );
+      expect(card?.querySelector(".subagent-status")?.textContent).toContain(
+        "Running",
+      );
+      expect(document.querySelector(".chat-activity")).toBeNull();
+      if (progress !== undefined) {
+        expect(card?.querySelector("summary")?.textContent).toContain(progress);
+        expect(document.body.textContent?.split(progress)).toHaveLength(2);
+      }
+      expect(card?.querySelector(".tool-result")?.textContent).toContain(
+        "Prompt",
+      );
+      expect(card?.querySelector(".tool-result")?.textContent).toContain(
+        "Run details",
+      );
+      expect(card?.querySelector(".tool-result")?.textContent).toContain(
+        "Raw input",
+      );
+    },
+  );
+
+  it.each([
+    "unmatched",
+    "unrecognized",
+    "other tool",
+    "mixed tools",
+    "bash activity",
+    "completed card",
+    "inspection-only",
+    "settled turn",
+  ])("preserves the activity footer for %s", (scenario) => {
+    const call: ToolCallView = {
+      ...runningSubagentCall,
+      subagent:
+        scenario === "unrecognized" ? undefined : runningSubagentCall.subagent,
+      ...(scenario === "completed card"
+        ? {
+            result: {
+              entryId: "result",
+              text: "done",
+              isError: false,
+              images: [],
+            },
+          }
+        : {}),
+    };
+    const tools = [
+      {
+        id: scenario === "unmatched" ? "another-call" : call.id,
+        name: scenario === "other tool" ? "read" : "subagent",
+        progress: "reading files",
+      },
+      ...(scenario === "mixed tools" ? [{ id: "read", name: "read" }] : []),
+    ];
+    const document = rendered(
+      <TurnFragment
+        items={[{ ...answerItem, blocks: [{ kind: "tool", call }] }]}
+        actions={{ ...actions, inspectionOnly: scenario === "inspection-only" }}
+        status={{
+          ...status,
+          running: scenario !== "settled turn",
+          bashRunning: scenario === "bash activity",
+          tools,
+        }}
+      />,
+    );
+    expect(document.querySelector(".chat-activity-label")?.textContent).toBe(
+      scenario === "bash activity"
+        ? "Running command..."
+        : scenario === "mixed tools"
+          ? "Running subagent, read..."
+          : scenario === "other tool"
+            ? "Running read... reading files"
+            : "Running subagent... reading files",
+    );
   });
 
   it("reports mixed subagent outcomes and preserves failure diagnostics and capture warnings in the deferred body", () => {

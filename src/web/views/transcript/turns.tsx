@@ -224,7 +224,26 @@ export function TurnFragment({
   actions: ItemActions;
   status: LiveStatus | null;
 }) {
-  const label = status ? activityLabel(status) : null;
+  const onlyTool = status?.tools.length === 1 ? status.tools[0] : undefined;
+  // A pending subagent's header already shows its activity, even collapsed.
+  // Keep the footer when other work is running or no matching card is visible.
+  const cardCoversActivity =
+    status?.running === true &&
+    !status.bashRunning &&
+    actions.inspectionOnly !== true &&
+    onlyTool?.name === "subagent" &&
+    items.some(
+      (item) =>
+        item.kind === "assistant" &&
+        item.blocks.some(
+          (block) =>
+            block.kind === "tool" &&
+            block.call.id === onlyTool.id &&
+            block.call.subagent !== undefined &&
+            block.call.result === undefined,
+        ),
+    );
+  const label = status && !cardCoversActivity ? activityLabel(status) : null;
   // Only a turn that is actually working renders flat: grouping a moving
   // target hides what just happened. A finished turn groups like any other.
   const live = status?.running === true || status?.bashRunning === true;

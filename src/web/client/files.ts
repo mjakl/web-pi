@@ -1,4 +1,4 @@
-import type { Htmx } from "htmx.org";
+import type { Htmx, HtmxRequestCtx } from "htmx.org";
 import { requestContext } from "./htmx.ts";
 import { buildAtInsertText } from "@core/composer";
 import { catppuccinIcon } from "@core/file-types";
@@ -42,8 +42,43 @@ type TabState = { mode: string; wrap: boolean; scrollTop: number };
 
 const tabs = new Map<string, TabState>();
 let active: string | null = null;
-/** Discards a response that arrived after a newer one was asked for. */
-let requestId = 0;
+let viewerRequest: HtmxRequestCtx | null = null;
+
+function cancelViewerRequest(): void {
+  const previous = viewerRequest;
+  viewerRequest = null;
+  previous?.request.abort();
+}
+
+function viewerStatus(path: string, error = false): void {
+  const host = document.getElementById("file-view");
+  if (!host) return;
+  const status = document.createElement("div");
+  status.className = `file-viewer-empty file-viewer-status${error ? " is-error" : ""}`;
+  status.role = "status";
+  status.textContent = error
+    ? `Could not load ${baseName(path)}. Open the file again to retry.`
+    : `Loading ${baseName(path)}…`;
+  status.title = path;
+  if (error) host.removeAttribute("aria-busy");
+  else host.setAttribute("aria-busy", "true");
+  host.replaceChildren(status);
+}
+
+function isViewerRequest(ctx: HtmxRequestCtx): boolean {
+  return (
+    ctx.target.id === "file-view" &&
+    new URL(ctx.request.action, document.baseURI).pathname === "/files/view"
+  );
+}
+
+function currentViewerRequest(ctx: HtmxRequestCtx): boolean {
+  return (
+    ctx === viewerRequest &&
+    ctx.target.isConnected &&
+    !ctx.request.signal.aborted
+  );
+}
 
 function defaultWidth(): number {
   return Math.min(640, Math.max(360, Math.round(innerWidth * 0.42)));
@@ -162,7 +197,7 @@ function saveActiveState(): void {
   if (active === null) return;
   const element = viewer();
   const state = tabs.get(active);
-  if (!element || !state) return;
+  if (!element || !state || element.dataset["path"] !== active) return;
   state.mode = element.dataset["mode"] ?? state.mode;
   const body = viewerBody();
   if (body) state.scrollTop = body.scrollTop;
@@ -178,17 +213,12 @@ function loadViewer(path: string, mode?: string): void {
   if (wanted !== undefined && wanted !== "") query.set("mode", wanted);
   const target = document.getElementById("file-view");
   if (!target) return;
-  const id = (requestId += 1);
-  void htmx()
-    ?.ajax("GET", `/files/view?${query.toString()}`, {
-      target,
-      swap: "innerHTML",
-    })
-    .then(() => {
-      if (id !== requestId) return;
-      restoreViewer();
-      connectWatch();
-    });
+  cancelViewerRequest();
+  viewerStatus(path);
+  void htmx()?.ajax("GET", `/files/view?${query.toString()}`, {
+    target,
+    swap: "innerHTML",
+  });
 }
 
 function restoreViewer(): void {
@@ -237,6 +267,7 @@ export function openFile(path: string, mode?: string): void {
 function emptyViewer(): void {
   const host = document.getElementById("file-view");
   if (!host) return;
+  host.removeAttribute("aria-busy");
   const empty = document.createElement("div");
   empty.className = "file-viewer-empty";
   empty.textContent = "No file open";
@@ -254,11 +285,13 @@ function closeTab(path: string): void {
   active = last ?? null;
   renderTabs();
   if (last === undefined) {
+    cancelViewerRequest();
     emptyViewer();
     disconnectWatch();
     setOpen(false);
     return;
   }
+  connectWatch();
   loadViewer(last);
 }
 
@@ -586,7 +619,7 @@ export function setUpFiles(): void {
     signal.addEventListener(
       "abort",
       () => {
-        requestId += 1;
+        cancelViewerRequest();
         disconnectWatch();
         tabs.clear();
         active = null;
@@ -615,6 +648,47 @@ export function setUpFiles(): void {
       },
       true,
     );
+  }
+
+  // Mode buttons and watch refreshes share the same viewer request lifecycle.
+  document.addEventListener("htmx:config:request", (event) => {
+    const ctx = requestContext(event);
+    if (!isViewerRequest(ctx)) return;
+    const path = new URL(ctx.request.action, document.baseURI).searchParams.get(
+      "path",
+    );
+    if (!ctx.target.isConnected || path === null || path !== active) {
+      event.preventDefault();
+      return;
+    }
+    saveActiveState();
+    cancelViewerRequest();
+    viewerRequest = ctx;
+    viewerStatus(path);
+  });
+  for (const type of ["htmx:before:response", "htmx:before:swap"]) {
+    document.addEventListener(type, (event) => {
+      const ctx = requestContext(event);
+      if (isViewerRequest(ctx) && !currentViewerRequest(ctx))
+        event.preventDefault();
+    });
+  }
+  for (const type of ["htmx:after:request", "htmx:error"]) {
+    document.addEventListener(type, (event) => {
+      const ctx = requestContext(event) as HtmxRequestCtx | undefined;
+      if (
+        ctx &&
+        isViewerRequest(ctx) &&
+        (type === "htmx:error" || (ctx.response?.status ?? 0) >= 400)
+      ) {
+        // A mode request's source was removed by the pending state, so its
+        // inherited HTTP-error swap rule is no longer available to HTMX.
+        event.preventDefault();
+        if (currentViewerRequest(ctx) && active !== null) {
+          viewerStatus(active, true);
+        }
+      }
+    });
   }
 
   // Anything carrying a path opens the viewer: a transcript link, a
@@ -734,7 +808,10 @@ export function setUpFiles(): void {
       if (first) first.tabIndex = 0;
       syncChangesToggle();
     }
-    if (target.id === "file-view") restoreViewer();
+    if (target.id === "file-view" && viewer()) {
+      target.removeAttribute("aria-busy");
+      restoreViewer();
+    }
   });
 
   // A viewer that scrolls records where it is, so switching tabs comes back.

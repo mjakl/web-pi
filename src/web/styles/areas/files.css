@@ -337,6 +337,14 @@
   color: var(--text-dim);
   font-size: var(--text-sm);
 }
+.file-viewer-status {
+  padding: var(--space-6);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.file-viewer-status.is-error {
+  color: var(--danger);
+}
 .file-viewer-toolbar {
   min-width: 0;
   min-height: 35px;

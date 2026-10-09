@@ -853,7 +853,7 @@ export function Viewer({
  */
 export function FilePanelBody() {
   return (
-    <div id="file-view" class="file-view">
+    <div id="file-view" class="file-view" hx-sync="#file-view:replace">
       <div class="file-viewer-empty">No file open</div>
     </div>
   );

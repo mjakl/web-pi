@@ -1,3 +1,4 @@
+import type { HtmxRequestCtx } from "htmx.org";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   area,
@@ -72,7 +73,7 @@ function page(
       `<div id="file-panel" class="right-panel-container right-panel-closed" data-session="${session}" data-cwd="/repo/one">` +
       '<div id="file-tabs" role="tablist" hidden></div>' +
       '<button type="button" id="file-panel-close"></button>' +
-      '<div id="file-view"><div>No file open</div></div>' +
+      '<div id="file-view" hx-sync="#file-view:replace"><div>No file open</div></div>' +
       "</div></main>",
   );
 }
@@ -103,7 +104,91 @@ function streams(): FakeEventSource[] {
 /** Answers the last viewer request with a fragment, as htmx would swap it. */
 async function deliver(html: string): Promise<void> {
   byId("file-view").innerHTML = html;
+  htmxEvent(byId("file-view"), "htmx:after:settle");
   await flush();
+}
+
+// Hold the transport, not the client lifecycle. Even an aborted request can
+// deliver here so the tests prove rejection before a swap, not just cancellation.
+function delayedViewers() {
+  const requests: {
+    ctx: HtmxRequestCtx;
+    respond: (html: string, status?: number) => Promise<void>;
+    fail: () => Promise<void>;
+  }[] = [];
+  const emit = (ctx: HtmxRequestCtx, name: string) => {
+    const event = new CustomEvent(name, {
+      bubbles: true,
+      cancelable: true,
+      detail: { ctx },
+    });
+    (ctx.sourceElement.isConnected
+      ? ctx.sourceElement
+      : document
+    ).dispatchEvent(event);
+    return !event.defaultPrevented;
+  };
+  htmx().ajax.mockImplementation((_verb, url, options) => {
+    const { target, source = target } = options as {
+      target: HTMLElement;
+      source?: HTMLElement;
+    };
+    const controller = new AbortController();
+    const ctx: HtmxRequestCtx = {
+      sourceElement: source,
+      sourceEvent: null,
+      target,
+      swap: "innerHTML",
+      select: "",
+      selectOOB: "",
+      push: false,
+      replace: false,
+      transition: false,
+      request: {
+        action: url,
+        method: "GET",
+        headers: {},
+        validate: false,
+        signal: controller.signal,
+        abort: () => {
+          controller.abort();
+        },
+        credentials: "same-origin",
+        mode: "same-origin",
+      },
+    };
+    if (!emit(ctx, "htmx:config:request")) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      requests.push({
+        ctx,
+        async respond(html, status = 200) {
+          ctx.response = {
+            raw: new Response(html, { status }),
+            status,
+            headers: new Headers(),
+          };
+          if (emit(ctx, "htmx:before:response")) {
+            ctx.text = html;
+            if (emit(ctx, "htmx:after:request")) {
+              if (status >= 400) emit(ctx, "htmx:response:error");
+              if (emit(ctx, "htmx:before:swap")) {
+                target.innerHTML = html;
+                htmxEvent(target, "htmx:after:settle");
+              }
+            }
+          }
+          resolve();
+          await flush();
+        },
+        async fail() {
+          emit(ctx, "htmx:error");
+          resolve();
+          await flush();
+        },
+      });
+    });
+  });
+  return requests;
 }
 
 function tabs(): HTMLElement[] {
@@ -205,6 +290,166 @@ describe("file panel replacement", () => {
 });
 
 describe("opening files", () => {
+  it("immediately replaces empty or previous content while a viewer request is delayed", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/brief.md");
+    expect(byId("file-view").textContent).toContain("Loading brief.md…");
+    expect(byId("file-view").textContent).not.toContain("No file open");
+    expect(query('[role="status"]').textContent).toContain("brief.md");
+    expect(byId("file-view").getAttribute("aria-busy")).toBe("true");
+    await requests[0]?.respond(viewer("brief.md"));
+    expect(query(".file-viewer-shell").dataset["path"]).toBe(
+      "/repo/one/brief.md",
+    );
+    expect(byId("file-view").hasAttribute("aria-busy")).toBe(false);
+    openFile("/repo/one/next.md");
+    expect(byId("file-view").textContent).toContain("Loading next.md…");
+    expect(byId("file-view").querySelector(".file-viewer-shell")).toBeNull();
+    // A previous swap can finish settling after the next open starts.
+    htmxEvent(byId("file-view"), "htmx:after:settle");
+    expect(byId("file-view").getAttribute("aria-busy")).toBe("true");
+  });
+
+  it.each([403, 404, 500, "network"])(
+    "ends loading truthfully after a %s failure and can reopen",
+    async (failure) => {
+      page();
+      const { openFile, setUpFiles } = await load();
+      setUpFiles();
+      const requests = delayedViewers();
+      openFile("/repo/one/<brief>.md");
+      if (failure === "network") await requests[0]?.fail();
+      else await requests[0]?.respond("Cannot read that file", Number(failure));
+      expect(query('[role="status"]').textContent).toBe(
+        "Could not load <brief>.md. Open the file again to retry.",
+      );
+      expect(byId("file-view").hasAttribute("aria-busy")).toBe(false);
+      expect(byId("file-view").querySelector("brief")).toBeNull();
+      openFile("/repo/one/<brief>.md");
+      expect(query('[role="status"]').textContent).toBe("Loading <brief>.md…");
+      await requests[1]?.respond(viewer("<brief>.md"));
+      expect(byId("file-view").querySelector('[role="status"]')).toBeNull();
+    },
+  );
+
+  it("keeps a named error status when a mode button has been removed during loading", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/brief.md");
+    await requests[0]?.respond(viewer("brief.md"));
+    const source = document.createElement("button");
+    query(".file-viewer-toolbar").append(source);
+    void htmx().ajax(
+      "GET",
+      "/files/view?session=s1&path=%2Frepo%2Fone%2Fbrief.md&mode=preview",
+      { target: byId("file-view"), source },
+    );
+    expect(source.isConnected).toBe(false);
+    await requests[1]?.respond("Not found", 404);
+    expect(query('[role="status"]').textContent).toBe(
+      "Could not load brief.md. Open the file again to retry.",
+    );
+    expect(byId("file-view").hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("keeps the latest of overlapping opens, even when older responses or errors arrive last", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.ts");
+    openFile("/repo/one/b.ts");
+    openFile("/repo/one/c.ts");
+    expect(requests).toHaveLength(3);
+    expect(requests[0]?.ctx.request.signal.aborted).toBe(true);
+    await requests[0]?.respond(viewer("a.ts"));
+    expect(query('[role="status"]').textContent).toBe("Loading c.ts…");
+    await requests[2]?.respond(viewer("c.ts"));
+    await requests[1]?.respond("Not found", 404);
+    await requests[0]?.fail();
+    expect(query(".file-viewer-shell").dataset["path"]).toBe("/repo/one/c.ts");
+    expect(
+      tabs().find((tab) => tab.getAttribute("aria-selected") === "true")
+        ?.dataset["path"],
+    ).toBe("/repo/one/c.ts");
+  });
+
+  it("rejects a superseded mode response, including one whose body was already read", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.md");
+    await requests[0]?.respond(viewer("a.md"));
+    void htmx().ajax(
+      "GET",
+      "/files/view?session=s1&path=%2Frepo%2Fone%2Fa.md&mode=preview",
+      { target: byId("file-view") },
+    );
+    expect(query('[role="status"]').textContent).toBe("Loading a.md…");
+    openFile("/repo/one/b.ts");
+    const old = requests[1]?.ctx;
+    const swap = new CustomEvent("htmx:before:swap", {
+      bubbles: true,
+      cancelable: true,
+      detail: { ctx: old, tasks: [] },
+    });
+    byId("file-view").dispatchEvent(swap);
+    expect(swap.defaultPrevented).toBe(true);
+    await requests[1]?.respond(viewer("a.md", "preview"));
+    expect(query('[role="status"]').textContent).toBe("Loading b.ts…");
+    await requests[2]?.respond(viewer("b.ts"));
+    expect(query(".file-viewer-shell").dataset["path"]).toBe("/repo/one/b.ts");
+  });
+
+  it("cannot repopulate a closed tab or a replacement panel with a late response", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.ts");
+    openFile("/repo/one/b.ts");
+    click(query('.file-tab[data-path="/repo/one/b.ts"] [data-close]'));
+    expect(query('[role="status"]').textContent).toBe("Loading a.ts…");
+    await requests[1]?.respond(viewer("b.ts"));
+    expect(query('[role="status"]').textContent).toBe("Loading a.ts…");
+    click(query(".file-tab [data-close]"));
+    await requests[2]?.respond(viewer("a.ts"));
+    expect(byId("file-view").textContent).toBe("No file open");
+    expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
+      true,
+    );
+    openFile("/repo/one/c.ts");
+    htmxEvent(byId("file-panel"), "htmx:before:cleanup");
+    page({ session: "s2" });
+    htmxEvent(document.body, "htmx:after:process");
+    await requests[3]?.respond(viewer("c.ts"));
+    expect(byId("file-view").textContent).toBe("No file open");
+    expect(tabs()).toHaveLength(0);
+    expect(byId("file-panel").dataset["session"]).toBe("s2");
+  });
+
+  it("does not reopen a panel hidden while its file was loading", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.ts");
+    click(byId("file-panel-close"));
+    await requests[0]?.respond(viewer("a.ts"));
+    expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
+      true,
+    );
+    expect(streams()[0]?.closed).toBe(true);
+    click(byId("file-panel-toggle"));
+    expect(query(".file-viewer-shell").dataset["path"]).toBe("/repo/one/a.ts");
+  });
+
   it("opens a tab, the panel, and asks htmx for the viewer in the session's scope", async () => {
     page();
     const { openFile, setUpFiles } = await load();
@@ -294,12 +539,20 @@ describe("opening files", () => {
       cancelable: true,
       button: 1,
     });
+    const previousWatch = streams().at(-1);
     query('.file-tab[data-path="/repo/one/c.ts"]').dispatchEvent(middle);
     expect(middle.defaultPrevented).toBe(true);
     expect(tabs().map((tab) => tab.dataset["path"])).toEqual([
       "/repo/one/a.ts",
     ]);
     // The neighbour becomes active and is loaded again.
+    expect(ajaxUrls().at(-1)).toContain("path=%2Frepo%2Fone%2Fa.ts");
+    await deliver(viewer("a.ts"));
+    expect(previousWatch?.closed).toBe(true);
+    expect(streams().at(-1)?.url).toContain("path=%2Frepo%2Fone%2Fa.ts");
+    const beforeChange = ajaxUrls().length;
+    streams().at(-1)?.dispatchEvent(new Event("change"));
+    expect(ajaxUrls()).toHaveLength(beforeChange + 1);
     expect(ajaxUrls().at(-1)).toContain("path=%2Frepo%2Fone%2Fa.ts");
   });
 
@@ -549,7 +802,10 @@ describe("changed files and search", () => {
     );
     const body = new FormData();
     htmxEvent(byId("file-tree"), "htmx:config:request", {
-      ctx: { request: { action: "/files/explorer", body } },
+      ctx: {
+        target: byId("file-tree"),
+        request: { action: "/files/explorer", body },
+      },
     });
     expect(body.get("changes")).toBe("1");
     click(toggle);
@@ -610,6 +866,7 @@ describe("media", () => {
     Object.defineProperty(image, "naturalWidth", { value: 640 });
     Object.defineProperty(image, "naturalHeight", { value: 480 });
     Object.defineProperty(image, "complete", { value: true });
+    htmxEvent(byId("file-view"), "htmx:after:settle");
     await flush();
     expect(query(".file-viewer-measured").textContent).toBe("640 × 480");
 

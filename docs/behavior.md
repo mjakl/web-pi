@@ -96,13 +96,6 @@ provider configuration and resource discovery. Skill toggles change only
 `disable-model-invocation` frontmatter. Re-enabling a disabled package loses its
 per-resource filters, matching Pi's representation.
 
-Preserved repository workflow skills live under `.agents/skills`, together with
-references, licenses, and provenance; `.claude/skills` links there. The root
-`skills-lock.json` is retained unchanged. These are project resources for Pi
-loading/trust, but web-pi currently displays this location as **path-scoped**,
-without project install/update metadata. Do not relocate or duplicate them
-merely to change that label.
-
 General holds shared appearance, dumb-zone threshold and completion sound, with
 defaults **auto**, **100000 tokens**, and **on**. Auto follows the current
 device's OS appearance. Saves apply across browsers; a returning page refreshes

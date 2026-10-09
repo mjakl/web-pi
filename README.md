@@ -337,9 +337,8 @@ refreshing them; `just update-pi` refreshes Pi without building. A normal build
 may change `package.json` and `pnpm-lock.yaml`; commit both together after
 checks pass.
 
-Contributor guidance lives in `AGENTS.md` in the checkout, with `CLAUDE.md` as
-its symlink. Framework-independent workflows live in `.agents/skills`, with
-compatibility links under `.claude/skills`. See
+Contributor guidance and shared-workflow prerequisites live in `AGENTS.md` in
+the checkout, with `CLAUDE.md` as its symlink. See
 [Architecture](docs/architecture.md) for ownership and
 [Screenshots](docs/screenshots.md) for the capture fixture.
 
@@ -347,4 +346,4 @@ compatibility links under `.claude/skills`. See
 
 [MIT](LICENSE), copyright Michael Jakl. Copied pi-web CSS, code, and adapted
 supporting material retain [pi-web's MIT notice](LICENSE.pi-web), copyright
-agegr. Preserved workflow skills carry their own licenses and provenance.
+agegr.

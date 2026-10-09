@@ -47,9 +47,12 @@ the browser keeps drafts and presentation preferences, not a second transcript.
 - `dependencies` are only what stays external in `dist/server.js` (the Pi SDK,
   `web-push`, `undici`); everything else esbuild bundles and belongs in
   `devDependencies`. Changing either list means running `just smoke`.
-- `CLAUDE.md` is a symlink to this file. Repository workflow skills live in
-  `.agents/skills/`; `.claude/skills/` contains compatibility symlinks, not
-  copies. Keep each skill's references, license, and provenance with it.
+- `CLAUDE.md` is a symlink to this file. Shared development workflows depend on
+  globally installed skills, not copies in this checkout. Follow their installed
+  triggers and permission limits; planning and simplification remain
+  explicit-request-only. Use the global `reviewer` agent for authorized
+  independent readiness, focused, and finding-closure reviews. Reviews are
+  read-only and do not authorize edits, commits, pushes, or merges.
 
 ## Layout and boundaries
 

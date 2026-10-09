@@ -1,5 +1,0 @@
-interface:
-  display_name: "Simplify Code"
-  short_description: "Simplify working code without behavior changes"
-policy:
-  allow_implicit_invocation: false

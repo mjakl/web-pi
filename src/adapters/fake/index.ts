@@ -1004,6 +1004,7 @@ export function createFakeWorld(
   let settings = { ...DEFAULT_WEB_SETTINGS };
   let modelPatterns: string[] | null = null;
   const sent: PushMessage[] = [];
+  let pushDisposed = false;
   const pushSuppression = createPushSuppression({
     consumed: false,
     persist: () => {},
@@ -1440,6 +1441,9 @@ export function createFakeWorld(
     },
     push: {
       sent,
+      dispose: () => {
+        pushDisposed = true;
+      },
       reportPresence: pushSuppression.report,
       // A valid public P-256 point, with no private key or external push sender.
       publicKey: () =>
@@ -1468,7 +1472,11 @@ export function createFakeWorld(
         );
       },
       send: (message) => {
-        if (subscriptions.length > 0 && pushSuppression.claim())
+        if (
+          !pushDisposed &&
+          subscriptions.length > 0 &&
+          pushSuppression.claim()
+        )
           sent.push(message);
         return Promise.resolve();
       },

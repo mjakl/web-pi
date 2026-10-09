@@ -641,11 +641,14 @@ composition root and the only importer of Pi adapters.
   `src/core/turn-completion.ts` is pi-web's rule: a run has to have started, and
   the session has to be idle when it settles. A stop, an abort before the model
   answered, or a shell command on its own never notifies. The adapter turns that
-  into a `completed` runtime event; eligible root completions ask `PushNotifier`
-  for the global away allowance, and the session stream sends `done` to the page
-  for the shared completion tone. The service worker alone displays completion
-  notifications, for every received push even if a window is visible, as Apple
-  requires. Extension input requests retain their dialog and tone, not a second
+  into a `completed` runtime event; the workspace synchronously reads the owned
+  runtime snapshot and folds its own-ID delegation records to exclude
+  inspection-only completions. It admits eligible completions to `PushNotifier`
+  before any asynchronous metadata lookup can cross a foreground return or shift
+  the grace deadline. The session stream sends `done` to the page for the shared
+  completion tone. The service worker alone displays completion notifications,
+  for every received push even if a window is visible, as Apple requires.
+  Extension input requests retain their dialog and tone, not a second
   system-notification path. This covers completed runs in this web server, not
   terminal Pi; OS delivery is not guaranteed.
 - **Outbound push suppression belongs to the server, not the worker.** Every

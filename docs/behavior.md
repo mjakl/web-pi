@@ -135,11 +135,27 @@ Outbound completion pushes use one app-wide away allowance. Foreground means a
 page is both visible and focused, on any device, in any session or Settings,
 even without push enrollment. While any page is foreground, this server
 suppresses system pushes to every subscription. After all pages leave, the first
-eligible completion broadcasts once to every enrolled subscription. Further
-completions are suppressed until a page genuinely returns to foreground; there
-is no queue or summary of skipped completions. The allowance is consumed before
-attempting delivery, even if every send fails, and survives server restarts. A
-completion with no enrolled subscriptions does not spend it.
+eligible completion starts a fixed grace-period timer measured from that
+completion, not from departure. `WEB_PI_NOTIFICATION_GRACE_PERIOD` sets whole
+minutes, default **15**; **0** restores immediate delivery while away. Accepted
+values are **0 to 35791**; empty, fractional, negative, nonnumeric and larger
+values fail startup.
+
+Additional completions during the grace period coalesce without extending the
+deadline. A single completion keeps its session title and link; multiple
+completions report the number of finished tasks and link to the app root. The
+count includes separate completed runs in the same session. Any accepted
+foreground report cancels all pending completions, even if persisting a rearm
+fails. Leaving again cannot revive cancelled work; a future eligible completion
+can start a fresh timer.
+
+At the deadline the server rechecks foreground presence and the away allowance.
+If still away with an allowance, it broadcasts once to every enrolled
+subscription, then suppresses further completions until a page genuinely returns
+to foreground. Suppressed completions are not queued. The allowance is consumed
+before attempting delivery, even if every send fails, and survives server
+restarts. A completion with no enrolled subscriptions does not start a timer or
+spend it; a pending deadline with no subscriptions also spends nothing.
 
 A visible, focused launch, focus return, restored page, PWA icon launch or
 notification navigation rearms the allowance. A hidden background load or
@@ -155,11 +171,14 @@ newer report retained within that lease window.
 Foreground reporting and delivery are best effort. A lost foreground report can
 allow a push, and a lost departure can suppress it until expiry. Live leases are
 not persisted: after a restart, still-open pages reconfirm on their next refresh
-or lifecycle event. The cached offline page also loads the precached presence
-reporter and reconfirms foreground once connectivity returns. Pushes already in
-flight cannot be recalled on return; the whole admitted broadcast is still
-attempted. This policy covers one web-pi server per agent directory, not
-accounts or coordination between servers. See
+or lifecycle event. Pending grace-period timers and their completion counts are
+also memory-only: restart or shutdown discards them without spending the
+allowance. Only a new eligible completion can start another timer; restarting
+does not replay previous completions. The cached offline page also loads the
+precached presence reporter and reconfirms foreground once connectivity returns.
+Pushes already in flight cannot be recalled on return; the whole admitted
+broadcast is still attempted. This policy covers one web-pi server per agent
+directory, not accounts or coordination between servers. See
 [Deployment](deployment.md#web-state-cutover-and-reset) for persistence and
 write-failure behavior.
 

@@ -200,7 +200,10 @@ function demoScript(cwd: string, prompt: string): ScriptedStep[] {
 }
 
 // The only place that knows both the core and the Pi adapters.
-export function createDeps(config: Config): { workspace: Workspace } {
+export function createDeps(config: Config): {
+  workspace: Workspace;
+  dispose: () => void;
+} {
   if (config.runtime === "fake") {
     const world = createFakeWorld({
       sessions: demoSessions(config.defaultCwd),
@@ -219,6 +222,9 @@ export function createDeps(config: Config): { workspace: Workspace } {
     // explorer is only worth looking at against an actual checkout, and the
     // fake index only knows two invented paths.
     return {
+      dispose: () => {
+        world.push.dispose();
+      },
       workspace: createWorkspace({
         ...world,
         files: createFileTree(),
@@ -228,7 +234,14 @@ export function createDeps(config: Config): { workspace: Workspace } {
   }
   const catalog = createPiSessionCatalog({ agentDir: config.agentDir });
   const webSettings = createWebSettingsStore(config.agentDir);
+  const push = createWebPushNotifier({
+    agentDir: config.agentDir,
+    gracePeriodMs: config.notificationGracePeriodMs,
+  });
   return {
+    dispose: () => {
+      push.dispose();
+    },
     workspace: createWorkspace({
       sessions: catalog,
       runtime: createPiAgentRuntime({
@@ -246,7 +259,7 @@ export function createDeps(config: Config): { workspace: Workspace } {
       files: createFileTree(),
       git: createGit(),
       watcher: createWatcher(),
-      push: createWebPushNotifier({ agentDir: config.agentDir }),
+      push,
       webSettings,
       tmpdir: tmpdir(),
     }),

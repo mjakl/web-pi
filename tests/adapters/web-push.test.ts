@@ -1,4 +1,7 @@
-import { createWebPushNotifier } from "@adapters/pi/web-push";
+import {
+  createWebPushNotifier as createNotifier,
+  type WebPushOptions,
+} from "@adapters/pi/web-push";
 import type { PushMessage, PushSubscription } from "@core/ports";
 import {
   mkdtempSync,
@@ -61,7 +64,288 @@ afterEach(() => {
   }
 });
 
+describe("web push grace period", () => {
+  it("waits fifteen minutes from completion by default without spending the allowance", async () => {
+    vi.useFakeTimers();
+    const directory = agentDir();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const notifier = createNotifier({ agentDir: directory, send });
+    notifier.subscribe(subscription("https://push.example/a"));
+    await notifier.send(MESSAGE);
+    expect(send).not.toHaveBeenCalled();
+    expect(stored(directory).awayConsumed).not.toBe(true);
+    await vi.advanceTimersByTimeAsync(15 * 60_000 - 1);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+      subscription("https://push.example/a"),
+      JSON.stringify(MESSAGE),
+      stored(directory).vapidKeys,
+    );
+    expect(stored(directory).awayConsumed).toBe(true);
+  });
+});
+
+describe("web push grace behavior", () => {
+  const create = (send: WebPushOptions["send"], gracePeriodMs = 1_000) => {
+    const directory = agentDir();
+    const notifier = createNotifier({
+      agentDir: directory,
+      send,
+      gracePeriodMs,
+    });
+    notifier.subscribe(subscription("https://push.example/a"));
+    return { directory, notifier };
+  };
+
+  it("coalesces tasks, including repeated sessions, at the first fixed deadline", async () => {
+    vi.useFakeTimers();
+    const send = vi
+      .fn<NonNullable<WebPushOptions["send"]>>()
+      .mockResolvedValue(undefined);
+    const { directory, notifier } = create(send);
+    notifier.subscribe(subscription("https://push.example/b"));
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(500);
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(499);
+    await notifier.send({
+      ...MESSAGE,
+      url: "/sessions/two",
+      tag: "other-session",
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(stored(directory).awayConsumed).not.toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    const plural: PushMessage = {
+      title: "3 tasks completed",
+      body: "3 tasks finished while you were away.",
+      url: "/",
+      tag: "web-pi:session-complete",
+    };
+    expect(
+      send.mock.calls.map(([target, payload]) => [
+        target.endpoint,
+        JSON.parse(payload) as PushMessage,
+      ]),
+    ).toEqual([
+      ["https://push.example/a", plural],
+      ["https://push.example/b", plural],
+    ]);
+    expect(stored(directory).awayConsumed).toBe(true);
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels permanently on another device's return and starts fresh only after departure", async () => {
+    vi.useFakeTimers();
+    const send = vi
+      .fn<NonNullable<WebPushOptions["send"]>>()
+      .mockResolvedValue(undefined);
+    const { directory, notifier } = create(send);
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(999);
+    notifier.reportPresence({
+      clientId: "unenrolled-device",
+      sequence: 1,
+      foreground: true,
+    });
+    await notifier.send({ ...MESSAGE, title: "Completion while foreground" });
+    // Cancellation must survive both the deadline and eventual lease expiry.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(send).not.toHaveBeenCalled();
+    expect(stored(directory).awayConsumed).not.toBe(true);
+    notifier.reportPresence({
+      clientId: "unenrolled-device",
+      sequence: 2,
+      foreground: false,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    await notifier.send({ ...MESSAGE, title: "Fresh completion" });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenCalledOnce();
+    expect(
+      send.mock.calls.map(([, payload]) => JSON.parse(payload) as PushMessage),
+    ).toEqual([{ ...MESSAGE, title: "Fresh completion" }]);
+  });
+
+  it("does not cancel for stale or duplicate foreground reports", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { notifier } = create(send);
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 2,
+      foreground: false,
+    });
+    await notifier.send(MESSAGE);
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 1,
+      foreground: true,
+    });
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 2,
+      foreground: true,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("requires a new completion after a quick foreground return and departure", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { notifier } = create(send);
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(500);
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 1,
+      foreground: true,
+    });
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 2,
+      foreground: false,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(send).not.toHaveBeenCalled();
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("loses pending scheduling on restart without spending the durable allowance", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { directory, notifier } = create(send);
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(500);
+    notifier.dispose();
+    const restarted = createNotifier({
+      agentDir: directory,
+      send,
+      gracePeriodMs: 1_000,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(send).not.toHaveBeenCalled();
+    expect(stored(directory).awayConsumed).not.toBe(true);
+    await restarted.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("disposal cancels pending timers and permanently closes completion admission", async () => {
+    vi.useFakeTimers();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { directory, notifier } = create(send);
+    await notifier.send(MESSAGE);
+    notifier.dispose();
+    notifier.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 1,
+      foreground: true,
+    });
+    notifier.reportPresence({
+      clientId: "page",
+      sequence: 2,
+      foreground: false,
+    });
+    await notifier.send(MESSAGE);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send).not.toHaveBeenCalled();
+    expect(stored(directory).awayConsumed).not.toBe(true);
+  });
+
+  it.each([0, 1_000])(
+    "disposal does not recall an admitted broadcast with %s ms grace",
+    async (gracePeriodMs) => {
+      vi.useFakeTimers();
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const send = vi
+        .fn<NonNullable<WebPushOptions["send"]>>()
+        .mockImplementationOnce(() => pending)
+        .mockResolvedValue(undefined);
+      const { directory, notifier } = create(send, gracePeriodMs);
+      notifier.subscribe(subscription("https://push.example/b"));
+      const completion = notifier.send(MESSAGE);
+      await vi.advanceTimersByTimeAsync(gracePeriodMs);
+      expect(send).toHaveBeenCalledOnce();
+      expect(stored(directory).awayConsumed).toBe(true);
+      notifier.dispose();
+      await notifier.send(MESSAGE);
+      release();
+      await completion;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(send.mock.calls.map(([target]) => target.endpoint)).toEqual([
+        "https://push.example/a",
+        "https://push.example/b",
+      ]);
+    },
+  );
+
+  it.each(["claim", "prune"])(
+    "handles asynchronous %s persistence failure without retry or unsafe diagnostics",
+    async (failure) => {
+      vi.useFakeTimers();
+      const report = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+      let restore: (() => void) | undefined;
+      const send = vi.fn().mockImplementation(() => {
+        if (failure === "prune") {
+          restore = blockReplacement(join(directory, "web-pi", "push.json"));
+          return Promise.reject(
+            Object.assign(new Error("secret endpoint and auth"), {
+              statusCode: 410,
+            }),
+          );
+        }
+        return Promise.resolve();
+      });
+      const { directory, notifier } = create(send);
+      await notifier.send(MESSAGE);
+      if (failure === "claim")
+        restore = blockReplacement(join(directory, "web-pi", "push.json"));
+      await vi.advanceTimersByTimeAsync(1_000);
+      restore?.();
+      const diagnostics = report.mock.calls.map(([message]) => message);
+      expect(diagnostics).toEqual(
+        failure === "claim"
+          ? [
+              "[web-pi] push allowance persistence failed; pushes suppressed until foreground persistence succeeds\n",
+              "[web-pi] push grace-period delivery failed; no retry scheduled\n",
+            ]
+          : [
+              "[web-pi] push grace-period delivery failed; no retry scheduled\n",
+            ],
+      );
+      await notifier.send(MESSAGE);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(send).toHaveBeenCalledTimes(failure === "claim" ? 0 : 1);
+      expect(vi.getTimerCount()).toBe(0);
+      // Enrollment must not revive an allowance consumed by a failed write.
+      notifier.subscribe(subscription("https://push.example/b"));
+      expect(stored(directory).awayConsumed).toBe(true);
+    },
+  );
+});
+
 describe("web push store", () => {
+  // These tests retain the original immediate delivery and persistence boundaries.
+  const createWebPushNotifier = (options: WebPushOptions) =>
+    createNotifier({ ...options, gracePeriodMs: 0 });
+
   it("broadcasts once while away and keeps the consumed allowance across restarts", async () => {
     const directory = agentDir();
     const send = vi.fn().mockResolvedValue(undefined);

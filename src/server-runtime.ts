@@ -10,7 +10,7 @@ const piVersion = bundledPiVersion();
 configureHttpDispatcher();
 
 const config = loadConfig();
-const { workspace } = createDeps(config);
+const { workspace, dispose } = createDeps(config);
 const app = createWebApp({
   workspace,
   staticRoot: config.staticRoot,
@@ -29,6 +29,7 @@ const server = serve(
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    dispose();
     server.close();
     setTimeout(() => process.exit(0), 2000).unref();
   });

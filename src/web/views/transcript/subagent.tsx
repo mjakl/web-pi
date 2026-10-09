@@ -64,12 +64,10 @@ function SubagentBody({
   call,
   run,
   actions,
-  progress,
 }: {
   call: SubagentCall;
   run?: SubagentRun;
   actions?: ItemActions;
-  progress?: string;
 }) {
   const model = run?.model ?? call.model;
   const cwd = run?.cwd ?? call.cwd ?? actions?.cwd;
@@ -85,13 +83,7 @@ function SubagentBody({
           <span title={cwd}>{folder}</span>
         )}
       </div>
-      {run === undefined ? (
-        progress === undefined ? null : (
-          <div class="subagent-result">
-            <p>{progress}</p>
-          </div>
-        )
-      ) : (
+      {run === undefined ? null : (
         <div class="subagent-result">
           <div class="subagent-section-label">Result</div>
           {run.output === "" ? null : (
@@ -236,7 +228,6 @@ export function SubagentContent({
 }) {
   const { calls, runs } = view;
   const single = calls.length === 1 ? calls[0] : undefined;
-  const progress = actions?.progress?.[call.id];
   const raw = call.result?.text ?? "";
   return (
     <div class="tool-result" hx-morph-skip={call.result ? true : undefined}>
@@ -254,7 +245,6 @@ export function SubagentContent({
           call={single}
           {...(runs?.[0] ? { run: runs[0] } : {})}
           actions={actions}
-          {...(progress === undefined ? {} : { progress })}
         />
       ) : (
         calls.map((item, index) => (

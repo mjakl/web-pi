@@ -391,8 +391,11 @@ it("updates running subagent progress and fetches its result when it completes o
   const card = required(
     document.querySelector<HTMLDetailsElement>("#tool-call-rich-subagent"),
   );
+  expect(card.open).toBe(false);
+  expect(card.querySelector("summary")?.textContent).toContain("reading files");
+  expect(document.body.textContent?.split("reading files")).toHaveLength(2);
+  expect(document.querySelector(".chat-activity")).toBeNull();
   openDetails(card);
-  expect(card.textContent).toContain("reading files");
   f.update(
     {
       status: {
@@ -409,6 +412,10 @@ it("updates running subagent progress and fetches its result when it completes o
     "activity",
   );
   await expect.poll(() => card.textContent).toContain("checking results");
+  expect(document.body.textContent?.split("checking results")).toHaveLength(2);
+  expect(document.body.textContent).not.toContain("reading files");
+  expect(document.querySelector(".chat-activity")).toBeNull();
+  expect(card.open).toBe(true);
   expect(toolRequests(requests, "call-rich-subagent")).toHaveLength(0);
   f.update(
     {
@@ -420,6 +427,13 @@ it("updates running subagent progress and fetches its result when it completes o
   );
   await expect.poll(() => card.textContent).toContain("subagent-run-output:");
   expect(card.open).toBe(true);
+  expect(card.querySelector(".subagent-progress")).toBeNull();
+  expect(card.querySelector(".subagent-counts")?.textContent).toBe(
+    "1 completed · 1 failed",
+  );
+  expect(card.querySelector(".subagent-error")?.textContent).toContain(
+    "representative failure",
+  );
   expect(toolRequests(requests, "call-rich-subagent")).toHaveLength(1);
   expect(f.snapshot.status.editorText).toEqual(["automatic-body text"]);
   expect(f.snapshot.status.notices).toContainEqual({

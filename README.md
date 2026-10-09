@@ -337,9 +337,8 @@ refreshing them; `just update-pi` refreshes Pi without building. A normal build
 may change `package.json` and `pnpm-lock.yaml`; commit both together after
 checks pass.
 
-Contributor guidance and shared-workflow prerequisites live in `AGENTS.md` in
-the checkout, with `CLAUDE.md` as its symlink. See
-[Architecture](docs/architecture.md) for ownership and
+Contributor guidance lives in `AGENTS.md` in the checkout, with `CLAUDE.md` as
+its symlink. See [Architecture](docs/architecture.md) for ownership and
 [Screenshots](docs/screenshots.md) for the capture fixture.
 
 ## License

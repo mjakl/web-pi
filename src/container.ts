@@ -11,7 +11,6 @@ import { createFileTree } from "@adapters/fs/file-tree";
 import { createWatcher } from "@adapters/fs/watch";
 import { createGit } from "@adapters/git/git";
 import { createPiAgentRuntime } from "@adapters/pi/agent-runtime";
-import { createPiModelCatalog } from "@adapters/pi/model-catalog";
 import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectResolver } from "@adapters/pi/projects";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
@@ -234,6 +233,11 @@ export function createDeps(config: Config): {
   }
   const catalog = createPiSessionCatalog({ agentDir: config.agentDir });
   const webSettings = createWebSettingsStore(config.agentDir);
+  const runtime = createPiAgentRuntime({
+    agentDir: config.agentDir,
+    catalog,
+    webSettings,
+  });
   const push = createWebPushNotifier({
     agentDir: config.agentDir,
     gracePeriodMs: config.notificationGracePeriodMs,
@@ -244,12 +248,8 @@ export function createDeps(config: Config): {
     },
     workspace: createWorkspace({
       sessions: catalog,
-      runtime: createPiAgentRuntime({
-        agentDir: config.agentDir,
-        catalog,
-        webSettings,
-      }),
-      models: createPiModelCatalog({ agentDir: config.agentDir }),
+      runtime,
+      models: runtime.models,
       projects: createPiProjectResolver({ agentDir: config.agentDir }),
       browser: createDirectoryBrowser(),
       trust: createPiProjectTrust({ agentDir: config.agentDir }),

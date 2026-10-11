@@ -109,7 +109,6 @@ export function liveUseCases({
         throw new Error(unavailableFolderMessage(cwd));
       }
       const live = await deps.runtime.open({ cwd, ...startup });
-      if (startup.model || startup.thinkingLevel) deps.models.invalidate(cwd);
       return live.id;
     },
 

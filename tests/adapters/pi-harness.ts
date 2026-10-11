@@ -293,7 +293,7 @@ export async function createHarness(
   };
   const catalog = createPiSessionCatalog({ agentDir });
   const webSettings = createWebSettingsStore(agentDir);
-  const runtime: AgentRuntime = createPiAgentRuntime({
+  const runtime = createPiAgentRuntime({
     webSettings,
     agentDir,
     catalog,

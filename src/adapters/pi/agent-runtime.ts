@@ -1,7 +1,4 @@
-import {
-  DEFAULT_SYSTEM_PROMPT_ADDITION,
-  type WebSettingsStore,
-} from "@core/web-settings";
+import type { WebSettingsStore } from "@core/web-settings";
 import { mergeQueue, type SlashCommand } from "@core/composer";
 import type {
   AgentRuntime,
@@ -13,6 +10,7 @@ import type {
   LiveSnapshot,
   LiveStatus,
   ModelOption,
+  ModelCatalog,
   PromptInput,
   QueuedMessage,
   RunningTool,
@@ -36,29 +34,20 @@ import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type AgentSession,
+  type AgentSessionServices,
   type AgentSessionEvent,
   type BashOperations,
   createAgentSessionFromServices,
-  createAgentSessionServices,
-  createCodemodeExtension,
-  createMcpExtension,
-  createToolSearchExtension,
   estimateTokens as estimateMessageTokens,
-  getAgentDir,
   type InlineExtension,
   SessionManager,
-  SettingsManager,
+  type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import {
-  createProjectBashExtension,
-  createProjectBashOperations,
-  preferUserBashExtension,
-} from "./bash-env.ts";
+import { createProjectBashOperations } from "./bash-env.ts";
 import { createExtensionUi } from "./extension-ui.ts";
-import { projectTrustReloadOptions } from "./project-trust.ts";
-import { resolveModelListing } from "./model-catalog.ts";
+import { createPiModelCatalog, resolveModelListing } from "./model-catalog.ts";
+import { createPiServicePreparations } from "./session-services.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
 import { resolveSnapshotEntryId } from "./session-snapshot.ts";
 
@@ -118,6 +107,8 @@ class PiLiveSession implements LiveSession {
   private title: string | null = null;
   private editorText: string[] = [];
 
+  readonly services: AgentSessionServices;
+  private readonly invalidatePreparation: () => void;
   private readonly inner: AgentSession;
   private readonly agentDir: string;
   private readonly shellPath: string | undefined;
@@ -131,10 +122,14 @@ class PiLiveSession implements LiveSession {
       shellPath?: string;
       bashOperations?: BashOperations;
       queuedImages: Map<string, ImageAttachment[]>;
+      services: AgentSessionServices;
+      invalidatePreparation: () => void;
     },
     onStop: () => void,
   ) {
     this.inner = inner;
+    this.services = options.services;
+    this.invalidatePreparation = options.invalidatePreparation;
     this.agentDir = options.agentDir;
     this.queuedImages = options.queuedImages;
     this.shellPath = options.shellPath;
@@ -704,6 +699,8 @@ class PiLiveSession implements LiveSession {
   }
 
   private async reloadResources(): Promise<void> {
+    this.invalidatePreparation();
+    this.services.diagnostics = [];
     this.ui.resetForReload();
     this.statuses.clear();
     this.widgets.clear();
@@ -918,7 +915,8 @@ export function createPiAgentRuntime(options: {
   /** Inject the shell backend for offline hosts and tests. */
   bashOperations?: BashOperations;
   draftIdleMs?: number;
-}): AgentRuntime {
+}): AgentRuntime & { models: ModelCatalog } {
+  const preparations = createPiServicePreparations(options);
   const draftIdleMs = options.draftIdleMs ?? DRAFT_IDLE_MS;
   const live = new Map<string, PiLiveSession>();
   const starting = new Map<string, Promise<PiLiveSession>>();
@@ -932,89 +930,10 @@ export function createPiAgentRuntime(options: {
     manager: SessionManager,
     startup: StartupChoice = {},
   ): Promise<PiLiveSession> {
-    // Capture once: even resource reloads keep this runtime's addition stable.
-    const addition =
-      options.webSettings.get().systemPromptAddition ??
-      DEFAULT_SYSTEM_PROMPT_ADDITION;
     const cwd = manager.getCwd();
-    const settingsManager = SettingsManager.create(cwd, options.agentDir);
-    const trust = projectTrustReloadOptions(cwd, options.agentDir);
-    const queuedImages = new Map<string, ImageAttachment[]>();
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir: options.agentDir,
-      settingsManager,
-      resourceLoaderOptions: {
-        appendSystemPromptOverride: (base) =>
-          addition === "" ? base : [...base, addition],
-        extensionFactories: [
-          {
-            name: "codemode",
-            builtin: true,
-            replaceable: true,
-            factory: createCodemodeExtension(),
-          },
-          {
-            name: "tool-search",
-            builtin: true,
-            replaceable: true,
-            factory: createToolSearchExtension(),
-          },
-          {
-            name: "mcp",
-            builtin: true,
-            replaceable: true,
-            factory: createMcpExtension(),
-          },
-          createProjectBashExtension({
-            cwd,
-            agentDir: options.agentDir,
-            settings: settingsManager,
-            ...(options.bashOperations
-              ? { operations: options.bashOperations }
-              : {}),
-          }),
-          ...(options.extensions ?? []),
-          {
-            name: "web-pi-queue-images",
-            hidden: true,
-            factory(pi) {
-              // Inline extensions follow discovered ones. Selected prompts are
-              // already expanded; observe after user hooks to key their images
-              // by the final queued text, including transformed attachments.
-              pi.on("input", (event) => {
-                if (event.streamingBehavior) {
-                  const images = event.images?.map(({ data, mimeType }) => ({
-                    data,
-                    mimeType,
-                  }));
-                  if (images?.length) queuedImages.set(event.text, images);
-                  else queuedImages.delete(event.text);
-                }
-                return { action: "continue" };
-              });
-            },
-          },
-        ],
-        extensionsOverride: (base) => {
-          const loaded = preferUserBashExtension(base);
-          // MCP uses Pi's process-wide directory, not the services' agentDir.
-          // Check after exclusions/replacements, and again on resource reload.
-          if (
-            loaded.extensions.some(
-              (extension) => extension.path === "builtin:mcp",
-            ) &&
-            resolve(getAgentDir()) !== resolve(options.agentDir)
-          ) {
-            throw new Error(
-              'Built-in MCP requires the runtime agent directory to match Pi\'s process-wide directory. Set PI_CODING_AGENT_DIR to the intended agent directory before starting web-pi, then restart. Alternatively, disable built-in MCP with extensions: ["-builtin:mcp"].',
-            );
-          }
-          return loaded;
-        },
-      },
-      ...(trust ? { resourceLoaderReloadOptions: trust } : {}),
-    });
+    const { services, queuedImages } = await preparations.claim(cwd);
+    const settingsManager = services.settingsManager;
+    await settingsManager.reload();
     // Pi's cycling scope supplies defaults and reasoning pins, not an allowlist
     // for deliberate web choices. Existing transcripts retain SDK restoration.
     let effective: StartupChoice = {};
@@ -1076,6 +995,10 @@ export function createPiAgentRuntime(options: {
       session,
       {
         agentDir: options.agentDir,
+        services,
+        invalidatePreparation: () => {
+          preparations.invalidate(cwd);
+        },
         queuedImages,
         ...(shellPath === undefined ? {} : { shellPath }),
         ...(options.bashOperations
@@ -1129,6 +1052,11 @@ export function createPiAgentRuntime(options: {
   }
 
   return {
+    models: createPiModelCatalog({
+      agentDir: options.agentDir,
+      preparations,
+      sessionServices: (id) => live.get(id)?.services,
+    }),
     get: (sessionId) => live.get(sessionId),
     live: () => [...live.values()],
     subscribeAll(listener) {

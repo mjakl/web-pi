@@ -58,11 +58,17 @@ export function createShared(deps: WorkspaceDeps) {
   // restart, never written to Pi's store.
   const validatedRoots = new Set<string>();
 
-  async function modelsFor(cwd: string): Promise<ModelListing> {
+  async function modelsFor(
+    cwd: string,
+    sessionId?: string,
+  ): Promise<ModelListing> {
     try {
-      return await deps.models.list(cwd);
-    } catch {
-      return { models: [], warnings: [] };
+      return await deps.models.list(cwd, sessionId);
+    } catch (error) {
+      return {
+        models: [],
+        warnings: [error instanceof Error ? error.message : String(error)],
+      };
     }
   }
 

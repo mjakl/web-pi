@@ -417,7 +417,7 @@ export type AgentRuntime = {
   subscribeAll(listener: (event: RuntimeEvent) => void): () => void;
 };
 
-/** Models in scope for a folder, plus what `enabledModels` could not resolve. */
+/** Models in scope for a folder or its exact session owner, plus diagnostics. */
 export type ModelListing = {
   models: ModelOption[];
   warnings: string[];
@@ -425,25 +425,30 @@ export type ModelListing = {
   preferred?: { provider: string; id: string };
 };
 
+/** An owned session identity uses only its registry; inactive identities use a
+ * folder preparation without acquiring a transcript writer. */
 export type ModelCatalog = {
   settings(
     cwd: string,
+    sessionId?: string,
   ): Promise<import("@core/model-settings").ModelSettingsView>;
   saveSettings(
     cwd: string,
     edit: import("@core/model-settings").ModelSettingsEdit,
+    sessionId?: string,
   ): Promise<void>;
   /** Credential-available models before Pi's cycling scope is applied. */
-  listAvailable(cwd: string): Promise<ModelOption[]>;
-  list(cwd: string): Promise<ModelListing>;
+  listAvailable(cwd: string, sessionId?: string): Promise<ModelOption[]>;
+  list(cwd: string, sessionId?: string): Promise<ModelListing>;
   /** Preview Pi's effective level without opening a session or writing defaults. */
   resolveThinking(
     cwd: string,
     model: ModelOption,
     level?: ThinkingLevel,
     continuing?: boolean,
+    sessionId?: string,
   ): Promise<ThinkingLevel>;
-  /** After a trust grant or a settings write, the cached listing is stale. */
+  /** Drop unbound preparations after trust or resource changes, not model preferences. */
   invalidate(cwd?: string): void;
 };
 

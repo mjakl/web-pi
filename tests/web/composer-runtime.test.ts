@@ -1,5 +1,4 @@
 import { createFakeWorld } from "@adapters/fake/index";
-import { createPiModelCatalog } from "@adapters/pi/model-catalog";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import {
@@ -45,8 +44,8 @@ async function fixture(bashOperations?: BashOperations) {
     ...(bashOperations ? { bashOperations } : {}),
   });
   const harness = h;
-  // The menu reads disk metadata; the harness registers the same models with
-  // an offline provider. Neither path can contact a real model endpoint.
+  // The extension owns the offline provider; disk overrides compose over it
+  // in both the menu and startup. Neither path calls a real model endpoint.
   await writeFile(
     join(h.agentDir, "models.json"),
     JSON.stringify({
@@ -60,10 +59,10 @@ async function fixture(bashOperations?: BashOperations) {
           api: "openai-completions",
           baseUrl: "http://scripted.invalid",
           apiKey: "fixture",
-          models: [
-            { id: MODEL_ID, name: "Global model", reasoning: false },
-            { id: MODEL_2, name: "Scoped model", reasoning: true },
-          ],
+          modelOverrides: {
+            [MODEL_ID]: { name: "Global model", reasoning: false },
+            [MODEL_2]: { name: "Scoped model", reasoning: true },
+          },
         },
       },
     }),
@@ -78,7 +77,7 @@ async function fixture(bashOperations?: BashOperations) {
   world.runtime = h.runtime;
   world.sessions = h.catalog;
   world.webSettings = h.webSettings;
-  world.models = createPiModelCatalog({ agentDir: h.agentDir });
+  world.models = h.runtime.models;
   const workspace = createWorkspace(world);
   const app = createWebApp({
     workspace,
@@ -553,6 +552,9 @@ describe("production startup from the rendered composer", () => {
               ?.getAttribute("value"),
           )
           .toBe(`${PROVIDER}/${MODEL_2}`);
+        expect(
+          browser.document.querySelector(".composer-model-detail")?.textContent,
+        ).toBe("high");
       }
       if (choice === "thinking" || choice === "both") {
         const select = required(

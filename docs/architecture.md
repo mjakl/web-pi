@@ -24,7 +24,7 @@ Internal interfaces, all consumers in this repository. Defined in
 | `SessionCatalog`   | Discover priority-certified roots or complete delegation trees; exact classification; non-writing snapshots; row metadata and edits | `src/adapters/pi/session-catalog.ts` |
 | `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                                 | `src/adapters/pi/agent-runtime.ts`   |
 | `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`        | same                                 |
-| `ModelCatalog`     | Models Pi has credentials for, narrowed by `enabledModels`, with the configured default and per-pattern reasoning pins              | `src/adapters/pi/model-catalog.ts`   |
+| `ModelCatalog`     | Extension-aware models from a folder preparation or the named session, with Pi scope, thinking and diagnostics                      | `src/adapters/pi/model-catalog.ts`   |
 | `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                          | `src/adapters/pi/projects.ts`        |
 | `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                  | `src/adapters/pi/resources.ts`       |
 | `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                            | `src/adapters/fs/file-tree.ts`       |
@@ -43,7 +43,7 @@ General's system prompt editor replaces only web-pi's Markdown rendering note.
 An absent or null `systemPromptAddition` uses the unchanged built-in note; a
 string replaces it verbatim, including an empty string to omit the addition.
 Reset to default saves null. The Pi adapter captures the effective addition when
-starting a runtime and preserves the loader's other appended instructions and
+preparing services and preserves the loader's other appended instructions and
 Pi's base prompt. New and stopped-and-reactivated sessions read the saved
 setting; active runtimes retain their captured addition through `/reload` and
 browser refresh. Saving does not interrupt a turn or restart a session.
@@ -101,6 +101,26 @@ exclusive initial flush and then return to SDK appends. `!!` entries retain
 `excludeFromContext`; no assistant message is invented. Stopping a session
 aborts its shell and awaits settlement before disposal.
 
+`src/adapters/pi/session-services.ts` constructs the same trust-gated
+`AgentSessionServices` for discovery and startup. `AgentRuntime` owns a bounded
+cache of at most four unbound folder preparations. Ordinary page renders reuse a
+preparation; startup removes it synchronously before awaiting it, validates the
+chosen model against its registry, and passes it to
+`createAgentSessionFromServices()`. Independent sessions never share a bound
+loader, extension callbacks, queued images or mutable provider registry.
+Inactive saved-session model enrichment uses a folder preparation without
+opening the transcript with a writable manager. Live queries name the exact
+session and use its services, not another runtime from the same folder.
+
+Preparation loads allowed extension factories and may install missing configured
+packages through Pi. It is not inert metadata discovery. Project settings start
+disabled; the existing saved-trust adapter decides whether project resources
+load. Unbound services have no general dispose lifecycle: eviction and
+invalidation drop references, never emit `session_shutdown`. Extensions must
+reserve long-lived resources for real session events. Providers must register
+from their factory to participate in discovery and startup; registrations
+deferred to `session_start` arrive after model selection.
+
 Each session's resource loader registers Pi's `codemode`, `tool-search`, and
 `mcp` as replaceable built-in extensions. The SDK owns their setting-based
 exclusions, user replacements, tool exposure, and per-session state. Existing
@@ -129,11 +149,12 @@ process environment to support several directories. See
 [Codemode, tool search, and MCP](../README.md#codemode-tool-search-and-mcp) for
 settings and browser limitations.
 
-Settings → Models lists the full `ModelRuntime.getAvailable()` catalog before
-`enabledModels` narrowing: built-in and configured models with credentials, not
-the unauthenticated registry. Like the existing catalog, it does not load
-project extensions to discover extension-only providers. Availability is the
-SDK's credential check, not a provider request proving account access.
+Settings → Models uses an explicit folder or selected session context and
+carries the displayed session identity through its form when one is selected. It
+lists the full `ModelRuntime.getAvailable()` catalog before `enabledModels`
+narrowing: built-in, configured and extension-provided models with credentials,
+not the unauthenticated registry. Availability is the SDK's credential check,
+not a provider request proving account access.
 
 Models edits only global `enabledModels` in `<agentDir>/settings.json` through
 Pi's `SettingsManager`. The terminal shares this pattern-based cycling scope;
@@ -161,11 +182,14 @@ rather than overwriting a changed global model list. Pi's locked field-level
 write preserves unrelated external edits; load errors and drained write errors
 are surfaced, including failures swallowed by `flush()`.
 
-Saving invalidates all folder model caches and triggers an HTMX refresh of the
-mounted selector. Config stamps include global and project settings for external
-edits. New-session, stored-session and live/SSE selectors read the effective
-trusted Pi scope. Running and stored sessions retain their current model even
-when it is removed from that scope; no save switches a conversation.
+Model views re-read trusted Pi settings for each projection. Saving triggers an
+HTMX refresh of the mounted selector without rebuilding services or executing
+extension factories again. New-session, stored-session and live/SSE selectors
+read the effective scope from their corresponding registry. Running and stored
+sessions retain their current model even when it is removed from that scope; no
+save switches a conversation. Live reload delegates to Pi's `session.reload()`
+and subsequent model views read that session's refreshed registry and resource
+diagnostics.
 
 The model menu's default scope and new-session startup share SDK scope
 resolution. Startup applies the effective model and reasoning pin without
@@ -847,12 +871,16 @@ composition root and the only importer of Pi adapters.
   reason. The session is constructed with the choice, so `setModel` is never
   called a second time; repeating it would append a duplicate session entry and
   a duplicate extension event.
-- **The models cache is stamped, not just timed.** Credentials and model
-  metadata are edited in the Pi terminal, so the cache key carries the
-  modification times of `auth.json`, `models.json` and global/project
-  `settings.json`: a terminal login or configuration edit shows up on the next
-  request instead of after the whole 60 s TTL. Granting trust, a plugin action,
-  or writing a new default invalidates it outright.
+- **Only unbound preparations are cached, not model projections.** A terminal
+  login or model metadata change invalidates the next folder preparation through
+  an auth-content fingerprint and the `models.json` file stamp. Trust and
+  project settings stamps, non-model global settings and the web system prompt
+  addition also participate. Model preferences are reprojected without
+  rebuilding global extensions; Pi creating an empty auth file does not
+  invalidate its own preparation. Trust grants, package and skill changes, and
+  explicit reloads invalidate affected unbound preparations. User-scope package
+  changes invalidate every folder. These changes do not silently restart
+  already-running sessions.
 - **Re-enabling a package loses its filters.** Disabling rewrites the entry as
   an object whose four resource lists are empty; enabling writes the plain
   source string back, so per-resource filters an entry carried do not survive

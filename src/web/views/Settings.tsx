@@ -1165,12 +1165,14 @@ export function SettingsBody({
   error,
   settings,
   models,
+  modelSessionId,
 }: {
   section: SettingsSection;
   cwd: string;
   skills?: SkillsView;
   plugins?: PackagesView;
   models?: ModelsView;
+  modelSessionId?: string;
   home?: string;
   /** Loading the section failed; saying so beats a silent empty panel. */
   error?: string;
@@ -1184,7 +1186,13 @@ export function SettingsBody({
     );
   }
   if (section === "models" && models)
-    return <ModelSettings cwd={cwd} view={models} />;
+    return (
+      <ModelSettings
+        cwd={cwd}
+        view={models}
+        {...(modelSessionId ? { sessionId: modelSessionId } : {})}
+      />
+    );
   if (section === "skills" && skills) {
     return (
       <SkillsSection view={skills} {...(home === undefined ? {} : { home })} />
@@ -1216,6 +1224,7 @@ export function SettingsDialog(props: {
   error?: string;
   settings?: WebSettings;
   models?: ModelsView;
+  modelSessionId?: string;
   back: string;
 }) {
   return (

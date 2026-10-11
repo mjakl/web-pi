@@ -172,12 +172,12 @@ export function sessionUseCases({
     const readOnly = isSubagentSession(summary) || !enrichModels;
     const listing = readOnly
       ? { models: [], warnings: [] }
-      : await modelsFor(stored.summary.cwd);
+      : await modelsFor(stored.summary.cwd, stored.summary.id);
     const model =
       !readOnly && transcript.lastModel
         ? (
             await deps.models
-              .listAvailable(stored.summary.cwd)
+              .listAvailable(stored.summary.cwd, stored.summary.id)
               .catch(() => listing.models)
           ).find(
             (option) =>
@@ -227,6 +227,7 @@ export function sessionUseCases({
                 ? transcript.lastThinking
                 : undefined,
               true,
+              stored.summary.id,
             ),
           }
         : {}),
@@ -293,7 +294,7 @@ export function sessionUseCases({
       return liveView(
         snapshot,
         summary,
-        await modelsFor(summary.cwd),
+        await modelsFor(summary.cwd, id),
         resolved,
       );
     }

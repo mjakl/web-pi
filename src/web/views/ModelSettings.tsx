@@ -3,11 +3,13 @@ import { ConfigButton } from "./ConfigControls.tsx";
 
 export function ModelSettings({
   cwd,
+  sessionId,
   view,
   message,
   failed = false,
 }: {
   cwd: string;
+  sessionId?: string;
   view: ModelSettingsView;
   message?: string;
   failed?: boolean;
@@ -23,6 +25,9 @@ export function ModelSettings({
       hx-disabled-elt="find button"
     >
       <input type="hidden" name="cwd" value={cwd} />
+      {sessionId ? (
+        <input type="hidden" name="sessionId" value={sessionId} />
+      ) : null}
       <input
         type="hidden"
         name="patterns"

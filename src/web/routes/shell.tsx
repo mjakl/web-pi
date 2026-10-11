@@ -279,10 +279,17 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   async function settingsView(
     section: "general" | "models" | "skills" | "plugins",
     cwd: string,
-    options: { updates?: SkillsView["updates"]; selected?: string } = {},
+    options: {
+      updates?: SkillsView["updates"];
+      selected?: string;
+      sessionId?: string;
+    } = {},
   ) {
     if (section === "models")
-      return { models: await deps.workspace.modelSettings(cwd) };
+      return {
+        models: await deps.workspace.modelSettings(cwd, options.sessionId),
+        ...(options.sessionId ? { modelSessionId: options.sessionId } : {}),
+      };
     if (section === "skills") {
       const listed = await deps.workspace.skills(cwd);
       return {
@@ -327,6 +334,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.post("/settings/models", async (c) => {
     const form = await c.req.formData();
     const cwd = field(form, "cwd");
+    const sessionId = field(form, "sessionId") || undefined;
     let message = "Selection saved.";
     let failed = false;
     try {
@@ -342,6 +350,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         cwd,
         selection,
         JSON.parse(field(form, "patterns")) as unknown,
+        sessionId,
       );
       c.header("HX-Trigger", "models-changed");
     } catch (error) {
@@ -352,7 +361,8 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       return await c.html(
         <ModelSettings
           cwd={cwd}
-          view={await deps.workspace.modelSettings(cwd)}
+          view={await deps.workspace.modelSettings(cwd, sessionId)}
+          {...(sessionId ? { sessionId } : {})}
           message={message}
           failed={failed}
         />,
@@ -373,8 +383,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       selectedId === undefined ? {} : { selectedId },
     );
     const cwd = await currentCwd(c);
-    const available = await deps.workspace.newSession(cwd);
-    const usable = available.available ? cwd : "";
+    const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
     const section = resolveSection(
       c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
       usable !== "",
@@ -384,6 +393,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     // quietly show the wrong page under the right tab.
     const remembered = rememberedSkill(c, usable);
     const sections = await settingsView(section, usable, {
+      ...(selectedId ? { sessionId: selectedId } : {}),
       ...(remembered === undefined ? {} : { selected: remembered }),
     }).catch((error: unknown) => ({ error: errorText(error) }));
     const back = currentSessionId(c);

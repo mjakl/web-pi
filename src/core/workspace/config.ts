@@ -83,9 +83,20 @@ export function configUseCases({
 
   return {
     validateFolder,
-    modelSettings: (cwd: string) => deps.models.settings(cwd),
-    saveModelSettings: (cwd: string, selected: unknown, patterns: unknown) =>
-      deps.models.saveSettings(cwd, modelSettingsEdit(selected, patterns)),
+    folderAvailable,
+    modelSettings: (cwd: string, sessionId?: string) =>
+      deps.models.settings(cwd, sessionId),
+    saveModelSettings: (
+      cwd: string,
+      selected: unknown,
+      patterns: unknown,
+      sessionId?: string,
+    ) =>
+      deps.models.saveSettings(
+        cwd,
+        modelSettingsEdit(selected, patterns),
+        sessionId,
+      ),
     webSettings: () => deps.webSettings.get(),
     updateWebSettings: (
       patch: Partial<import("@core/web-settings").WebSettings>,
@@ -248,6 +259,7 @@ export function configUseCases({
       const known = skills.some((skill) => skill.filePath === filePath);
       if (!known) throw new FileAccessError("Unknown skill", 404);
       await deps.skills.setDisabled(filePath, disable);
+      deps.models.invalidate();
       const refreshed = await deps.skills.list(cwd);
       return refreshed.skills.find((skill) => skill.filePath === filePath);
     },
@@ -262,7 +274,9 @@ export function configUseCases({
       scope: SkillScope,
     ): Promise<string> {
       await requireTrustedProject(cwd, scope === "project");
-      return deps.skills.install(pkg, scope, cwd);
+      const result = await deps.skills.install(pkg, scope, cwd);
+      deps.models.invalidate(scope === "global" ? undefined : cwd);
+      return result;
     },
 
     checkSkills(
@@ -272,8 +286,14 @@ export function configUseCases({
       return deps.skills.check(cwd, target);
     },
 
-    updateSkill(cwd: string, pkg: string, scope: SkillScope): Promise<string> {
-      return deps.skills.update(cwd, pkg, scope);
+    async updateSkill(
+      cwd: string,
+      pkg: string,
+      scope: SkillScope,
+    ): Promise<string> {
+      const result = await deps.skills.update(cwd, pkg, scope);
+      deps.models.invalidate(scope === "global" ? undefined : cwd);
+      return result;
     },
 
     // --- Extension packages ----------------------------------------------
@@ -288,8 +308,13 @@ export function configUseCases({
       request: { cwd: string; source?: string; scope: PackageScope },
     ): Promise<PackagesView> {
       await requireTrustedProject(request.cwd, request.scope === "project");
-      await deps.packages.run(action, request);
-      deps.models.invalidate(request.cwd);
+      try {
+        await deps.packages.run(action, request);
+      } finally {
+        deps.models.invalidate(
+          request.scope === "user" ? undefined : request.cwd,
+        );
+      }
       return deps.packages.list(request.cwd);
     },
 
@@ -299,6 +324,7 @@ export function configUseCases({
      * it started.
      */
     async reloadFolder(cwd: string): Promise<number> {
+      deps.models.invalidate(cwd);
       const live = await writableRuntimes(cwd);
       for (const session of live) await session.reload();
       return live.length;

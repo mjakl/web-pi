@@ -52,7 +52,6 @@ describe("a turn", () => {
       ),
     );
     expect(streaming.status.running).toBe(true);
-    expect(streaming.status.streaming?.tokens).toBeGreaterThan(0);
     // Pi may prepend a system snapshot; the raw boundary still follows the
     // prior settled entries, and the live tail must include the prompt.
     expect(streaming.turnStart).toBe(before.branch.length);
@@ -71,7 +70,6 @@ describe("a turn", () => {
     expect(messages(session)).toEqual(["user:hi", "assistant:Hello world"]);
     expect(settled.partial).toBeUndefined();
     expect(settled.status.running).toBe(false);
-    expect(settled.status.streaming).toBeNull();
     expect(settled.turnStart).toBe(settled.branch.length);
     expect(lastAssistant(session).usage).toMatchObject({
       input: 120,
@@ -82,30 +80,6 @@ describe("a turn", () => {
     expect(events).toContain("completed");
     expect(announced).toEqual(["started", "finished", "completed"]);
     expect(existsSync(settled.summary.filePath ?? "")).toBe(true);
-  });
-
-  it("reports a rate only after the message has streamed for half a second", async () => {
-    h = await createHarness();
-    const session = await h.open();
-    const now = Date.now();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-    const hold = gate();
-    h.script(async (turn) => {
-      turn.text("Some words to count as tokens");
-      await hold.wait;
-      turn.done();
-    });
-    await session.prompt("hi");
-    await until(session, (s) => s.partial !== undefined);
-    clock.mockReturnValue(now + 500);
-    expect(session.snapshot().status.streaming?.tokensPerSecond).toBeNull();
-    clock.mockReturnValue(now + 501);
-    const rate = session.snapshot().status.streaming;
-    expect(rate?.tokens).toBeGreaterThan(0);
-    expect(rate?.tokensPerSecond).toBeGreaterThan(0);
-    const done = next(session, "turn_done");
-    hold.open();
-    await done;
   });
 
   it("queues later prompts as steer or follow-up and hands them back on recall", async () => {

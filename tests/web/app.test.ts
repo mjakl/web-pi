@@ -280,7 +280,8 @@ describe("web app", () => {
     expect(received).not.toMatch(
       /event: (turn|status|shelf|dialog|custom|editor|notice)\n/,
     );
-    expect(received).toContain("Estimated token count while streaming");
+    expect(received).not.toContain("Estimated token count while streaming");
+    expect(received).not.toContain(" t/s");
   });
 
   it("renders metadata and actions in the initial response, including on revisit", async () => {

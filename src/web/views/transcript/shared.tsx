@@ -33,8 +33,8 @@ export type ItemActions = {
   busy?: boolean;
   /** The last line each running tool reported, by tool-call id. */
   progress?: Record<string, string>;
-  /** Estimated tokens and speed of the message streaming right now. */
-  streaming?: { tokens: number; tokensPerSecond: number | null };
+  /** A message is streaming: keep thinking activity and hide completed controls. */
+  streaming?: boolean;
 };
 
 /** pi-web's `formatTimestamp`: 24h, and the date once it is not today. */

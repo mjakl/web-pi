@@ -894,10 +894,9 @@ requirements: ANSI in tool cards, read-only historical branch browsing, explorer
 mutations and expanded-state persistence, and a running-session cap. These are
 not part of the documentation migration.
 
-Streaming token count and tokens per second are implemented. The runtime
-estimates tokens from streamed text and thinking, and reports a rate after more
-than 0.5 s when tokens are nonzero. The assistant header labels the count as
-estimated; completed provider usage and context accounting remain separate.
+Live token count and tokens-per-second displays are deliberately omitted.
+Streaming partials and activity status remain, as do completed provider usage,
+session totals, cost reporting, and context accounting.
 
 ## Deliberately not carried over
 

@@ -212,39 +212,6 @@ export function contentParts(content: unknown): ContentPart[] {
   return Array.isArray(content) ? (content as ContentPart[]) : [];
 }
 
-const CJK = /[　-ヿ㐀-鿿豈-﫿\u{20000}-\u{2fa1f}가-힯]/u;
-
-/**
- * pi-web's `estimateTokens`: a quarter of a token per character, a whole one
- * per CJK character. It is what the streaming header counts with, so the
- * number a reader sees while a message arrives is the same in both.
- */
-export function estimateTokens(text: string): number {
-  let cjk = 0;
-  let rest = 0;
-  for (const character of text) {
-    if (CJK.test(character)) cjk += 1;
-    else rest += 1;
-  }
-  return cjk + rest / 4;
-}
-
-/**
- * The text of a streaming assistant message that counts towards its token
- * estimate: what it has written, thought, and generated as tool arguments.
- */
-export function streamedText(content: unknown): string {
-  return contentParts(content)
-    .map((part) => {
-      if (part.type === "text") return part.text ?? "";
-      if (part.type === "thinking") return part.thinking ?? "";
-      if (part.type !== "toolCall") return "";
-      const block = part as unknown as { rawInput?: string; input?: unknown };
-      return block.rawInput ?? JSON.stringify(block.input ?? {});
-    })
-    .join("");
-}
-
 function contentText(content: unknown): string {
   return contentParts(content)
     .filter((part) => part.type === "text")

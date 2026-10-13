@@ -249,24 +249,10 @@ export type ExtensionWidget = {
   placement: "aboveEditor" | "belowEditor";
 };
 
-/**
- * What the message being streamed has produced so far. pi-web counts this in
- * the browser and ticks a meter; web-pi has no such loop, so the runtime
- * counts it and the 100 ms turn re-render carries it (§4.4.2).
- */
-export type StreamingRate = {
-  /** Estimated tokens: a quarter per character, one per CJK character. */
-  tokens: number;
-  /** Null until half a second of the message has been streamed. */
-  tokensPerSecond: number | null;
-};
-
 export type LiveStatus = {
   running: boolean;
   compacting: boolean;
   bashRunning: boolean;
-  /** Set while a message is streaming: its size and speed so far. */
-  streaming: StreamingRate | null;
   model: ModelOption | null;
   thinkingLevel: ThinkingLevel;
   thinkingLevels: ThinkingChoice[];

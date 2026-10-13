@@ -1264,30 +1264,10 @@
 .assistant-message-header:has(> .answer-star-toggle) {
   grid-template-columns: auto minmax(0, 1fr);
 }
-.assistant-message-header.is-streaming {
-  grid-template-columns: minmax(0, 1fr) 9ch 10ch;
-}
 .assistant-model-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.assistant-streaming-tokens {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-1);
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.assistant-streaming-speed {
-  text-align: right;
-  color: var(--text-dim);
-  font-size: var(--text-xs);
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .assistant-error {

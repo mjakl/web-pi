@@ -3,9 +3,7 @@ import { conversationRail } from "@core/conversation-rail";
 import {
   assistantItem,
   deferThinking,
-  estimateTokens,
   projectTranscript,
-  streamedText,
   toolPreview,
   toolProgress,
   transcriptTitle,
@@ -532,20 +530,5 @@ describe("streaming tool arguments", () => {
     );
     const tool = item.blocks.find((block) => block.kind === "tool");
     expect(tool?.call.partialArguments).toBe('{"path":"/re');
-  });
-
-  it("estimates streamed tokens as pi-web does: a quarter, one per CJK", () => {
-    expect(estimateTokens("abcd")).toBe(1);
-    expect(estimateTokens("\u4f60\u597d")).toBe(2);
-    expect(estimateTokens("\u4f60\u597dabcd")).toBe(3);
-    // Text, reasoning and the arguments being generated all count.
-    expect(
-      streamedText([
-        { type: "text", text: "hi" },
-        { type: "thinking", thinking: "hm" },
-        { type: "toolCall", rawInput: '{"a":' },
-        { type: "image", data: "ignored" },
-      ]),
-    ).toBe('hihm{"a":');
   });
 });

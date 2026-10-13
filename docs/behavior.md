@@ -40,8 +40,8 @@ KiB text and 200 diff rows**, with a control to fetch the rest. Older thinking
 blocks are also deferred. Subagent calls have result, original-prompt,
 run-details, and raw-output disclosures when their structured result is
 recognized. Tool arguments are visible while streaming. Assistant headers show
-estimated streaming tokens and tokens per second; completed usage remains
-distinct from that estimate.
+the model without live token estimates or tokens per second. Completed usage,
+session totals, cost reporting, and context accounting remain available.
 
 The SSE delivery/recovery contract and context-accounting thresholds live in
 [Architecture](architecture.md). Do not introduce a second browser conversation
@@ -205,8 +205,9 @@ These are known gaps, not work authorized by the documentation migration:
   live-session cap.
 
 The old plan's queue-image recall, phone-keyboard handling, streaming tool
-arguments, subagent run details, and streaming token/TPS items are implemented
-and are not outstanding migration requirements.
+arguments, and subagent run details are implemented and are not outstanding
+migration requirements. Live token count and tokens-per-second displays are
+deliberately omitted.
 
 Deliberate limitations remain in [Architecture](architecture.md): attachment
 drafts do not survive reloads, UI strings are English without a locale layer,

@@ -27,7 +27,6 @@ const status: LiveStatus = {
   running: true,
   compacting: false,
   bashRunning: false,
-  streaming: { tokens: 42, tokensPerSecond: 12.34 },
   model: null,
   thinkingLevel: "off",
   thinkingLevels: [],
@@ -578,6 +577,26 @@ describe("transcript items", () => {
     },
   );
 
+  it("shows the streaming model and answer without live token metrics or completed controls", () => {
+    const document = rendered(
+      <TurnFragment
+        items={[{ ...answerItem, entryId: "partial" }]}
+        actions={{ ...actions, timestamps: new Set(["partial"]) }}
+        status={status}
+      />,
+    );
+    expect(
+      document.querySelector(".assistant-message-header")?.textContent,
+    ).toBe(answerItem.model);
+    expect(document.querySelector(".assistant-blocks")?.textContent).toContain(
+      "Done. See app.ts.",
+    );
+    expect(document.querySelector(".assistant-usage")).toBeNull();
+    expect(document.querySelector("[data-copy]")).toBeNull();
+    expect(document.querySelector(".transcript-time")).toBeNull();
+    expect(document.querySelector(".chat-activity-label")).not.toBeNull();
+  });
+
   it("omits copy controls for streaming and textless answers", () => {
     for (const item of [
       { ...answerItem, entryId: "partial" },
@@ -593,7 +612,7 @@ describe("transcript items", () => {
           item={item}
           actions={{
             ...actions,
-            streaming: { tokens: 42, tokensPerSecond: 12 },
+            streaming: true,
           }}
         />,
       );
@@ -660,7 +679,7 @@ describe("transcript items", () => {
           <TurnFragment
             items={[{ ...item, entryId: "finished" }]}
             actions={actions}
-            status={{ ...status, running, streaming: null }}
+            status={{ ...status, running }}
           />,
         );
         expect(finished).not.toContain("Thinking");
@@ -692,7 +711,7 @@ describe("transcript items", () => {
             actions={{
               ...actions,
               live,
-              streaming: status.streaming ?? undefined,
+              streaming: true,
             }}
           />,
         );
@@ -749,7 +768,7 @@ describe("transcript items", () => {
           <TurnFragment
             items={items}
             actions={context}
-            status={{ ...status, running: mode === "running", streaming: null }}
+            status={{ ...status, running: mode === "running" }}
           />
         ) : (
           <Items items={items} actions={context} />

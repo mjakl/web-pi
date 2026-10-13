@@ -260,7 +260,7 @@ export function TurnFragment({
           ...actions,
           ...(live ? { live } : {}),
           ...(Object.keys(progress).length > 0 ? { progress } : {}),
-          ...(status?.streaming ? { streaming: status.streaming } : {}),
+          ...(status?.running === true ? { streaming: true } : {}),
         }}
       />
       {label === null ? null : (

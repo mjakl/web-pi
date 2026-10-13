@@ -1,5 +1,5 @@
 import type { AssistantBlock, AssistantItem } from "@core/transcript";
-import { CardChevronIcon, FileIcon, TokenArrowIcon } from "@web/views/icons";
+import { CardChevronIcon, FileIcon } from "@web/views/icons";
 import {
   CopyButton,
   HistoryActionFrame,
@@ -11,9 +11,8 @@ import {
 } from "./shared.tsx";
 import { ToolCard } from "./tools.tsx";
 
-// pi-web's assistant message: the model header with the streaming
-// estimate, the blocks (text, thinking, images, tool cards), errors, the
-// files the turn wrote, and the usage line.
+// The assistant message: model, blocks (text, thinking, images, tool cards),
+// errors, files the turn wrote, and completed usage.
 
 function assistantKey(item: AssistantItem): string {
   return item.entryId === "partial"
@@ -168,8 +167,6 @@ export function AssistantMessage({
   );
   const editable = actions && !actions.readOnly && !actions.live;
   const usage = usageLine(item);
-  // The header row is a grid: pi-web gives the streaming estimate and the
-  // speed fixed 9ch/10ch columns so the model name cannot push them around.
   const streaming = item.entryId === "partial" ? actions?.streaming : undefined;
   const star =
     editable === true &&
@@ -186,35 +183,13 @@ export function AssistantMessage({
         id={`entry-${assistantKey(item)}${item.processHalf ? "-process" : ""}`}
         data-role="assistant"
       >
-        <div
-          class={`assistant-message-header${streaming ? " is-streaming" : ""}`}
-        >
+        <div class="assistant-message-header">
           {star && actions ? (
             <StarButton entryId={item.entryId} actions={actions} />
           ) : null}
           <span title={item.model} class="assistant-model-name">
             {item.model}
           </span>
-          {streaming ? (
-            <>
-              <span
-                title="Estimated token count while streaming"
-                class="assistant-streaming-tokens"
-              >
-                {streaming.tokens > 0 ? (
-                  <>
-                    <TokenArrowIcon size={10} direction="out" />
-                    {String(streaming.tokens)}
-                  </>
-                ) : null}
-              </span>
-              <span class="assistant-streaming-speed">
-                {streaming.tokensPerSecond === null
-                  ? ""
-                  : `${streaming.tokensPerSecond.toFixed(1)} t/s`}
-              </span>
-            </>
-          ) : null}
         </div>
         <Blocks item={item} actions={actions} />
         {item.errorMessage === undefined &&

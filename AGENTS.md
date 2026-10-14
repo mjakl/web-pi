@@ -25,9 +25,12 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   in `.github/workflows/validation.yml`; unknown or mixed changes run full CI.
   Packaged documentation changes ship on the next release; these lightweight
   checks do not validate a new tarball.
-- Never start the dev server on port 30141 or write into `~/.pi/agent` from
-  tests. Experiments that run a model use `PI_CODING_AGENT_DIR` pointing at a
-  temporary directory with copied `auth.json`, `models.json`, and a minimal
+- Never build, start, or run `just dev`, `just smoke` or `just update-pi` in a
+  checkout that serves a running web-pi instance, and never install dependencies
+  there; use a linked worktree instead. Development servers use port 30143,
+  never the installed default 30142, and tests never write into `~/.pi/agent`.
+  Experiments that run a model use `PI_CODING_AGENT_DIR` pointing at a temporary
+  directory with copied `auth.json`, `models.json`, and a minimal
   `settings.json`. Anything that writes settings, trust, skills or packages —
   every adapter in the configuration layer — takes the agent directory as an
   argument for exactly this reason; never call `getAgentDir()` from one.

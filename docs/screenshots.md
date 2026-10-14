@@ -17,7 +17,7 @@ just screenshots
 The command refreshes the pinned Pi dependencies and builds the app, then runs
 `scripts/screenshot-fixture.ts`. It binds only `127.0.0.1` on an OS-assigned
 port and prints the release-session URL. Do not use the normal server or
-port 30141. Stop with Ctrl+C; the fixture removes its temporary project. A
+port 30142. Stop with Ctrl+C; the fixture removes its temporary project. A
 forced kill may leave a `web-pi-screenshots-*` directory in the system temporary
 directory, containing only fictional files.
 

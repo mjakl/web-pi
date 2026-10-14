@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 // Like settings-scroll, this exercises the real app against fictional state.
 const url = new URL(process.argv[2] ?? "http://invalid");
-if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30141") {
+if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30142") {
   throw new Error(
     "Pass the ephemeral loopback URL printed by just screenshots",
   );

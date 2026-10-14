@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 // Opt-in Chromium layout check against the isolated, fictional screenshot fixture.
 // Start `just screenshots`, then pass its ephemeral loopback URL here.
 const url = new URL(process.argv[2] ?? "http://invalid");
-if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30141") {
+if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30142") {
   throw new Error(
     "Pass the ephemeral loopback URL printed by just screenshots",
   );

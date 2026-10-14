@@ -21,10 +21,8 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   `node scripts/check-doc-path-references.ts` (Node 24) and `git diff --check`,
   and inspect changed guidance and links. This exception does not cover runtime
   content, fixtures, configuration, dependencies, tests, executable skills,
-  validation scripts, or workflows. CI uses an explicit documentation allowlist
-  in `.github/workflows/validation.yml`; unknown or mixed changes run full CI.
-  Packaged documentation changes ship on the next release; these lightweight
-  checks do not validate a new tarball.
+  validation scripts, or workflows. Packaged documentation changes ship on the
+  next release; these lightweight checks do not validate a new tarball.
 - Never build, start, or run `just dev`, `just smoke` or `just update-pi` in a
   checkout that serves a running web-pi instance, and never install dependencies
   there; use a linked worktree instead. Development servers use port 30143,

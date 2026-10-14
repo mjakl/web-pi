@@ -371,28 +371,6 @@ keys, or alter Git history. Normal explicit session edits still write files. Pi
 SDK identifiers, license notices and historical upstream references retain their
 names. The later web-state cutover above supersedes the legacy storage paths.
 
-### Validation workflow
-
-The GitHub workflow's application lane runs `just ci` on Node 24 with pnpm
-12.3.4. That command includes build, lint, typecheck, tests, and the
-installed-package smoke. CI installs no system Pi: the build refreshes the
-package-owned runtime to stable latest, and the smoke launches without system Pi
-on `PATH`.
-
-Changes limited to the workflow's explicit prose-documentation allowlist run
-only whitespace and documentation-path checks, without application installs,
-builds, tests, or smoke. Unknown or mixed changes use the application lane.
-Packaged documentation ships on the next release; a docs-only success does not
-validate a new tarball.
-
-The required GitHub Actions check is **Source validation**. It reports the
-selected lane's result and fails if required validation fails or is cancelled.
-It replaces the old pair of **Source validation** and **Node 22.19 runtime
-smoke** checks; Node 22 is no longer a supported runtime. Keep strict up-to-date
-checks and unrelated repository protections unchanged. Merge the migration PR
-with a genuine merge commit, never squash or rebase, so main retains both
-complete histories.
-
 ## Exposing it
 
 Only to a network you trust, and preferably behind something that authenticates.

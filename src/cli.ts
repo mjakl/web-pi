@@ -19,8 +19,6 @@ WEB_PI_NOTIFICATION_GRACE_PERIOD, PI_CODING_AGENT_DIR, HTTP_PROXY, HTTPS_PROXY,
 NO_PROXY.
 `;
 
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-
 export type CliOptions = {
   help: boolean;
   version: boolean;
@@ -79,12 +77,6 @@ export async function run(argv: string[]): Promise<void> {
       return;
     }
     Object.assign(process.env, options.env);
-    const host = process.env["WEB_PI_HOST"] ?? "127.0.0.1";
-    if (!LOOPBACK.has(host)) {
-      process.stderr.write(
-        `Warning: web-pi is listening on ${host} without any authentication. Use it only on a trusted network or behind an external security layer.\n`,
-      );
-    }
     // The server is a separate built entry point. Load it only after flags
     // reach the environment, and never for --help or --version.
     await import(new URL("./server.js", import.meta.url).href);

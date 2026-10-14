@@ -38,3 +38,18 @@ describe("notification grace configuration", () => {
     );
   });
 });
+
+describe("host configuration", () => {
+  it("defaults to the loopback address", () => {
+    expect(loadConfig({}).host).toBe("127.0.0.1");
+  });
+
+  it.each(["", " ", "\t"])(
+    "rejects the empty host %j instead of binding every interface",
+    (value) => {
+      expect(() => loadConfig({ WEB_PI_HOST: value })).toThrow(
+        "WEB_PI_HOST must not be empty",
+      );
+    },
+  );
+});

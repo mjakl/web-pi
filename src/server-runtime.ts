@@ -10,6 +10,11 @@ const piVersion = bundledPiVersion();
 configureHttpDispatcher();
 
 const config = loadConfig();
+if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host)) {
+  process.stderr.write(
+    `Warning: web-pi is listening on ${config.host} without any authentication. Use it only on a trusted network or behind an external security layer.\n`,
+  );
+}
 const { workspace, dispose } = createDeps(config);
 const app = createWebApp({
   workspace,

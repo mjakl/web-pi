@@ -134,6 +134,43 @@ describe("web-pi flags", () => {
     }
   });
 
+  it("refuses an empty host before binding every interface or warning about it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "web-pi-host-cli-"));
+    try {
+      await expect(
+        promisify(execFile)(
+          process.execPath,
+          // The invalid port stops a regression before it binds anything.
+          [
+            "--import",
+            "tsx",
+            "src/dev.ts",
+            "--runtime",
+            "fake",
+            "--host",
+            "",
+            "--port",
+            "not-a-port",
+          ],
+          {
+            timeout: 5000,
+            env: {
+              PATH: "",
+              HOME: home,
+              PI_CODING_AGENT_DIR: join(home, "agent"),
+            },
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: "web-pi: WEB_PI_HOST must not be empty\n",
+      });
+      expect(await readdir(home)).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("explains a busy port instead of crashing with a stack trace", async () => {
     const home = await mkdtemp(join(tmpdir(), "web-pi-port-cli-"));
     const blocker = createServer();

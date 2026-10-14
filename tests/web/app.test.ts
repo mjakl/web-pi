@@ -1920,6 +1920,36 @@ describe("transcript rendering", () => {
     expect(await missing.text()).toContain("unavailable");
   });
 
+  it("resolves a fetched thinking block's links and images in the session folder", async () => {
+    const { app, world } = testApp();
+    const reasoning = assistantEntry("a2", "a1", "answer", 100);
+    if (
+      reasoning.type === "message" &&
+      reasoning.message.role === "assistant"
+    ) {
+      reasoning.message.content = [
+        {
+          type: "thinking",
+          thinking: "See [the file](src/a.ts) and ![shot](shot.png)",
+        },
+        { type: "text", text: "answer" },
+      ];
+    }
+    required(world.store.get("s1")).entries.push(reasoning);
+    const document = parseHtml(
+      await (await app.request("/sessions/s1/entries/a2/thinking/0")).text(),
+    );
+    expect(
+      document.querySelector(".markdown-body.markdown-assistant-message"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-file-path="/repo/one/src/a.ts"]')?.tagName,
+    ).toBe("BUTTON");
+    expect(document.querySelector("img")?.getAttribute("src")).toBe(
+      "/files/raw?path=%2Frepo%2Fone%2Fshot.png&session=s1",
+    );
+  });
+
   it("serves an image an old pi-web session stored in Anthropic's shape", async () => {
     const { app, world } = testApp();
     const question = userEntry("q1", null, "look at this");

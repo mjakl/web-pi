@@ -4,14 +4,12 @@
 import { isSessionId } from "@core/sessions";
 import { recoverSkillPrompt } from "@core/skill-prompt";
 import { InspectionOnlySession } from "@core/workspace";
-import { renderMarkdown } from "@web/markdown";
-import { StarButton, ToolBody } from "@web/views/Items";
+import { Markdown, StarButton, ToolBody } from "@web/views/Items";
 import { SessionRow } from "@web/views/Sidebar";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { SavedMessages } from "@web/views/Transcript";
 import type { Context } from "hono";
-import { raw } from "hono/html";
 import {
   type RouteContext,
   type WebApp,
@@ -142,12 +140,13 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
     if (thinking === undefined) {
       return c.html(<p>Thinking content unavailable</p>);
     }
-    // No cwd here: reading the session again to resolve relative file links
-    // would cost a full pass over the file for one collapsed block.
+    const cwd = await deps.workspace.sessionFolder(id);
     return c.html(
-      <div class="markdown-body markdown-assistant-message">
-        {raw(renderMarkdown(thinking))}
-      </div>,
+      <Markdown
+        source={thinking}
+        actions={{ sessionId: id, cwd: cwd ?? "", starred: new Set() }}
+        variant="markdown-assistant-message"
+      />,
     );
   });
 

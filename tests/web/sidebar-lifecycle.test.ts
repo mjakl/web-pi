@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import type {
   HTMLButtonElement,
   HTMLElement,
@@ -8,6 +8,7 @@ import { createFakeWorld } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser } from "#/web/htmx4-browser";
+import { required } from "#/web/helpers";
 
 async function fixture() {
   const world = createFakeWorld({
@@ -199,7 +200,8 @@ it("refreshes the global list without changing the blank draft or selected direc
   ).toBe("/events");
 });
 
-it("sends finished for every turn and completed only for a completed run", async () => {
+/** A fresh app's sidebar stream, read frame by frame. */
+async function sidebarStream() {
   const world = createFakeWorld({
     delayMs: 1,
     sessions: [
@@ -217,42 +219,77 @@ it("sends finished for every turn and completed only for a completed run", async
     ],
   });
   const workspace = createWorkspace(world);
+  const subscribe = vi.spyOn(workspace, "subscribeSessions");
   const app = createWebApp({
     workspace,
     defaultCwd: "/",
     staticRoot: "static",
   });
-  const reader = (await app.request("/events")).body?.getReader();
-  if (!reader) throw new Error("Missing event stream");
+  const reader = required((await app.request("/events")).body).getReader();
+  onTestFinished(() => reader.cancel());
   const decoder = new TextDecoder();
   let received = "";
-  const named = () =>
-    [...received.matchAll(/^event: (\w+)\ndata: (.*)$/gm)].map(
-      ([, name, data]) => `${String(name)} ${String(data)}`,
-    );
-  const until = async (count: number) => {
-    while (named().length < count) {
+  /** Every complete frame: "list" for a render, else the event and its data. */
+  const frames = () =>
+    received
+      .split("\n\n")
+      .slice(0, -1)
+      .map((frame) => {
+        const name = /^event: (\w+)$/m.exec(frame)?.[1];
+        const data = /^data: (.*)$/m.exec(frame)?.[1];
+        return name === undefined ? "list" : `${name} ${String(data)}`;
+      });
+  const until = async (done: () => boolean) => {
+    while (!done()) {
       const chunk = await reader.read();
       if (chunk.done) throw new Error("Event stream ended");
       received += decoder.decode(chunk.value, { stream: true });
     }
   };
-  try {
-    await workspace.send("s1", "hello");
-    await until(2);
-    await workspace.runBash("s1", "ls", false);
-    await until(3);
-    await workspace.send("s1", "again");
-    await until(5);
-    expect(named()).toEqual([
-      'finished {"id":"s1"}',
-      'completed {"id":"s1"}',
-      // The shell command finished the turn but completed no run.
-      'finished {"id":"s1"}',
-      'finished {"id":"s1"}',
-      'completed {"id":"s1"}',
-    ]);
-  } finally {
-    await reader.cancel();
-  }
+  return { workspace, subscribe, frames, until };
+}
+
+it("sends finished for every turn and completed only for a completed run", async () => {
+  const { workspace, frames, until } = await sidebarStream();
+  const named = () => frames().filter((frame) => frame !== "list");
+  await workspace.send("s1", "hello");
+  await until(() => named().length === 2);
+  await workspace.runBash("s1", "ls", false);
+  await until(() => named().length === 3);
+  await workspace.send("s1", "again");
+  await until(() => named().length === 5);
+  expect(named()).toEqual([
+    'finished {"id":"s1"}',
+    'completed {"id":"s1"}',
+    // The shell command finished the turn but completed no run.
+    'finished {"id":"s1"}',
+    'finished {"id":"s1"}',
+    'completed {"id":"s1"}',
+  ]);
+});
+
+it("renders the list once for a burst of lifecycle events and still names each", async () => {
+  const { subscribe, frames, until } = await sidebarStream();
+  await expect.poll(() => subscribe.mock.calls.length).toBe(1);
+  const announce = required(subscribe.mock.calls[0])[0];
+  for (const [type, sessionId] of [
+    ["started", "s1"],
+    ["finished", "s1"],
+    ["completed", "s1"],
+    ["opened", "s2"],
+    ["finished", "s2"],
+  ] as const)
+    announce({ type, sessionId });
+  await until(() => frames().length === 4);
+  expect(frames()).toEqual([
+    "list",
+    'finished {"id":"s1"}',
+    'completed {"id":"s1"}',
+    'finished {"id":"s2"}',
+  ]);
+  // A render that has started may have read the store already: the next
+  // event gets one of its own.
+  announce({ type: "stopped", sessionId: "s1" });
+  await until(() => frames().length === 5);
+  expect(frames().at(-1)).toBe("list");
 });

@@ -198,26 +198,34 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/events", (c) =>
     streamSSE(c, async (stream) => {
       let queue: Promise<void> = Promise.resolve();
+      const enqueue = (task: () => Promise<void>) => {
+        queue = queue.then(task).catch(() => {
+          // A closed stream ends rendering; the abort handler cleans up.
+        });
+      };
+      // A render that has not started yet reads the store after every event
+      // queued before it, so a burst of events costs one scan of the store.
+      let listWaiting = false;
       const send = (event: RuntimeEvent) => {
-        queue = queue
-          .then(async () => {
-            if (event.type !== "completed") {
-              await stream.writeSSE({
-                data: await html(
-                  <SessionList view={await sidebarOf()} partial />,
-                ),
-              });
-            }
-            if (event.type === "finished" || event.type === "completed") {
-              await stream.writeSSE({
-                event: event.type,
-                data: JSON.stringify({ id: event.sessionId }),
-              });
-            }
-          })
-          .catch(() => {
-            // A closed stream ends rendering; the abort handler cleans up.
+        if (event.type !== "completed" && !listWaiting) {
+          listWaiting = true;
+          enqueue(async () => {
+            listWaiting = false;
+            await stream.writeSSE({
+              data: await html(
+                <SessionList view={await sidebarOf()} partial />,
+              ),
+            });
           });
+        }
+        if (event.type === "finished" || event.type === "completed") {
+          enqueue(() =>
+            stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify({ id: event.sessionId }),
+            }),
+          );
+        }
       };
       const unsubscribe = deps.workspace.subscribeSessions(send);
       let heartbeat: ReturnType<typeof setInterval> | undefined;

@@ -310,17 +310,18 @@ no-swap rules preserve error toasts without replacing the requested region.
 
 A second stream, `GET /events`, belongs to the global sidebar rather than one
 session or project. Opening, starting a turn, finishing and stopping replace the
-sorted first 50 root subtrees through `hx-partial`. Adaptive delegation
-discovery certifies the root prefix before pagination; transcript bodies are not
-retained for the list. The runtime announces `started` only when it becomes
-busy, not for every token. A named `finished` event carries the session id,
-which the browser records as an unread dot in `localStorage`, including for rows
-that have not loaded yet. A named `completed` event carries the id of a run that
-completed by the run-completion rule, so a shell command, a failed prompt or an
-abort sends none; the browser plays the completion tone for it unless the
-session is on screen, whose own stream already sent `done`. The list and its
-small `#sidebar-events` owner live in `#session-nav` and survive conversation
-and directory navigation. No cookie or query scopes the stream. Row selection is
+sorted first 50 root subtrees through `hx-partial`; a render that has not
+started yet covers every event queued before it. Adaptive delegation discovery
+certifies the root prefix before pagination; transcript bodies are not retained
+for the list. The runtime announces `started` only when it becomes busy, not for
+every token. A named `finished` event carries the session id, which the browser
+records as an unread dot in `localStorage`, including for rows that have not
+loaded yet. A named `completed` event carries the id of a run that completed by
+the run-completion rule, so a shell command, a failed prompt or an abort sends
+none; the browser plays the completion tone for it unless the session is on
+screen, whose own stream already sent `done`. The list and its small
+`#sidebar-events` owner live in `#session-nav` and survive conversation and
+directory navigation. No cookie or query scopes the stream. Row selection is
 projected from the displayed `main` on processing and settlement, including
 paginated rows, star responses and stream updates.
 

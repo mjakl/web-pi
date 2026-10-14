@@ -5,10 +5,6 @@ export function textarea(): HTMLTextAreaElement | null {
   return document.querySelector<HTMLTextAreaElement>("#composer-text");
 }
 
-export function composerForm(): HTMLFormElement | null {
-  return document.querySelector<HTMLFormElement>("#composer");
-}
-
 /**
  * Where the two composer menus fetch from. A session answers about itself; a
  * validated folder answers the same questions before any session exists, so

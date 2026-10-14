@@ -184,7 +184,9 @@ export function LoadEarlier({
  * The leading items of a running turn that will not change again, which a
  * session stream sends only once: everything before the first item still in
  * flight (the partial message, a running shell command, or a message waiting
- * for tool results). None while the turn is not running: it renders grouped.
+ * for tool results). A message that failed or was stopped waits for nothing:
+ * Pi runs none of its tool calls. None while the turn is not running: it
+ * renders grouped.
  */
 export function finishedItems(
   items: TranscriptItem[],
@@ -196,6 +198,8 @@ export function finishedItems(
       item.entryId === "partial" ||
       (item.kind === "bash" && item.pending) ||
       (item.kind === "assistant" &&
+        item.stopReason !== "error" &&
+        item.stopReason !== "aborted" &&
         item.blocks.some(
           (block) => block.kind === "tool" && block.call.result === undefined,
         )),

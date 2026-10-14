@@ -110,6 +110,40 @@ it("starts a reconnection with the whole run, without duplicates or gaps", async
   expect(document.querySelectorAll("#entry-run-user")).toHaveLength(1);
 });
 
+it("sends a message that failed with its tool call unanswered once", async () => {
+  const f = await streamingFixture();
+  f.agentRun(rounds(1));
+  // Pi runs no tool call of a failed message; the retry streams on behind it.
+  const failed = assistantEntry("failed", "result-0000", "", 100);
+  if (failed.type !== "message" || failed.message.role !== "assistant")
+    throw new Error("Invalid failed fixture");
+  failed.message.stopReason = "error";
+  failed.message.errorMessage = "overloaded";
+  failed.message.content = [
+    { type: "text", text: "Half an answer" },
+    {
+      type: "toolCall",
+      id: "call-lost",
+      name: "read",
+      arguments: { path: "src/lost.ts" },
+    },
+  ];
+  const branch = [...f.snapshot.branch, failed];
+  f.update({ branch, entries: branch });
+  const next = await rawFrames(f);
+  const nextRender = async () => {
+    for (;;) {
+      const frame = await next();
+      if (renderStart(frame)) return frame;
+    }
+  };
+  expect(await nextRender()).toContain("Half an answer");
+  f.emit("activity");
+  const update = await nextRender();
+  expect(update).toContain('hx-target="#turn-live"');
+  expect(update).not.toContain("Half an answer");
+});
+
 it("hands a run that streamed in parts over to settled history in one copy", async () => {
   const f = await streamingFixture();
   f.agentRun(rounds(1));

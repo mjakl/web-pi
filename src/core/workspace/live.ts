@@ -5,7 +5,6 @@ import { FileAccessError, isBashOutputPath } from "@core/path-access";
 import type {
   ImageAttachment,
   LiveEvent,
-  LiveSession,
   PromptInput,
   PushSubscription,
   PushPresence,
@@ -73,10 +72,6 @@ export function liveUseCases({
       });
   });
 
-  async function liveOrOpen(id: string): Promise<LiveSession> {
-    return deps.runtime.get(id) ?? deps.runtime.open({ sessionId: id });
-  }
-
   /** The content parts of one entry, whichever kind of message it holds. */
   async function entryContent(
     id: string,
@@ -114,7 +109,7 @@ export function liveUseCases({
 
     async send(id: string, text: string, input?: PromptInput): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await deps.runtime.open({ sessionId: id });
       await live.prompt(text, input);
     },
 
@@ -143,7 +138,7 @@ export function liveUseCases({
 
     async compact(id: string, instructions?: string): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await deps.runtime.open({ sessionId: id });
       await live.compact(instructions);
     },
 
@@ -154,7 +149,7 @@ export function liveUseCases({
 
     async reload(id: string): Promise<void> {
       await requireFolder(id);
-      await (await liveOrOpen(id)).reload();
+      await (await deps.runtime.open({ sessionId: id })).reload();
     },
 
     /**
@@ -231,7 +226,7 @@ export function liveUseCases({
       excludeFromContext: boolean,
     ): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await deps.runtime.open({ sessionId: id });
       await live.runBash(command, excludeFromContext);
     },
 
@@ -353,8 +348,7 @@ export function liveUseCases({
       },
     ): Promise<void> {
       await requireFolder(id);
-      const live =
-        deps.runtime.get(id) ?? (await deps.runtime.open({ sessionId: id }));
+      const live = await deps.runtime.open({ sessionId: id });
       await live.setModel(choice.provider, choice.modelId);
       if (choice.thinkingLevel) live.setThinkingLevel(choice.thinkingLevel);
     },

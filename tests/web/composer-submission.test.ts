@@ -331,11 +331,18 @@ describe("explicit startup choices from the rendered form", () => {
       const body = await required(posts(browser)[0]).formData();
       expect(body.get("model")).toBe(modelChosen ? `fake/${modelId}` : "");
       expect(body.get("thinking")).toBe(thinkingChosen ? "medium" : "");
-      expect(openSpy).toHaveBeenCalledExactlyOnceWith({
-        cwd: "/repo",
-        ...(modelChosen ? { model: { provider: "fake", modelId } } : {}),
-        ...(thinkingChosen ? { thinkingLevel: "medium" } : {}),
-      });
+      // One creation carries the choice; the prompt then opens that session
+      // by id, which hands back the runtime just created.
+      expect(openSpy.mock.calls).toEqual([
+        [
+          {
+            cwd: "/repo",
+            ...(modelChosen ? { model: { provider: "fake", modelId } } : {}),
+            ...(thinkingChosen ? { thinkingLevel: "medium" } : {}),
+          },
+        ],
+        [{ sessionId: "new-1" }],
+      ]);
     },
   );
 });
@@ -367,9 +374,12 @@ describe("new and existing dispatch", () => {
           fresh ? "/sessions" : "/sessions/s1/prompt",
           { method: "POST", headers: { "HX-Request": "true" }, body },
         );
-        expect(openSpy).toHaveBeenCalledTimes(
-          kind === "name" && !fresh ? 0 : 1,
-        );
+        // A new session is created once; every command but a rename then
+        // opens the session it runs in by id.
+        expect(openSpy.mock.calls).toEqual([
+          ...(fresh ? [[{ cwd: "/repo" }]] : []),
+          ...(kind === "name" ? [] : [[{ sessionId: fresh ? "new-1" : "s1" }]]),
+        ]);
         expect(prompt).toHaveBeenCalledTimes(kind === "prompt" ? 1 : 0);
         expect(bash).toHaveBeenCalledTimes(kind.includes("bash") ? 1 : 0);
         if (kind.includes("bash"))

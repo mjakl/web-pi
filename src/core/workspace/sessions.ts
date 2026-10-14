@@ -592,8 +592,7 @@ export function sessionUseCases({
     /** Moves the session's leaf, opening a runtime when there is none. */
     async navigateTree(id: string, targetId: string): Promise<string> {
       await requireFolder(id);
-      const live =
-        deps.runtime.get(id) ?? (await deps.runtime.open({ sessionId: id }));
+      const live = await deps.runtime.open({ sessionId: id });
       return (await live.navigateTree(targetId)) ?? "";
     },
 

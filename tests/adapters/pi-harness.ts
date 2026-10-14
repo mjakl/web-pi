@@ -22,6 +22,7 @@ import type {
   BashOperations,
   ExtensionAPI,
   InlineExtension,
+  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -340,7 +341,12 @@ export async function createHarness(
 
 /** Non-system message entries on the branch, as `role:text`. */
 export function messages(session: LiveSession): string[] {
-  return session.snapshot().branch.flatMap((entry) => {
+  return branchMessages(session.snapshot().branch);
+}
+
+/** Non-system message entries of a branch, as `role:text`. */
+export function branchMessages(branch: readonly SessionEntry[]): string[] {
+  return branch.flatMap((entry) => {
     if (
       entry.type !== "message" ||
       entry.message.role === "system" ||

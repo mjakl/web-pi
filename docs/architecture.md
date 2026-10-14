@@ -388,8 +388,12 @@ before its first await, so two concurrent opens cannot start two writers on one
 file, and reopens a stopping session only after its stop finished; a stop that
 has not finished within 10 seconds fails the open with
 `Cannot reopen a session that is still stopping.` Delete and rewind likewise
-wait for a stop already under way before they touch the file. Server shutdown
-stops every live session the same way.
+wait for a stop already under way before they touch the file. The workspace runs
+them and its runtime opens of the same session one at a time, in the order they
+arrive (`serialised` in `src/core/workspace/deps.ts`), so no runtime loads a
+file that is about to be rewritten or writes one that was removed; an open
+queued behind a delete fails as for an unknown session. Server shutdown stops
+every live session the same way.
 
 `runBash()` resolves when the session admits the command, before it finishes, so
 a new session can show its URL and Stop control at once; later failures arrive

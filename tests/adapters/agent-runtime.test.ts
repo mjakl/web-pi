@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  branchMessages,
   CONTEXT_WINDOW,
   createHarness,
   gate,
@@ -654,8 +655,7 @@ describe("stopping", () => {
 describe("a stop already in progress", () => {
   // The stopping runtime still writes: late tool results, and what its
   // extensions append on session_shutdown. Its shutdown is held until the
-  // workspace asks it to stop too, so a command that did not wait for the
-  // stop would run first.
+  // test releases it, so commands can arrive while it is under way.
   async function stoppingSession(prompts: string[]) {
     const shutdown = gate();
     h = await createHarness({
@@ -681,26 +681,82 @@ describe("a stop already in progress", () => {
       await done;
     }
     const stopping = session.stop();
+    let asks = 0;
+    let onAsk = () => {};
     session.stop = () => {
-      shutdown.open();
+      asks += 1;
+      onAsk();
       return stopping;
     };
-    /** Runs the command, then lets a stop it never waited for finish. */
-    const during = async (command: Promise<unknown>): Promise<void> => {
+    const release = shutdown.open;
+    /** Resolves once others have asked the stopping runtime to stop `count` times. */
+    const asked = (count: number) =>
+      new Promise<void>((resolve) => {
+        onAsk = () => {
+          if (asks >= count) resolve();
+        };
+        onAsk();
+      });
+    /** The same, or 100 ms later for a command the workspace holds back first. */
+    const askedOrHeld = (count: number) =>
+      Promise.race([
+        asked(count),
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ]);
+    /** Runs a command, letting the stop finish once the command asks for it. */
+    const during = async (command: () => Promise<unknown>): Promise<void> => {
+      void asked(1).then(release);
       try {
-        await command;
+        await command();
       } finally {
-        shutdown.open();
+        release();
         await stopping;
       }
     };
-    return { workspace, session, during };
+    return {
+      workspace,
+      session,
+      stopping,
+      release,
+      asked,
+      askedOrHeld,
+      during,
+    };
+  }
+
+  function secondQuestion(session: LiveSession) {
+    const second = session
+      .snapshot()
+      .branch.filter(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      )[1];
+    if (!second) throw new Error("Missing fixture prompt");
+    return second;
+  }
+
+  /** Resolves when a turn ends, in whichever runtime. */
+  function turnFinished(): Promise<void> {
+    return new Promise((resolve) => {
+      const off = h.runtime.subscribeAll((event) => {
+        if (event.type !== "finished") return;
+        off();
+        resolve();
+      });
+    });
+  }
+
+  /** The saved file's branch, or undefined when it is not a valid tree. */
+  async function savedBranch(sessionId: string) {
+    const saved = await h.catalog.readSaved(sessionId);
+    return saved.kind === "changed"
+      ? branchMessages(saved.snapshot.branch)
+      : undefined;
   }
 
   it("deletes the file only once the stop has finished writing", async () => {
     const { workspace, session, during } = await stoppingSession(["question"]);
     const file = session.snapshot().summary.filePath ?? "";
-    await during(workspace.remove(session.id));
+    await during(() => workspace.remove(session.id));
     expect(existsSync(file)).toBe(false);
   });
 
@@ -709,13 +765,8 @@ describe("a stop already in progress", () => {
       "first",
       "second",
     ]);
-    const second = session
-      .snapshot()
-      .branch.filter(
-        (entry) => entry.type === "message" && entry.message.role === "user",
-      )[1];
-    if (!second) throw new Error("Missing fixture prompt");
-    await during(workspace.rewind(session.id, second.id));
+    const second = secondQuestion(session);
+    await during(() => workspace.rewind(session.id, second.id));
     const resumed = h.runtime.get(session.id);
     if (!resumed) throw new Error("Rewind left the session inactive");
     expect(messages(resumed)).toEqual(["user:first", "assistant:first answer"]);
@@ -723,7 +774,82 @@ describe("a stop already in progress", () => {
 
   it("stops a draft that is already stopping instead of refusing it", async () => {
     const { workspace, session, during } = await stoppingSession([]);
-    await during(workspace.stop(session.id));
+    await during(() => workspace.stop(session.id));
     expect(h.runtime.live()).toEqual([]);
+  });
+
+  // A command that opens a runtime waits for the stop as well. A rewind or
+  // a delete waiting for the same stop must not let that runtime load the
+  // file before it is rewritten, or write it after it is gone.
+
+  it("rewinds after a send waiting for the same stop has opened its runtime", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["first", "second"]);
+    const second = secondQuestion(session);
+    h.script(reply("late answer"));
+    const finished = turnFinished();
+    const sending = workspace.send(session.id, "late question");
+    await asked(1);
+    const rewinding = workspace.rewind(session.id, second.id);
+    await askedOrHeld(2);
+    release();
+    const sent = await sending.then(
+      () => true,
+      () => false,
+    );
+    await Promise.all([rewinding, stopping]);
+    if (sent) await finished;
+    expect(await savedBranch(session.id)).toEqual([
+      "user:first",
+      "assistant:first answer",
+    ]);
+  });
+
+  it("deletes after a send waiting for the same stop has opened its runtime", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    const sending = workspace.send(session.id, "late question");
+    await asked(1);
+    const removing = workspace.remove(session.id);
+    await askedOrHeld(2);
+    release();
+    await Promise.allSettled([sending, removing, stopping]);
+    expect(h.runtime.live().map((live) => live.id)).toEqual([]);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("sends after a rewind waiting for the same stop has rewritten the file", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["first", "second"]);
+    const second = secondQuestion(session);
+    const rewinding = workspace.rewind(session.id, second.id);
+    await asked(1);
+    h.script(reply("late answer"));
+    const finished = turnFinished();
+    const sending = workspace.send(session.id, "late question");
+    await askedOrHeld(2);
+    release();
+    await Promise.all([rewinding, sending, stopping, finished]);
+    expect(await savedBranch(session.id)).toEqual([
+      "user:first",
+      "assistant:first answer",
+      "user:late question",
+      "assistant:late answer",
+    ]);
+  });
+
+  it("refuses a send waiting for the same stop as a delete", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    const removing = workspace.remove(session.id);
+    await asked(1);
+    const sending = workspace.send(session.id, "late question");
+    await askedOrHeld(2);
+    release();
+    await Promise.all([removing, stopping]);
+    await expect(sending).rejects.toThrow(`Unknown session ${session.id}`);
+    expect(existsSync(file)).toBe(false);
   });
 });

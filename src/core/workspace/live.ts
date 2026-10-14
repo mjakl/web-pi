@@ -42,6 +42,7 @@ export function liveUseCases({
   deps,
   entriesOf,
   folderAvailable,
+  openRuntime,
   refreshRoots,
   requireFolder,
   requireWritableSession,
@@ -110,7 +111,7 @@ export function liveUseCases({
 
     async send(id: string, text: string, input?: PromptInput): Promise<void> {
       await requireFolder(id);
-      const live = await deps.runtime.open({ sessionId: id });
+      const live = await openRuntime(id);
       await live.prompt(text, input);
     },
 
@@ -139,7 +140,7 @@ export function liveUseCases({
 
     async compact(id: string, instructions?: string): Promise<void> {
       await requireFolder(id);
-      const live = await deps.runtime.open({ sessionId: id });
+      const live = await openRuntime(id);
       await live.compact(instructions);
     },
 
@@ -150,7 +151,7 @@ export function liveUseCases({
 
     async reload(id: string): Promise<void> {
       await requireFolder(id);
-      await (await deps.runtime.open({ sessionId: id })).reload();
+      await (await openRuntime(id)).reload();
     },
 
     /**
@@ -227,7 +228,7 @@ export function liveUseCases({
       excludeFromContext: boolean,
     ): Promise<void> {
       await requireFolder(id);
-      const live = await deps.runtime.open({ sessionId: id });
+      const live = await openRuntime(id);
       await live.runBash(command, excludeFromContext);
     },
 
@@ -328,7 +329,7 @@ export function liveUseCases({
       const live = deps.runtime.get(id);
       if (live) return live.toolDefinitions();
       await requireFolder(id);
-      return (await deps.runtime.open({ sessionId: id })).toolDefinitions();
+      return (await openRuntime(id)).toolDefinitions();
     },
 
     async systemPrompt(id: string): Promise<string | undefined> {
@@ -336,7 +337,7 @@ export function liveUseCases({
       const live = deps.runtime.get(id);
       if (live) return live.systemPrompt();
       await requireFolder(id);
-      return (await deps.runtime.open({ sessionId: id })).systemPrompt();
+      return (await openRuntime(id)).systemPrompt();
     },
 
     async setModel(
@@ -348,14 +349,14 @@ export function liveUseCases({
       },
     ): Promise<void> {
       await requireFolder(id);
-      const live = await deps.runtime.open({ sessionId: id });
+      const live = await openRuntime(id);
       await live.setModel(choice.provider, choice.id);
       if (choice.thinkingLevel) live.setThinkingLevel(choice.thinkingLevel);
     },
 
     async activate(id: string): Promise<void> {
       await requireFolder(id);
-      await deps.runtime.open({ sessionId: id });
+      await openRuntime(id);
     },
 
     /** Undefined when the session has no runtime; the page then has nothing to stream. */

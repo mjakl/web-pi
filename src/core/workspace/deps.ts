@@ -136,6 +136,31 @@ export function createShared(deps: WorkspaceDeps) {
     return deps.runtime.live().find((live) => live.id === id);
   }
 
+  // A rewind or a delete stops the runtime and then rewrites or removes the
+  // file. A runtime opened in between would load the old file or write the
+  // removed one, and one already being opened would load it too late to be
+  // stopped. So per session, those edits and this workspace's runtime opens
+  // run one at a time, in the order they arrive.
+  const sessionQueues = new Map<string, Promise<unknown>>();
+
+  function serialised<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const run = (sessionQueues.get(id) ?? Promise.resolve()).then(task);
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    sessionQueues.set(id, settled);
+    void settled.then(() => {
+      if (sessionQueues.get(id) === settled) sessionQueues.delete(id);
+    });
+    return run;
+  }
+
+  /** A session's runtime, once no rewind or delete of it is under way. */
+  function openRuntime(id: string): Promise<LiveSession> {
+    return serialised(id, () => deps.runtime.open({ sessionId: id }));
+  }
+
   /** Classify from persisted origin, never from a possibly unrelated runtime. */
   async function inspectionOnly(id: string): Promise<boolean> {
     if (id.startsWith("subagent.")) return true;
@@ -424,6 +449,8 @@ export function createShared(deps: WorkspaceDeps) {
     decorate,
     requireFolder,
     heldRuntime,
+    serialised,
+    openRuntime,
     inspectionOnly,
     ownedRuntime,
     requireWritableSession,

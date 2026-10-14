@@ -55,11 +55,13 @@ export function sessionUseCases({
   entriesOf,
   heldRuntime,
   modelsFor,
+  openRuntime,
   refreshRoots,
   requireFolder,
   requireWritableSession,
   ownedRuntime,
   cwdOf,
+  serialised,
 }: Shared) {
   function liveView(
     snapshot: LiveSnapshot,
@@ -564,11 +566,13 @@ export function sessionUseCases({
       }
     },
 
-    async remove(id: string): Promise<void> {
-      await stop(id);
-      await deps.sessions.remove(id);
-      // It may have been the only session that made its folder readable.
-      refreshRoots();
+    remove(id: string): Promise<void> {
+      return serialised(id, async () => {
+        await stop(id);
+        await deps.sessions.remove(id);
+        // It may have been the only session that made its folder readable.
+        refreshRoots();
+      });
     },
 
     async fork(
@@ -585,19 +589,22 @@ export function sessionUseCases({
     },
 
     /** Shuts the runtime down first: nothing may append during the rewrite. */
-    async rewind(id: string, entryId: string): Promise<EditableMessage> {
-      await requireFolder(id);
-      await stop(id);
-      const draft = await deps.sessions.rewind(id, entryId);
-      // Resume from the rewritten file, without submitting the recalled draft.
-      await deps.runtime.open({ sessionId: id });
-      return draft;
+    rewind(id: string, entryId: string): Promise<EditableMessage> {
+      return serialised(id, async () => {
+        await requireFolder(id);
+        await stop(id);
+        const draft = await deps.sessions.rewind(id, entryId);
+        // Resume from the rewritten file, without submitting the recalled
+        // draft. Not openRuntime: that would wait for this rewind itself.
+        await deps.runtime.open({ sessionId: id });
+        return draft;
+      });
     },
 
     /** Moves the session's leaf, opening a runtime when there is none. */
     async navigateTree(id: string, targetId: string): Promise<string> {
       await requireFolder(id);
-      const live = await deps.runtime.open({ sessionId: id });
+      const live = await openRuntime(id);
       return (await live.navigateTree(targetId)) ?? "";
     },
 

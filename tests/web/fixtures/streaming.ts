@@ -370,6 +370,70 @@ export async function streamingFixture() {
       },
     });
   };
+  /**
+   * The running turn as an agent loop: one finished model call per entry of
+   * `reasoning`, each reasoning that many characters, writing a line and
+   * reading a file whose result is in, then a partial message streaming.
+   * Ids have a fixed width, so runs of any length render alike per round.
+   */
+  const agentRun = (reasoning: number[], partialReasoning = 20) => {
+    const settled = snapshot.branch.slice(0, snapshot.turnStart);
+    const branch = [
+      ...settled,
+      userEntry("run-user", settled.at(-1)?.id ?? null, "start a long run"),
+    ];
+    reasoning.forEach((chars, round) => {
+      const key = String(round).padStart(4, "0");
+      const call = assistantEntry(
+        `round-${key}`,
+        branch.at(-1)?.id ?? null,
+        "",
+        100,
+      );
+      if (call.type !== "message" || call.message.role !== "assistant")
+        throw new Error("Invalid round fixture");
+      call.message.content = [
+        { type: "thinking", thinking: `reasoning ${key} ${"r".repeat(chars)}` },
+        { type: "text", text: `Step ${key}` },
+        {
+          type: "toolCall",
+          id: `call-${key}`,
+          name: "read",
+          arguments: { path: `src/file-${key}.ts` },
+        },
+      ];
+      branch.push(call, {
+        type: "message",
+        id: `result-${key}`,
+        parentId: call.id,
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "toolResult",
+          toolCallId: `call-${key}`,
+          toolName: "read",
+          content: [{ type: "text", text: `contents of file ${key}` }],
+          isError: false,
+          timestamp: Date.now(),
+        },
+      });
+    });
+    const partial = assistantEntry("unused", null, "", 100);
+    if (partial.type !== "message" || partial.message.role !== "assistant")
+      throw new Error("Invalid partial fixture");
+    partial.message.content = [
+      {
+        type: "thinking",
+        thinking: `partial reasoning ${"p".repeat(partialReasoning)}`,
+      },
+      { type: "text", text: "streaming answer" },
+    ];
+    update({
+      branch,
+      entries: branch,
+      partial: partial.message,
+      status: { ...snapshot.status, running: true, tools: [] },
+    });
+  };
   return {
     app,
     world,
@@ -379,6 +443,7 @@ export async function streamingFixture() {
     emit,
     update,
     finish,
+    agentRun,
     runningTools,
     richRunningTools,
     alternateCompletedTools,

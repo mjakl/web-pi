@@ -73,6 +73,9 @@ export function sessionUseCases({
     });
     deferThinking(page.items);
     const turn = projectTranscript(snapshot.branch.slice(snapshot.turnStart));
+    // A long run is mostly reasoning too. The partial message has no entry
+    // to fetch its reasoning from, so only finished messages are deferred.
+    deferThinking(turn.items);
     if (snapshot.partial) {
       turn.items.push(
         assistantItem("partial", snapshot.partial, {

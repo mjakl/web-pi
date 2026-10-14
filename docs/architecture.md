@@ -741,7 +741,8 @@ composition root and the only importer of Pi adapters.
   reader. `through=<entryId>` widens a page until a given entry is on it, which
   is how a link into an unloaded part of a long session works. Once a page
   carries more than 20,000 characters of thinking, the older blocks are sent as
-  placeholders that fetch their text when opened.
+  placeholders that fetch their text when opened. The running turn applies the
+  same budget to its finished messages, never to the partial one.
 - **Code fences keep their source and Copy action.** highlight.js is part of
   `static/client.js` and colours settled code blocks (never the running turn,
   whose text changes every frame). Unsupported languages, including Mermaid,

@@ -85,8 +85,10 @@ describe("renderMarkdown", () => {
     expect(html).toContain("<del>gone</del>");
   });
 
-  it("drops frontmatter instead of rendering it", () => {
-    expect(renderMarkdown("---\ntitle: x\n---\n\nbody")).not.toContain("title");
+  it("renders a leading --- block as Markdown, hiding nothing", () => {
+    const html = renderMarkdown("---\ntitle: x\n---\n\nbody");
+    expect(html).toContain("title: x");
+    expect(html).toContain("<p>body</p>");
   });
 
   it("prints the source of a document too large to parse", () => {

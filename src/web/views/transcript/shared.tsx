@@ -1,3 +1,8 @@
+import {
+  frontmatterCard,
+  type FrontmatterValue,
+  parseFrontmatter,
+} from "@core/frontmatter";
 import { renderMarkdown } from "@web/markdown";
 import {
   CheckIcon,
@@ -89,6 +94,59 @@ type MarkdownVariant =
   | "markdown-custom-message"
   | "markdown-compaction-message";
 
+/** The key/value card a Markdown document's YAML front matter shows as. */
+export function FrontmatterCard({
+  fields,
+}: {
+  fields: [string, FrontmatterValue][];
+}) {
+  const card = frontmatterCard(fields);
+  if (
+    card.title === undefined &&
+    card.chips.length === 0 &&
+    card.rest.length === 0
+  ) {
+    return <></>;
+  }
+  return (
+    <div class="markdown-frontmatter">
+      {card.title === undefined ? null : (
+        <div class="markdown-frontmatter-title">{card.title}</div>
+      )}
+      {card.chips.length === 0 ? null : (
+        <div class="markdown-frontmatter-tags">
+          {card.chips.map((chip) => (
+            <span class="markdown-frontmatter-tag">{chip}</span>
+          ))}
+        </div>
+      )}
+      {card.rest.length === 0 ? null : (
+        <dl class="markdown-frontmatter-rows">
+          {card.rest.map(([key, value]) => (
+            <div class="markdown-frontmatter-row">
+              <dt>{key}</dt>
+              <dd>
+                {/^(https?:\/\/|mailto:)/i.test(value) ? (
+                  <a href={value} target="_blank" rel="noopener noreferrer">
+                    {value}
+                  </a>
+                ) : (
+                  value
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A message's Markdown. One that opens with YAML front matter shows it as
+ * the file preview's card, but only when the card shows every line of it;
+ * any other `---` block is ordinary Markdown, so nothing is hidden.
+ */
 export function Markdown({
   source,
   actions,
@@ -98,10 +156,13 @@ export function Markdown({
   actions?: ItemActions;
   variant?: MarkdownVariant;
 }) {
+  const front = parseFrontmatter(source);
+  const card = front.complete && front.fields.length > 0;
   return (
     <div class={variant ? `markdown-body ${variant}` : "markdown-body"}>
+      {card ? <FrontmatterCard fields={front.fields} /> : null}
       {raw(
-        renderMarkdown(source, {
+        renderMarkdown(card ? front.body : source, {
           ...(actions
             ? { cwd: actions.cwd, sessionId: actions.sessionId }
             : {}),

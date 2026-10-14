@@ -45,8 +45,6 @@ function formatBytes(bytes: number): string {
   return `${String(bytes)} B`;
 }
 
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
-
 /** pi-web's CodeBlock (§4.5): a language header, copy button and tinted body. */
 function codeBlock(code: string, language: string): string {
   const label = language === "" ? "text" : language;
@@ -178,6 +176,5 @@ export function renderMarkdown(
       `<div class="markdown-oversized-body"><pre class="markdown-oversized-text">${escapeHtml(source)}</pre></div></details>`
     );
   }
-  const text = source.replace(FRONTMATTER, "");
-  return markedFor(options).parse(text, { async: false });
+  return markedFor(options).parse(source, { async: false });
 }

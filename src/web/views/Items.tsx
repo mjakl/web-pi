@@ -2,7 +2,7 @@
 // module per item kind; routes and pages import them from here.
 
 export type { ItemActions } from "./transcript/shared.tsx";
-export { Markdown, StarButton } from "./transcript/shared.tsx";
+export { FrontmatterCard, Markdown, StarButton } from "./transcript/shared.tsx";
 export { ToolBody } from "./transcript/tools.tsx";
 export {
   finishedItems,

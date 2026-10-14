@@ -4,7 +4,7 @@ import {
   formatBytes,
   hasPreview,
 } from "@core/file-types";
-import { frontmatterCard, parseFrontmatter } from "@core/frontmatter";
+import { parseFrontmatter } from "@core/frontmatter";
 import { type GitFileStatus, statusLabel } from "@core/git-status";
 import { type UnifiedRow, unifiedRows } from "@core/patch";
 import type { GitChangeFile, GitStatus } from "@core/ports";
@@ -12,6 +12,7 @@ import { directoryWithin } from "@core/path-access";
 import type { FileView } from "@core/workspace";
 import { escapeHtml, rawFileUrl, renderMarkdown } from "@web/markdown";
 import { highlightLines } from "@web/syntax";
+import { FrontmatterCard } from "@web/views/Items";
 import {
   DirectoryLoadingIcon,
   DownloadIcon,
@@ -497,49 +498,6 @@ function SourceView({ view }: { view: FileView }) {
   );
 }
 
-function FrontmatterCard({ source }: { source: string }) {
-  const card = frontmatterCard(parseFrontmatter(source).fields);
-  if (
-    card.title === undefined &&
-    card.chips.length === 0 &&
-    card.rest.length === 0
-  ) {
-    return <></>;
-  }
-  return (
-    <div class="markdown-frontmatter">
-      {card.title === undefined ? null : (
-        <div class="markdown-frontmatter-title">{card.title}</div>
-      )}
-      {card.chips.length === 0 ? null : (
-        <div class="markdown-frontmatter-tags">
-          {card.chips.map((chip) => (
-            <span class="markdown-frontmatter-tag">{chip}</span>
-          ))}
-        </div>
-      )}
-      {card.rest.length === 0 ? null : (
-        <dl class="markdown-frontmatter-rows">
-          {card.rest.map(([key, value]) => (
-            <div class="markdown-frontmatter-row">
-              <dt>{key}</dt>
-              <dd>
-                {/^(https?:\/\/|mailto:)/i.test(value) ? (
-                  <a href={value} target="_blank" rel="noopener noreferrer">
-                    {value}
-                  </a>
-                ) : (
-                  value
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
-  );
-}
-
 function DiffView({ rows }: { rows: UnifiedRow[] }) {
   // pi-web drops the @@ headers: the collapsed spans say what was skipped.
   const lines = rows.filter((row) => row.type !== "hunk");
@@ -727,7 +685,7 @@ function ViewerContent({
     const parsed = parseFrontmatter(text);
     return (
       <div class="markdown-file-preview-shell">
-        <FrontmatterCard source={text} />
+        <FrontmatterCard fields={parsed.fields} />
         <div class="markdown-body markdown-file-preview">
           {raw(
             renderMarkdown(parsed.body, {

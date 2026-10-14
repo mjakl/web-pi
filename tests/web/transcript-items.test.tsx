@@ -406,6 +406,38 @@ describe("transcript items", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
+  it("shows YAML front matter as the preview's card and any other --- block as Markdown", () => {
+    const answer = (text: string) =>
+      rendered(
+        <Item
+          item={{ ...answerItem, blocks: [{ kind: "text", text }] }}
+          actions={actions}
+        />,
+      );
+    const card = answer(
+      "---\ntitle: Release notes\ntags: [web, pi]\nversion: 2\n---\n\nThe body",
+    );
+    const body = card.querySelector(".markdown-body");
+    expect(
+      body?.querySelector(".markdown-frontmatter-title")?.textContent,
+    ).toBe("Release notes");
+    expect(
+      [...card.querySelectorAll(".markdown-frontmatter-tag")].map(
+        (tag) => tag.textContent,
+      ),
+    ).toEqual(["web", "pi"]);
+    expect(
+      card.querySelector(".markdown-frontmatter-row dt")?.textContent,
+    ).toBe("version");
+    expect(body?.querySelector("p")?.textContent).toBe("The body");
+    const prose = answer("---\nPlan: do X\nand then Y\n---\n\nThe body");
+    expect(prose.querySelector(".markdown-frontmatter")).toBeNull();
+    for (const text of ["Plan: do X", "and then Y", "The body"])
+      expect(prose.querySelector(".markdown-body")?.textContent).toContain(
+        text,
+      );
+  });
+
   it("keeps stars targeted at the answer and replaces only that button", () => {
     const document = rendered(
       <StarButton sessionId="s1" entryId="a2" starred />,

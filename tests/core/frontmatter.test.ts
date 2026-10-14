@@ -32,6 +32,20 @@ describe("parseFrontmatter", () => {
       "---\nnever closed\n",
     );
   });
+
+  it("says whether every line of the block became a field", () => {
+    const complete = (block: string) =>
+      parseFrontmatter(`---\n${block}\n---\nBody`).complete;
+    expect(
+      complete("title: A\ntags: [a, b]\nauthors:\n  - Ada\n\ndraft: true"),
+    ).toBe(true);
+    expect(complete("Plan: do X\nand then Y")).toBe(false);
+    expect(complete("# a comment\ntitle: A")).toBe(false);
+    expect(complete("draft:\ntitle: A")).toBe(false);
+    expect(complete("meta:\n  nested: value")).toBe(false);
+    expect(complete("tags: x\ntags: [a]")).toBe(false);
+    expect(parseFrontmatter("# Just a heading").complete).toBe(false);
+  });
 });
 
 describe("frontmatterCard", () => {

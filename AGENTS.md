@@ -175,7 +175,7 @@ The one stated exception is `@` path completion: it lists names, never contents,
 from the directory a query names, filtered lexically to the folder. Read
 `docs/behavior.md` before changing file behavior (its "Files and Git" section
 describes that exception) and `docs/worktrees.md` before changing folder
-selection or worktree discovery.
+selection or repository grouping.
 
 ## Validation
 

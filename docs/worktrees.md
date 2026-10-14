@@ -21,8 +21,8 @@ chosen folder, or the configured server default before any choice. Choosing a
 folder opens its independent draft. The first message creates the session in
 that folder; existing sessions cannot change cwd. Opening an old session changes
 its header, explorer and file context, but never the new-session preference.
-Every sidebar row shows its folder basename with a full-path tooltip and the
-existing optional worktree branch badge.
+Every sidebar row shows its folder basename with a full-path tooltip, and its
+Git branch, when it has one, as a badge.
 
 Validation grants file access to the selected folder for the running server
 process. It does not rewrite an existing session's cwd. The grant is forgotten
@@ -58,26 +58,3 @@ runtime when its folder is missing.
 The backend checks availability again before these actions. web-pi neither
 recreates the folder nor substitutes another one. Restore the folder and reload
 the session to restore its controls; that alone does not activate an agent.
-
-## Hono routes
-
-These routes serve the browser workflow, not the old Next.js JSON API:
-
-- `GET /sidebar/projects` renders the project choices. There is no
-  `/sidebar/workspaces` route in this implementation.
-- `GET /new?cwd=<folder>` opens the blank composer in that folder. The dropdown
-  uses this route directly.
-- `GET /sidebar` refreshes the global list. Existing
-  `/sidebar?project=<root>&cwd=<folder>` links navigate to `/new?cwd=<folder>`;
-  a project query alone no longer filters sessions. Old project cookies are
-  ignored.
-- `GET /workspaces/picker` opens the custom-folder dialog.
-- `GET /workspaces/browse?path=<directory>` renders directory names without
-  granting file-content access.
-- `POST /workspaces/validate`, with a `cwd` form field, validates a custom
-  choice. HTMX receives navigation to `/new?cwd=…`; non-HTMX callers receive
-  JSON and the cwd preference cookie. This is not compatible with
-  `/api/worktrees`.
-
-The route owner is `src/web/routes/sidebar.tsx`; selection behavior is covered
-by `tests/web/session-navigation.test.ts`.

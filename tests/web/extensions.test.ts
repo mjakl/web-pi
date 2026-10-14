@@ -1,8 +1,11 @@
-import { createFakeWorld, userEntry } from "@adapters/fake/index";
-import type { DialogSpec, FrameComponent } from "@core/extension-ui";
+import {
+  createFakeWorld,
+  type ScriptedStep,
+  userEntry,
+} from "@adapters/fake/index";
+import type { FrameComponent } from "@core/extension-ui";
 import type { LiveStatus } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
-import { createWebApp } from "@web/app";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { until } from "#/adapters/pi-harness";
@@ -11,6 +14,7 @@ import {
   renderStart,
   streamingFixture,
 } from "#/web/fixtures/streaming";
+import { storedSession, testApp } from "#/web/fixtures/test-app";
 import { required } from "#/web/helpers";
 
 const ARROW_UP = "\u001B[A";
@@ -26,43 +30,16 @@ function counter(): FrameComponent {
   };
 }
 
-function testApp(
-  script: (prompt: string) => {
-    dialog?: DialogSpec;
-    custom?: FrameComponent;
-    text?: string;
-    title?: string;
-    insert?: string;
-  }[],
-) {
-  const world = createFakeWorld({
+/** The app, with `s1` holding one question; every prompt runs `script`. */
+function scriptedApp(script: (prompt: string) => ScriptedStep[]) {
+  return testApp({
     delayMs: 1,
-    sessions: [
-      {
-        summary: {
-          id: "s1",
-          cwd: "/repo/one",
-          name: "Stored one",
-          createdAt: "2026-09-01T00:00:00.000Z",
-          modifiedAt: "2026-09-02T00:00:00.000Z",
-          fileSize: 10,
-        },
-        entries: [userEntry("u1", null, "hello")],
-      },
-    ],
-    script: script as never,
+    sessions: [storedSession({}, [userEntry("u1", null, "hello")])],
+    script,
   });
-  const workspace = createWorkspace(world);
-  const app = createWebApp({
-    workspace,
-    staticRoot: "/nonexistent",
-    defaultCwd: "/repo",
-    renderIntervalMs: 1,
-  });
-  return { app, workspace, world };
 }
 
-async function send(app: ReturnType<typeof testApp>["app"], text: string) {
+async function send(app: ReturnType<typeof scriptedApp>["app"], text: string) {
   const body = new FormData();
   body.append("text", text);
   await app.request("/sessions/s1/prompt", { method: "POST", body });
@@ -70,7 +47,7 @@ async function send(app: ReturnType<typeof testApp>["app"], text: string) {
 
 /** Keystrokes reach the server the way the client bundle sends them. */
 function input(
-  app: ReturnType<typeof testApp>["app"],
+  app: ReturnType<typeof scriptedApp>["app"],
   requestId: string,
   data: string,
   sessionId = "s1",
@@ -88,7 +65,7 @@ function input(
  * running, and announced its completion in the same step.
  */
 async function reached(
-  world: ReturnType<typeof testApp>["world"],
+  world: ReturnType<typeof scriptedApp>["world"],
   ready: (status: LiveStatus) => boolean,
 ): Promise<void> {
   await until(required(world.runtime.get("s1")), (snapshot) =>
@@ -98,7 +75,7 @@ async function reached(
 const waiting = (status: LiveStatus) => status.dialog !== null;
 const finished = (status: LiveStatus) => !status.running;
 
-function status(world: ReturnType<typeof testApp>["world"]) {
+function status(world: ReturnType<typeof scriptedApp>["world"]) {
   const live = world.runtime.get("s1");
   expect(live).toBeDefined();
   return live?.snapshot().status;
@@ -106,7 +83,7 @@ function status(world: ReturnType<typeof testApp>["world"]) {
 
 describe("extension dialogs", () => {
   it("shows the pending dialog on the session page and answers it", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "select", title: "Pick one", options: ["a", "b"] } },
     ]);
     await send(app, "go");
@@ -130,7 +107,7 @@ describe("extension dialogs", () => {
   });
 
   it("treats a second answer for the same dialog as already closed", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
@@ -148,7 +125,7 @@ describe("extension dialogs", () => {
   });
 
   it("reads a cancel as no answer at all", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "confirm", title: "Push?", message: "Sure?" } },
     ]);
     await send(app, "go");
@@ -162,7 +139,7 @@ describe("extension dialogs", () => {
   });
 
   it("hands an editor's answer to the extension exactly as typed", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "editor", title: "Message" } },
     ]);
     await send(app, "go");
@@ -181,7 +158,7 @@ describe("extension dialogs", () => {
   });
 
   it("renders the editor dialog with its prefill", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "editor", title: "Message", prefill: "Fix it" } },
     ]);
     await send(app, "go");
@@ -199,7 +176,7 @@ describe("extension dialogs", () => {
   ] as const)(
     "puts the %s answer before cancel, so Enter answers",
     async (method, label) => {
-      const { app, world } = testApp(() => [
+      const { app, world } = scriptedApp(() => [
         { dialog: { method, title: "Name it", options: ["Local preview"] } },
       ]);
       await send(app, "go");
@@ -218,7 +195,7 @@ describe("extension dialogs", () => {
   );
 
   it("forwards keystrokes to the custom UI and redraws the frame", async () => {
-    const { app, world } = testApp(() => [{ custom: counter() }]);
+    const { app, world } = scriptedApp(() => [{ custom: counter() }]);
     await send(app, "go");
     await reached(world, (status) => status.custom !== null);
 
@@ -269,13 +246,13 @@ describe("extension dialogs", () => {
   });
 
   it("refuses input for an unknown session", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const posted = await input(app, "c1", "x", "not a session");
     expect(posted.status).toBe(404);
   });
 
   it("cancels every waiting dialog when the session is stopped", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
@@ -288,7 +265,7 @@ describe("extension dialogs", () => {
 
 describe("extension page bridge", () => {
   it("shows a title an extension set, for the browser tab", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { title: "Reviewing" },
       { text: "done" },
     ]);
@@ -300,7 +277,7 @@ describe("extension page bridge", () => {
   });
 
   it("leaves composer text pending until a delivery view claims it", async () => {
-    const { app, workspace, world } = testApp(() => [
+    const { app, workspace, world } = scriptedApp(() => [
       { insert: "git log --oneline" },
       { text: "done" },
     ]);
@@ -325,7 +302,7 @@ describe("extension page bridge", () => {
 
 describe("installable app", () => {
   it("serves a manifest naming the icons", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const response = await app.request("/manifest.webmanifest");
     expect(response.headers.get("Content-Type")).toContain(
       "application/manifest+json",
@@ -341,7 +318,7 @@ describe("installable app", () => {
   });
 
   it("serves a root-scoped uncached worker that leaves event streams to the network", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const response = await app.request("/sw.js");
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
     expect(response.headers.get("Service-Worker-Allowed")).toBe("/");
@@ -390,13 +367,13 @@ describe("installable app", () => {
   });
 
   it("serves an offline page the worker can precache", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const html = await (await app.request("/offline.html")).text();
     expect(html).toContain("web-pi is offline");
   });
 
   it("links the manifest from every page", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const html = await (await app.request("/sessions/s1")).text();
     expect(html).toContain('rel="manifest"');
     expect(html).toContain('data-sw-src="/sw.js?v=');
@@ -405,7 +382,7 @@ describe("installable app", () => {
 
 describe("web push routes", () => {
   it("accepts enrollment-independent presence and suppresses completion delivery until all pages leave", async () => {
-    const { app, world } = testApp(() => [{ text: "done" }]);
+    const { app, world } = scriptedApp(() => [{ text: "done" }]);
     world.push.subscribe({
       endpoint: "https://push.example/enrolled-device",
       keys: { p256dh: "p", auth: "a" },
@@ -452,7 +429,7 @@ describe("web push routes", () => {
     { clientId: "one", sequence: 1.5, foreground: true },
     { clientId: "one", sequence: 1, foreground: "true" },
   ])("rejects malformed presence %j", async (presence) => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     expect(
       (
         await app.request("/push/presence", {
@@ -496,7 +473,7 @@ describe("web push routes", () => {
   });
 
   it("hands out the public key", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const body = (await (await app.request("/push/config")).json()) as {
       publicKey: string;
     };
@@ -504,7 +481,7 @@ describe("web push routes", () => {
   });
 
   it("stores a valid subscription", async () => {
-    const { app, world } = testApp(() => []);
+    const { app, world } = scriptedApp(() => []);
     const response = await app.request("/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -529,7 +506,7 @@ describe("web push routes", () => {
   });
 
   it("checks enrollment and deletes only a matching record, not other browsers or keys", async () => {
-    const { app, world } = testApp(() => []);
+    const { app, world } = scriptedApp(() => []);
     const one = {
       endpoint: "https://push.example/one",
       keys: { p256dh: "p", auth: "a" },
@@ -568,7 +545,7 @@ describe("web push routes", () => {
   });
 
   it("refuses a subscription without https or keys", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const bad = async (subscription: unknown) =>
       (
         await app.request("/push/subscribe", {
@@ -585,7 +562,7 @@ describe("web push routes", () => {
   });
 
   it("pushes when a run finishes, and not when nobody subscribed", async () => {
-    const { app, world } = testApp(() => [{ text: "done" }]);
+    const { app, world } = scriptedApp(() => [{ text: "done" }]);
     await send(app, "go");
     await reached(world, finished);
     expect(world.push.sent).toEqual([]);

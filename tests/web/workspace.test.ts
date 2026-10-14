@@ -1,15 +1,10 @@
-import {
-  assistantEntry,
-  createFakeWorld,
-  userEntry,
-} from "@adapters/fake/index";
-import { createWorkspace } from "@core/workspace";
-import { createWebApp } from "@web/app";
+import { assistantEntry, userEntry } from "@adapters/fake/index";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { storedSession, testApp } from "#/web/fixtures/test-app";
 import { parseHtml, required } from "#/web/helpers";
 
 // The picker, trust, read-only mode and the settings pages, against the fake
@@ -29,35 +24,20 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function testApp(options: Parameters<typeof createFakeWorld>[0] = {}) {
-  const world = createFakeWorld({
-    delayMs: 2,
-    sessions: [
-      {
-        summary: {
-          id: "s1",
-          cwd: repo,
-          name: "Live one",
-          createdAt: "2026-09-01T00:00:00.000Z",
-          modifiedAt: "2026-09-02T00:00:00.000Z",
-          fileSize: 10,
-        },
-        entries: [
+/** The app, with `s1` and the default folder in the temporary checkout. */
+function repoApp(options: Parameters<typeof testApp>[0] = {}) {
+  return testApp(
+    {
+      sessions: [
+        storedSession({ cwd: repo, name: "Live one" }, [
           userEntry("u1", null, "a question"),
           assistantEntry("a1", "u1", "an answer", 100),
-        ],
-      },
-    ],
-    ...options,
-  });
-  const app = createWebApp({
-    workspace: createWorkspace(world),
-    staticRoot: "/nonexistent",
-    defaultCwd: repo,
-    home: root,
-    renderIntervalMs: 1,
-  });
-  return { app, world };
+        ]),
+      ],
+      ...options,
+    },
+    { defaultCwd: repo, home: root },
+  );
 }
 
 /** A conversation of `turns` questions and answers, longer than a page. */
@@ -93,7 +73,7 @@ const form = (fields: Record<string, string>) => {
 describe("the directory picker", () => {
   it("browses directory names only, hidden ones included", async () => {
     await mkdir(join(repo, ".hidden"));
-    const { app } = testApp();
+    const { app } = repoApp();
     const html = await (
       await app.request(`/workspaces/browse?path=${encodeURIComponent(repo)}`)
     ).text();
@@ -103,7 +83,7 @@ describe("the directory picker", () => {
   });
 
   it("shows the error inside the panel and falls back to the home listing", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const html = await (
       await app.request("/workspaces/browse?path=/definitely/not/here")
     ).text();
@@ -114,7 +94,7 @@ describe("the directory picker", () => {
   });
 
   it("navigates to the chosen folder without committing cookies before the view mounts", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const res = await app.request("/workspaces/validate", {
       ...form({ cwd: repo }),
       headers: { "HX-Request": "true" },
@@ -129,7 +109,7 @@ describe("the directory picker", () => {
   });
 
   it("reports a folder it cannot use as a toast, not a broken page", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const res = await app.request("/workspaces/validate", {
       ...form({ cwd: "/definitely/not/here" }),
       headers: { "HX-Request": "true" },
@@ -141,7 +121,7 @@ describe("the directory picker", () => {
 
 describe("the new-session page", () => {
   it("answers the folder's slash menu and file completion", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     // Validation is what makes the folder reachable.
     await app.request("/workspaces/validate", form({ cwd: repo }));
     const menu = await (
@@ -157,7 +137,7 @@ describe("the new-session page", () => {
   });
 
   it("refuses to list a folder nobody validated", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const res = await app.request(
       `/workspaces/file-index?cwd=${encodeURIComponent(root)}&q=`,
     );
@@ -165,7 +145,7 @@ describe("the new-session page", () => {
   });
 
   it("will not start a session in a folder that is gone", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     const body = new FormData();
     body.set("cwd", repo);
     body.set("text", "hello");
@@ -193,7 +173,7 @@ describe("@ completion", () => {
   it.each(["session", "folder"] as const)(
     "answers for a %s with the same folder, headers and query cap",
     async (scope) => {
-      const { app, world } = testApp({ files: ["src/main.ts"] });
+      const { app, world } = repoApp({ files: ["src/main.ts"] });
       const index = vi.spyOn(world.files, "index");
       const children = vi.spyOn(world.files, "children");
       const listed = await app.request(urls[scope]("file-index", ""));
@@ -212,7 +192,7 @@ describe("@ completion", () => {
   );
 
   it("answers what it cannot list with the file panel's statuses", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const unknown = await app.request("/sessions/nobody/file-completion?q=");
     expect(unknown.status).toBe(404);
     expect(unknown.headers.get("cache-control")).toBe("no-store");
@@ -227,7 +207,7 @@ describe("@ completion", () => {
 
 describe("missing-folder read-only mode", () => {
   it("shows the notice and drops the composer, explorer and branch actions", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     const html = await (await app.request("/sessions/s1")).text();
     expect(html).toContain(
       "Working folder is unavailable. This session is read-only.",
@@ -247,7 +227,7 @@ describe("missing-folder read-only mode", () => {
   });
 
   it("says why the explorer is empty, the way pi-web does", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     const res = await app.request(
       `/files/explorer?cwd=${encodeURIComponent(join(repo, "gone"))}`,
     );
@@ -259,7 +239,7 @@ describe("missing-folder read-only mode", () => {
   });
 
   it("refuses every mutating route with the same message", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     for (const path of [
       "/sessions/s1/prompt",
       "/sessions/s1/compact",
@@ -280,7 +260,7 @@ describe("missing-folder read-only mode", () => {
     // pi-web reads the shelf and the gauge off the running agent, and a folder
     // that disappears under it takes neither away: only the actions that would
     // run the agent go (ChatWindow.tsx `compactionControl`, `readOnly`).
-    const { app, world } = testApp({
+    const { app, world } = repoApp({
       missingFolders: [repo],
       script: () => [{ status: "prune", statusText: "on" }, { text: "done" }],
     });
@@ -311,7 +291,7 @@ describe("missing-folder read-only mode", () => {
   ])(
     "offers history controls on older pages of %s only while it is writable",
     async (_case, missing, query, controls) => {
-      const { app, world } = testApp(missing ? { missingFolders: [repo] } : {});
+      const { app, world } = repoApp(missing ? { missingFolders: [repo] } : {});
       required(world.store.get("s1")).entries = conversation(40);
       const page = parseHtml(
         await (await app.request(`/sessions/s1${query}`)).text(),
@@ -326,7 +306,7 @@ describe("missing-folder read-only mode", () => {
   );
 
   it("keeps history controls out of messages the stream appends", async () => {
-    const { app, world } = testApp({ missingFolders: [repo] });
+    const { app, world } = repoApp({ missingFolders: [repo] });
     const live = await world.runtime.open({ sessionId: "s1" });
     const reader = required(
       (await app.request("/sessions/s1/events?after=a1")).body?.getReader(),
@@ -349,7 +329,7 @@ describe("missing-folder read-only mode", () => {
   });
 
   it("still lets a reader stop the session and read its statistics", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     expect((await app.request("/sessions/s1/stats")).status).toBe(200);
     expect(
       (await app.request("/sessions/s1/abort", { method: "POST" })).status,
@@ -359,7 +339,7 @@ describe("missing-folder read-only mode", () => {
 
 describe("project trust", () => {
   it("badges an untrusted folder and offers the dialog", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
+    const { app } = repoApp({ trustRequired: [repo] });
     const page = await (await app.request("/sessions/s1")).text();
     // pi-web puts the warning in the top bar, next to the tabs.
     expect(page).toContain("Restricted mode");
@@ -377,7 +357,7 @@ describe("project trust", () => {
   ])(
     "keeps the badge on the page a %s to %s draws",
     async (action, entryId) => {
-      const { app } = testApp({ trustRequired: [repo] });
+      const { app } = repoApp({ trustRequired: [repo] });
       const res = await app.request(`/sessions/s1/${action}`, {
         ...form({ entryId }),
         headers: { "HX-Request": "true" },
@@ -388,7 +368,7 @@ describe("project trust", () => {
   );
 
   it("keeps the badge under the settings dialog", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
+    const { app } = repoApp({ trustRequired: [repo] });
     const page = await (
       await app.request("/settings?section=general", {
         headers: { cookie: "web-pi-session=s1" },
@@ -399,7 +379,7 @@ describe("project trust", () => {
   });
 
   it("grants trust and asks the page to reload", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
+    const { app } = repoApp({ trustRequired: [repo] });
     const res = await app.request("/workspaces/trust", {
       ...form({ cwd: repo }),
       headers: { "HX-Request": "true" },
@@ -411,7 +391,7 @@ describe("project trust", () => {
   });
 
   it("refuses a folder with nothing to trust", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const res = await app.request("/workspaces/trust", {
       ...form({ cwd: repo }),
       headers: { "HX-Request": "true" },
@@ -422,7 +402,7 @@ describe("project trust", () => {
   });
 
   it("blocks the change while a session in that folder is working", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
+    const { app } = repoApp({ trustRequired: [repo] });
     await app.request("/sessions/s1/prompt", form({ text: "run" }));
     const res = await app.request("/workspaces/trust", {
       ...form({ cwd: repo }),
@@ -434,7 +414,7 @@ describe("project trust", () => {
   });
 
   it("stops the folder's sessions so they restart with project resources", async () => {
-    const { app, world } = testApp({ trustRequired: [repo] });
+    const { app, world } = repoApp({ trustRequired: [repo] });
     await app.request("/sessions/s1/activate", { method: "POST" });
     expect(world.runtime.get("s1")).toBeDefined();
     await app.request("/workspaces/trust", {
@@ -447,7 +427,7 @@ describe("project trust", () => {
 
 describe("the settings page", () => {
   it("remembers the selected settings section", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const skills = await app.request("/settings?section=skills");
     expect(skills.headers.getSetCookie().join(" ")).toContain(
       "web-pi-settings=skills",
@@ -459,7 +439,7 @@ describe("the settings page", () => {
   });
 
   it("groups skills and shows one in detail", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const html = await (await app.request("/settings?section=skills")).text();
     expect(html).toContain("testing");
     expect(html).toContain("Manual");
@@ -474,7 +454,7 @@ describe("the settings page", () => {
   });
 
   it("toggles a skill and answers with its new state", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const html = await (
       await app.request(
         "/settings/skills/toggle",
@@ -490,7 +470,7 @@ describe("the settings page", () => {
   });
 
   it("searches the registry and reports an install", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const results = await (
       await app.request(
         "/settings/skills/search",
@@ -514,7 +494,7 @@ describe("the settings page", () => {
     form({ cwd: repo, package: "acme/skills@changelog", scope: "project" });
 
   it("refuses a project install while the project is untrusted", async () => {
-    const { app, world } = testApp({ trustRequired: [repo] });
+    const { app, world } = repoApp({ trustRequired: [repo] });
     const install = vi.spyOn(world.skills, "install");
     const refused = await (
       await app.request("/settings/skills/install", projectInstall())
@@ -526,7 +506,7 @@ describe("the settings page", () => {
   });
 
   it("installs into the project once it is trusted", async () => {
-    const { app, world } = testApp({ trustRequired: [repo] });
+    const { app, world } = repoApp({ trustRequired: [repo] });
     const install = vi.spyOn(world.skills, "install");
     await app.request("/workspaces/trust", {
       ...form({ cwd: repo }),
@@ -544,7 +524,7 @@ describe("the settings page", () => {
   });
 
   it("lists plugins with their status and flips one off and on", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const html = await (await app.request("/settings?section=plugins")).text();
     expect(html).toContain("npm:@acme/pi-plugin@1.2.0");
     expect(html).toContain("global");
@@ -579,7 +559,7 @@ describe("the settings page", () => {
   });
 
   it("shows a failed plugin action as an error toast", async () => {
-    const { app, world } = testApp();
+    const { app, world } = repoApp();
     vi.spyOn(world.packages, "run").mockRejectedValue(
       new Error("global settings: EACCES. Check Pi's global settings.json."),
     );
@@ -597,7 +577,7 @@ describe("the settings page", () => {
   });
 
   it("refuses an action it does not know", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const res = await app.request(
       "/settings/plugins",
       form({ cwd: repo, action: "purge", scope: "user" }),
@@ -606,7 +586,7 @@ describe("the settings page", () => {
   });
 
   it("says which resources are dormant while a project is untrusted", async () => {
-    const { app } = testApp({ trustRequired: [repo] });
+    const { app } = repoApp({ trustRequired: [repo] });
     const skills = await (
       await app.request(`/settings?section=skills&cwd=${repo}`)
     ).text();
@@ -620,7 +600,7 @@ describe("the settings page", () => {
 
 describe("pi-web's settings and trust chrome", () => {
   it("disables folder-dependent settings when no folder is available", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     const html = await (await app.request("/settings")).text();
     expect(html).toContain(
       '<button type="button" class="settings-section-tab" disabled',
@@ -635,7 +615,7 @@ describe("tool definitions and the system prompt", () => {
    * that is gone cannot be resumed, so that one keeps the empty state.
    */
   it("says nothing has loaded when the session cannot be resumed", async () => {
-    const { app } = testApp({ missingFolders: [repo] });
+    const { app } = repoApp({ missingFolders: [repo] });
     expect(await (await app.request("/sessions/s1/tools")).text()).toContain(
       "Tool definitions have not loaded yet",
     );
@@ -645,7 +625,7 @@ describe("tool definitions and the system prompt", () => {
   });
 
   it("resumes a stopped session to answer the panels", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     expect(await (await app.request("/sessions/s1/tools")).text()).toContain(
       "tool-definitions-item",
     );
@@ -655,7 +635,7 @@ describe("tool definitions and the system prompt", () => {
   });
 
   it("shows the active tools and the prompt of a live session", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     await app.request("/sessions/s1/activate", { method: "POST" });
     const tools = await (await app.request("/sessions/s1/tools")).text();
     expect(tools).toContain("read");
@@ -671,7 +651,7 @@ describe("tool definitions and the system prompt", () => {
 
 describe("the new-session model picker", () => {
   it("shows Model unavailable instead of inventing a reasoning level", async () => {
-    const { app } = testApp({ models: [] });
+    const { app } = repoApp({ models: [] });
     const page = await (await app.request("/new")).text();
     expect(page).toContain(
       'class="composer-model-detail">Model unavailable</span>',
@@ -684,7 +664,7 @@ describe("the new-session model picker", () => {
   });
 
   it("shows the effective default and offers only concrete reasoning levels", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const page = await (await app.request("/new")).text();
     expect(page).not.toContain('<option value="auto"');
     expect(page).toContain(
@@ -702,7 +682,7 @@ describe("the new-session model picker", () => {
    * prompt posts.
    */
   it("records a pick in the field the first prompt carries", async () => {
-    const { app } = testApp();
+    const { app } = repoApp();
     const page = await (await app.request("/new")).text();
     expect(page).toContain('<input type="hidden" name="model"');
     expect(page).toContain("/workspaces/model-selector?cwd=");

@@ -3,6 +3,7 @@ import {
   createFakeWorld,
   userEntry,
 } from "@adapters/fake/index";
+import { skillsConflict } from "@core/composer";
 import { encodeSkillPrompt } from "@core/skill-prompt";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
@@ -143,7 +144,9 @@ describe("skill selection HTTP and display boundary", () => {
         body: submission(text),
       });
       expect(response.headers.get("X-Web-Pi-Submission")).toBeNull();
-      expect(response.headers.get("HX-Trigger")).toContain("selected skills");
+      expect(response.headers.get("HX-Trigger")).toContain(
+        skillsConflict(text),
+      );
       expect(create).not.toHaveBeenCalled();
     },
   );

@@ -1,4 +1,5 @@
 import type { SkillSelection } from "@core/ports";
+import { skillSelections, uniqueSkills } from "@core/skill-prompt";
 import { draftKey } from "./drafts.ts";
 
 type SkillDraft = {
@@ -13,29 +14,7 @@ const drafts = new Map<string, SkillDraft>();
 const PREFIX = "web-pi:draft-skills:";
 
 function parse(value: string | undefined | null): SkillSelection[] {
-  try {
-    const decoded: unknown = JSON.parse(value ?? "[]");
-    if (!Array.isArray(decoded)) return [];
-    const seen = new Set<string>();
-    const entries: unknown[] = decoded;
-    return entries.filter((entry): entry is SkillSelection => {
-      if (
-        !entry ||
-        typeof entry !== "object" ||
-        !("id" in entry) ||
-        !("name" in entry) ||
-        typeof entry.id !== "string" ||
-        typeof entry.name !== "string" ||
-        !entry.id ||
-        seen.has(entry.id)
-      )
-        return false;
-      seen.add(entry.id);
-      return true;
-    });
-  } catch {
-    return [];
-  }
+  return skillSelections(value ?? "[]") ?? [];
 }
 
 function read(key: string): SkillSelection[] {
@@ -182,7 +161,7 @@ export function setUpSkills(
     for (const listener of draft.changed) listener();
   }
   function replace(skills: SkillSelection[], newOwnership = false): void {
-    const next = parse(JSON.stringify(skills));
+    const next = uniqueSkills(skills);
     const membership = new Map<string, number>();
     for (const skill of next)
       membership.set(

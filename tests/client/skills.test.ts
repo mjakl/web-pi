@@ -1,3 +1,4 @@
+import { skillsConflict } from "@core/composer";
 import type { SkillSelection } from "@core/ports";
 import { userEntry } from "@adapters/fake/index";
 import { encodeSkillPrompt, recallSkillPrompts } from "@core/skill-prompt";
@@ -259,10 +260,13 @@ describe("skill selection", () => {
     expect(selected()).toEqual([alpha]);
     expect(byId("skills-label").textContent).toBe("Skills (1)");
     for (const command of ["/session", "/name reply", "!ls"]) {
+      byId("toasts").replaceChildren();
       type(area(), command);
       expect(keydown(area(), "Enter").defaultPrevented).toBe(true);
       expect(submits).toHaveLength(1);
       expect(selected()).toEqual([alpha]);
+      // The same words the server answers with.
+      expect(byId("toasts").textContent).toBe(skillsConflict(command));
     }
   });
 

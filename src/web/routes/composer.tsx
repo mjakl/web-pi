@@ -2,7 +2,7 @@
 // commands, the queue, the model, and the session's own event stream. The
 // composer area owns this module.
 
-import { bashCommand } from "@core/composer";
+import { bashCommand, parseBuiltin, skillsConflict } from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
 import { isSessionId } from "@core/sessions";
@@ -105,16 +105,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     }
     if (!text.trim() && images.length === 0 && skills.length === 0)
       return reject(c, "Type a request first.");
-    if (
-      skills.length > 0 &&
-      (/^\/(?!skill:)/.test(text.trimStart()) ||
-        text.trimStart().startsWith("!"))
-    ) {
-      return reject(
-        c,
-        "Remove selected skills before sending another slash or shell command.",
-      );
-    }
+    const conflict = skills.length > 0 ? skillsConflict(text) : undefined;
+    if (conflict) return reject(c, conflict);
     // An explicit local-only command must never become a model prompt, even
     // when attachments would otherwise cancel shell mode.
     if (text.startsWith("!!") && images.length > 0) {
@@ -124,14 +116,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     if (images.length === 0 && text.startsWith("!") && !shell) {
       return reject(c, "Type a shell command after ! or !!.");
     }
-    const builtin =
-      images.length === 0
-        ? /^\/(compact|reload|name|clone|session|copy)(?:\s+([\s\S]*))?$/.exec(
-            text,
-          )
-        : null;
-    const name = builtin?.[1];
-    const argument = builtin?.[2]?.trim() ?? "";
+    const builtin = images.length === 0 ? parseBuiltin(text) : undefined;
+    const name = builtin?.name;
+    const argument = builtin?.argument ?? "";
     if (name === "name" && !argument)
       return reject(c, "Usage: /name <session name>");
     if (name === "session" || name === "copy") {
@@ -187,14 +174,13 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     c: Context,
     id: string,
     name: string,
-    argument: string | undefined,
+    argument: string,
   ): Promise<Response> {
-    const argumentText = argument?.trim() ?? "";
     switch (name) {
       case "compact":
         await deps.workspace.compact(
           id,
-          argumentText === "" ? undefined : argumentText,
+          argument === "" ? undefined : argument,
         );
         return c.body(null, 204);
       case "reload":
@@ -202,8 +188,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         toastHeader(c, "Extensions, skills, and prompts reloaded.", "info");
         return c.body(null, 200);
       case "name":
-        await deps.workspace.rename(id, argumentText);
-        toastHeader(c, `Renamed to "${argumentText}".`, "info");
+        await deps.workspace.rename(id, argument);
+        toastHeader(c, `Renamed to "${argument}".`, "info");
         return c.body(null, 200);
       default: {
         const cloned = await deps.workspace.clone(id);

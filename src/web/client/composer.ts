@@ -3,7 +3,10 @@ import {
   buildAtInsertText,
   cycleHistory,
   exactBuiltin,
+  inputHistory,
+  skillsConflict,
 } from "@core/composer";
+import { skillSelections } from "@core/skill-prompt";
 import { setUpAtCompletion } from "./at-complete.ts";
 import { draftKey, setUpDrafts } from "./drafts.ts";
 import type { HtmxRequestCtx } from "htmx.org";
@@ -19,7 +22,6 @@ import { requestContext } from "./htmx.ts";
 import { navigationIntent } from "./navigation.ts";
 import { setUpSlashMenu } from "./slash-menu.ts";
 import { setUpSkills } from "./skills.ts";
-import type { SkillSelection } from "@core/ports";
 import {
   focusSessionInput,
   setUpSessionInputFocus,
@@ -169,48 +171,18 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
   let compositionEndedAt = -Infinity;
   let composing = false;
 
-  function history(): { text: string; skills: SkillSelection[] }[] {
-    const entries = [
-      ...document.querySelectorAll<HTMLElement>("[data-user-text]"),
-    ].map((element) => {
-      let selected: SkillSelection[] = [];
-      try {
-        const value: unknown = JSON.parse(
-          element.dataset["userSkills"] ?? "[]",
-        );
-        if (Array.isArray(value)) {
-          const items: unknown[] = value;
-          selected = items.filter(
-            (item): item is SkillSelection =>
-              item !== null &&
-              typeof item === "object" &&
-              "id" in item &&
-              "name" in item &&
-              typeof item.id === "string" &&
-              typeof item.name === "string",
-          );
-        }
-      } catch {
-        /* Older history has text only. */
-      }
-      const text = element.textContent ?? "";
-      return {
-        text: element.hasAttribute("data-user-skills") ? text : text.trim(),
-        skills: selected,
-      };
-    });
-    // Deduplicate by the full payload, so the same words with different skills remain distinct.
-    const seen = new Set<string>();
-    const distinct: typeof entries = [];
-    for (const entry of entries.reverse()) {
-      if (entry.text === "" && entry.skills.length === 0) continue;
-      const key = JSON.stringify(entry);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      distinct.push(entry);
-      if (distinct.length === 50) break;
-    }
-    return distinct.reverse();
+  function history() {
+    return inputHistory(
+      [...document.querySelectorAll<HTMLElement>("[data-user-text]")].map(
+        (element) => ({
+          text: element.textContent ?? "",
+          // Older history has text only.
+          skills: element.hasAttribute("data-user-skills")
+            ? (skillSelections(element.dataset["userSkills"]) ?? [])
+            : undefined,
+        }),
+      ),
+    );
   }
 
   function shellHint(value: string): void {
@@ -322,15 +294,10 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
   };
 
   function incompatibleSelection(): boolean {
-    if (skills.count() === 0) return false;
-    const text = textarea()?.value.trim() ?? "";
-    if (
-      text.startsWith("/skill:") ||
-      (!text.startsWith("/") && !text.startsWith("!"))
-    )
-      return false;
-    showToast("Remove selected skills before sending a command.", "warning");
-    return true;
+    const conflict =
+      skills.count() > 0 ? skillsConflict(textarea()?.value ?? "") : undefined;
+    if (conflict) showToast(conflict, "warning");
+    return conflict !== undefined;
   }
 
   const submit = (behavior: "steer" | "followUp"): void => {

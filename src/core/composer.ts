@@ -5,6 +5,7 @@
 // (which owns the keyboard and the local file index).
 
 import { Fzf } from "fzf";
+import type { SkillSelection } from "./ports.ts";
 
 export type SlashSource = "builtin" | "extension" | "prompt" | "skill";
 
@@ -124,6 +125,29 @@ export function exactBuiltin(value: string): SlashCommand | undefined {
   const query = slashQuery(value);
   if (query === null) return undefined;
   return BUILTIN_COMMANDS.find((command) => command.name === query);
+}
+
+/** A built-in as submitted, `/name Fix it`: its name and trimmed argument. */
+export function parseBuiltin(
+  text: string,
+): { name: string; argument: string } | undefined {
+  const [, name = "", argument = ""] =
+    /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text) ?? [];
+  return BUILTIN_COMMANDS.some((command) => command.name === name)
+    ? { name, argument: argument.trim() }
+    : undefined;
+}
+
+/**
+ * Selected skills go with a request or a leading `/skill:` command, never
+ * with another slash command or a shell command; this says why not.
+ */
+export function skillsConflict(text: string): string | undefined {
+  const start = text.trimStart();
+  return (start.startsWith("/") && !start.startsWith("/skill:")) ||
+    start.startsWith("!")
+    ? "Remove selected skills before sending a slash or shell command."
+    : undefined;
 }
 
 export type AtQuery = { start: number; query: string; quoted: boolean };
@@ -260,15 +284,30 @@ export function cycleHistory(
   return { cycle: next, text: history[history.length - 1 - next] ?? "" };
 }
 
-/** Last 50 distinct user texts, oldest first, newest kept on a repeat. */
-export function inputHistory(texts: readonly string[], cap = 50): string[] {
+/** A sent request as history shows it; `skills` only when it recorded them. */
+export type SentRequest = { text: string; skills?: SkillSelection[] };
+
+/**
+ * The last 50 distinct requests, oldest first, a repeat keeping its newest
+ * place. A request that recorded its skills comes back exactly as typed, and
+ * the same words with other skills stay distinct; plain text is trimmed.
+ */
+export function inputHistory(
+  sent: readonly SentRequest[],
+  cap = 50,
+): Required<SentRequest>[] {
   const seen = new Set<string>();
-  const collected: string[] = [];
-  for (let index = texts.length - 1; index >= 0; index -= 1) {
-    const text = texts[index]?.trim() ?? "";
-    if (text === "" || seen.has(text)) continue;
-    seen.add(text);
-    collected.push(text);
+  const collected: Required<SentRequest>[] = [];
+  for (let index = sent.length - 1; index >= 0; index -= 1) {
+    const request = sent[index];
+    if (!request) continue;
+    const skills = request.skills ?? [];
+    const text =
+      request.skills === undefined ? request.text.trim() : request.text;
+    const key = JSON.stringify([text, skills]);
+    if ((text === "" && skills.length === 0) || seen.has(key)) continue;
+    seen.add(key);
+    collected.push({ text, skills });
     if (collected.length === cap) break;
   }
   return collected.reverse();

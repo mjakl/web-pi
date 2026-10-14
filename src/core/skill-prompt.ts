@@ -23,6 +23,32 @@ export function uniqueSkills(
   });
 }
 
+/**
+ * A list of skill identities, from a parsed value or its JSON text, without
+ * repeats. Anything that is not one makes the whole list undefined: a
+ * damaged selection is refused, never half-read.
+ */
+export function skillSelections(value: unknown): SkillSelection[] | undefined {
+  let list = value;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(list)) return undefined;
+  const skills: SkillSelection[] = [];
+  for (const item of list as unknown[]) {
+    if (typeof item !== "object" || item === null) return undefined;
+    const { id, name } = item as Record<string, unknown>;
+    if (typeof id !== "string" || !id || typeof name !== "string" || !name)
+      return undefined;
+    skills.push({ id, name });
+  }
+  return uniqueSkills(skills);
+}
+
 export function encodeSkillPrompt(
   text: string,
   skills: readonly SkillSelection[],
@@ -66,30 +92,18 @@ function provenance(
     if (typeof value !== "object" || value === null) return undefined;
     const record = value as Record<string, unknown>;
     const expandedLength = record["expandedLength"];
+    const skills = skillSelections(record["skills"]);
     if (
       typeof record["text"] !== "string" ||
-      !Array.isArray(record["skills"]) ||
+      skills === undefined ||
       typeof expandedLength !== "number" ||
       !Number.isSafeInteger(expandedLength) ||
       expandedLength < 0 ||
       expandedLength > text.length - expandedStart
     )
       return undefined;
-    const skills: SkillSelection[] = [];
-    for (const item of record["skills"] as unknown[]) {
-      if (typeof item !== "object" || item === null) return undefined;
-      const selection = item as Record<string, unknown>;
-      if (
-        typeof selection["id"] !== "string" ||
-        !selection["id"] ||
-        typeof selection["name"] !== "string" ||
-        !selection["name"]
-      )
-        return undefined;
-      skills.push({ id: selection["id"], name: selection["name"] });
-    }
     return {
-      draft: { text: record["text"], skills: uniqueSkills(skills) },
+      draft: { text: record["text"], skills },
       prefix: text.slice(0, start),
       suffix: text.slice(expandedStart + expandedLength),
     };

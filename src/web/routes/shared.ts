@@ -6,7 +6,7 @@
 import { imageLimitError } from "@core/composer";
 import { FileAccessError } from "@core/path-access";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
-import { uniqueSkills } from "@core/skill-prompt";
+import { skillSelections } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
 import type { SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
@@ -183,31 +183,12 @@ export type Submission = {
 export async function readSubmission(
   form: FormData,
 ): Promise<Submission | { error: string }> {
-  let skills: SkillSelection[] = [];
   const selection = rawField(form, "skills");
-  if (selection) {
-    try {
-      const value: unknown = JSON.parse(selection);
-      if (!Array.isArray(value)) throw new Error("Expected selections");
-      for (const item of value as unknown[]) {
-        if (typeof item !== "object" || item === null)
-          throw new Error("Expected a skill");
-        const skill = item as Record<string, unknown>;
-        if (
-          typeof skill["id"] !== "string" ||
-          !skill["id"] ||
-          typeof skill["name"] !== "string" ||
-          !skill["name"]
-        )
-          throw new Error("Expected a skill identity");
-        skills.push({ id: skill["id"], name: skill["name"] });
-      }
-      skills = uniqueSkills(skills);
-    } catch {
-      return {
-        error: "Invalid skill selection. Reload the Skills menu and try again.",
-      };
-    }
+  const skills = selection ? skillSelections(selection) : [];
+  if (!skills) {
+    return {
+      error: "Invalid skill selection. Reload the Skills menu and try again.",
+    };
   }
   const files = form
     .getAll("images[]")

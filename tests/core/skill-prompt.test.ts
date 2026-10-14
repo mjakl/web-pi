@@ -5,6 +5,7 @@ import {
   encodeSkillPrompt,
   recallSkillPrompts,
   skillCommand,
+  skillSelections,
 } from "@core/skill-prompt";
 import { editableUserMessage, userMessageText } from "@core/session-entries";
 import { describe, expect, it } from "vitest";
@@ -17,6 +18,29 @@ const legacy =
 function queued(text: string) {
   return { text, behavior: "steer" as const };
 }
+
+describe("skill selections", () => {
+  it("reads a list of identities, from a value or its JSON, without repeats", () => {
+    expect(skillSelections([first, second, first])).toEqual([first, second]);
+    expect(skillSelections(JSON.stringify([second]))).toEqual([second]);
+    expect(skillSelections([{ ...first, extra: true }])).toEqual([first]);
+    expect(skillSelections([])).toEqual([]);
+  });
+
+  it("refuses the whole list when any part of it is not an identity", () => {
+    for (const value of [
+      null,
+      "{not json",
+      { id: "x", name: "x" },
+      [first, null],
+      [first, { id: 1, name: "one" }],
+      [{ id: "", name: "empty" }],
+      [{ id: "x", name: "" }],
+    ]) {
+      expect(skillSelections(value)).toBeUndefined();
+    }
+  });
+});
 
 describe("skill prompt provenance", () => {
   it.each([

@@ -11,7 +11,9 @@ import {
   imageLimitError,
   inputHistory,
   isFilePathQuery,
+  parseBuiltin,
   rankCommands,
+  skillsConflict,
   slashQuery,
   slashCompletionQuery,
   type SlashCommand,
@@ -63,6 +65,34 @@ describe("slash commands", () => {
     expect(exactBuiltin("/session")?.name).toBe("session");
     expect(exactBuiltin("/sess")).toBeUndefined();
     expect(exactBuiltin("/name Bob")).toBeUndefined();
+  });
+
+  it("parses every built-in with its argument, and nothing else", () => {
+    for (const { name } of BUILTIN_COMMANDS) {
+      expect(parseBuiltin(`/${name}`)).toEqual({ name, argument: "" });
+    }
+    expect(parseBuiltin("/name  Fix the “quotes” bug ")).toEqual({
+      name: "name",
+      argument: "Fix the “quotes” bug",
+    });
+    expect(parseBuiltin("/compact\nkeep the plan")).toEqual({
+      name: "compact",
+      argument: "keep the plan",
+    });
+    for (const text of ["/compactly", "/review", " /name x", "/Name x", "x"]) {
+      expect(parseBuiltin(text)).toBeUndefined();
+    }
+  });
+
+  it("lets selected skills go with a request or a leading skill, not another command", () => {
+    for (const text of ["", "explain this", "/skill:alpha go", "a /name"]) {
+      expect(skillsConflict(text)).toBeUndefined();
+    }
+    for (const text of ["/name x", "  /session", "!ls", "!!git status"]) {
+      expect(skillsConflict(text)).toBe(
+        "Remove selected skills before sending a slash or shell command.",
+      );
+    }
   });
 });
 
@@ -177,8 +207,33 @@ describe("@ file completion", () => {
 
 describe("input history", () => {
   it("keeps the last distinct texts, oldest first", () => {
-    expect(inputHistory(["a", "b", "a", "  ", "c"])).toEqual(["b", "a", "c"]);
-    expect(inputHistory(["a", "b", "c"], 2)).toEqual(["b", "c"]);
+    const plain = (...texts: string[]) => texts.map((text) => ({ text }));
+    const recalled = (...texts: string[]) =>
+      texts.map((text) => ({ text, skills: [] }));
+    expect(inputHistory(plain("a", " b\n", "a", "  ", "c"))).toEqual(
+      recalled("b", "a", "c"),
+    );
+    expect(inputHistory(plain("a", "b", "c"), 2)).toEqual(recalled("b", "c"));
+  });
+
+  it("keeps a request's skills, and its text exactly when it recorded them", () => {
+    const alpha = { id: "/skills/alpha/SKILL.md", name: "alpha" };
+    const beta = { id: "/skills/beta/SKILL.md", name: "beta" };
+    expect(
+      inputHistory([
+        { text: "same", skills: [alpha] },
+        { text: "same", skills: [beta] },
+        { text: "same", skills: [alpha] },
+        { text: "  exact\n", skills: [] },
+        { text: "", skills: [beta] },
+        { text: "", skills: [] },
+      ]),
+    ).toEqual([
+      { text: "same", skills: [beta] },
+      { text: "same", skills: [alpha] },
+      { text: "  exact\n", skills: [] },
+      { text: "", skills: [beta] },
+    ]);
   });
 
   it("walks back on up and empties the composer past the newest", () => {

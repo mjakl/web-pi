@@ -4,6 +4,7 @@ export default defineConfig({
   // Path aliases and JSX settings come from tsconfig.json.
   resolve: { tsconfigPaths: true },
   test: {
+    globalSetup: ["tests/global-setup.ts"],
     // Two projects, one run: the server and core tests in Node, and the
     // client bundle's modules in a browser-like DOM. `vitest run` executes
     // both; `--project client` narrows to one.

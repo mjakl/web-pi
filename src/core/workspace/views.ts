@@ -24,8 +24,6 @@ export type ViewOptions = {
   consumePending?: boolean;
   /** Branch tip to view; the session's own leaf by default. */
   leaf?: string;
-  /** How many settled items the page holds. */
-  tail?: number;
   /** Reconcile entries after the last rendered settled entry; empty is root. */
   after?: string;
   /** Page backwards from an entry already on screen. */

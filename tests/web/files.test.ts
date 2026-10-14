@@ -197,6 +197,12 @@ describe("explorer", () => {
       await app.request("/files/search?session=s1&q=")
     ).text();
     expect(cleared).toContain('data-name="notes.md"');
+    // With the changes toggle on, clearing goes back to the changes.
+    const changes = await (
+      await app.request("/files/search?session=s1&q=&changes=1")
+    ).text();
+    expect(changes).toContain("file-explorer-change-row");
+    expect(changes).not.toContain('data-name="notes.md"');
   });
 });
 

@@ -109,20 +109,25 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  /** An empty query puts the tree back; that is what closing search means. */
+  /**
+   * An empty query puts the explorer back, as the changes toggle left it:
+   * that is what closing search means.
+   */
   app.get("/files/search", async (c) => {
     const scope = scopeParameter(c);
     const query = (c.req.query("q") ?? "").slice(0, 500).trim();
     try {
       if (query === "") {
-        const found = await deps.workspace.fileTree(scope);
+        const found = await deps.workspace.fileTree(scope, {
+          changes: c.req.query("changes") === "1",
+        });
         if (!found) return await c.notFound();
         return await c.html(
           <Explorer
             context={treeContext(scope, found)}
             status={found.status}
             entries={found.entries}
-            changes={false}
+            changes={found.changes}
           />,
         );
       }

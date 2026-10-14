@@ -828,6 +828,22 @@ describe("changed files and search", () => {
     expect(ajaxUrls().at(-1)).toBe("/files/explorer?session=s1");
   });
 
+  it("puts the changed files back when the search is cleared", async () => {
+    page({ changes: 2 });
+    const { setUpFiles } = await load();
+    setUpFiles();
+    click(byId("explorer-changes-toggle"));
+    const body = new FormData();
+    body.set("q", "");
+    htmxEvent(byId("file-search"), "htmx:config:request", {
+      ctx: {
+        target: byId("file-tree"),
+        request: { action: "/files/search?session=s1", body },
+      },
+    });
+    expect(body.get("changes")).toBe("1");
+  });
+
   it("hides the toggle while nothing is changed", async () => {
     page({ changes: 2 });
     const { setUpFiles } = await load();

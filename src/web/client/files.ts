@@ -796,14 +796,13 @@ export function setUpFiles(): void {
     onTreeKey(event);
   });
 
-  // The explorer refreshes itself on every settled turn; keep the changed
-  // files showing when that is what the reader asked for.
+  // The explorer refreshes itself on every settled turn, and clearing the
+  // search puts it back; keep the changed files showing when that is what
+  // the reader asked for.
   document.addEventListener("htmx:config:request", (event) => {
     const { request } = requestContext(event);
-    if (
-      new URL(request.action, document.baseURI).pathname !== "/files/explorer"
-    )
-      return;
+    const path = new URL(request.action, document.baseURI).pathname;
+    if (path !== "/files/explorer" && path !== "/files/search") return;
     if (showingChanges() && request.body instanceof FormData) {
       request.body.set("changes", "1");
     }

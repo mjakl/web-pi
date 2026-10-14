@@ -38,6 +38,14 @@ export function setSwitch(element: Element, on: boolean): void {
 
 let confirmed = { ...DEFAULT_WEB_SETTINGS };
 
+function checkTheme(theme: WebSettings["theme"]): void {
+  for (const option of document.querySelectorAll<HTMLInputElement>(
+    'input[name="theme"]',
+  )) {
+    option.checked = option.value === theme;
+  }
+}
+
 function apply(settings: WebSettings, replacePrompt = false): void {
   const prompt = document.querySelector<HTMLTextAreaElement>(
     "#system-prompt-addition",
@@ -54,11 +62,7 @@ function apply(settings: WebSettings, replacePrompt = false): void {
   confirmed = settings;
   document.documentElement.dataset["theme"] = settings.theme;
   document.documentElement.dataset["sound"] = String(settings.sound);
-  for (const option of document.querySelectorAll<HTMLInputElement>(
-    'input[name="theme"]',
-  )) {
-    option.checked = option.value === settings.theme;
-  }
+  checkTheme(settings.theme);
   const sound = document.getElementById("sound-toggle");
   if (sound) setSwitch(sound, settings.sound);
   const tokens = document.querySelector<HTMLInputElement>("#dumb-zone-tokens");
@@ -68,6 +72,8 @@ function apply(settings: WebSettings, replacePrompt = false): void {
 
 let revision = 0;
 let saving = false;
+/** A theme picked while a save ran, which goes once it finishes. */
+let pendingTheme: WebSettings["theme"] | undefined;
 
 async function refresh(): Promise<void> {
   if (saving) return;
@@ -102,8 +108,8 @@ export function setUpPreferences(): void {
     const status = region.querySelector<HTMLElement>("#web-settings-status");
     // The theme radios stay enabled while a save runs: disabling the focused
     // one would drop keyboard focus halfway through an arrow-key move. A
-    // theme picked during another save is dropped, and that save's answer
-    // checks the confirmed theme again.
+    // theme picked during another save is sent once that save finishes, so
+    // the last pick wins.
     const controls = () =>
       document.querySelectorAll<
         HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement
@@ -151,6 +157,12 @@ export function setUpPreferences(): void {
         saving = false;
         for (const control of controls()) control.disabled = false;
       }
+      const theme = pendingTheme;
+      if (theme === undefined) return;
+      pendingTheme = undefined;
+      // The answer above checked the theme it saved; keep the later pick.
+      checkTheme(theme);
+      void save({ theme });
     };
     region.addEventListener(
       "click",
@@ -185,8 +197,9 @@ export function setUpPreferences(): void {
         if (!(option instanceof HTMLInputElement) || option.name !== "theme")
           return;
         const theme = option.value;
-        if (theme === "light" || theme === "dark" || theme === "auto")
-          void save({ theme });
+        if (theme !== "light" && theme !== "dark" && theme !== "auto") return;
+        if (saving) pendingTheme = theme;
+        else void save({ theme });
       },
       { signal },
     );

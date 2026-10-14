@@ -134,6 +134,44 @@ describe("shared preferences", () => {
     expect(light.checked).toBe(false);
   });
 
+  it("sends a theme picked during another save once that save finishes", async () => {
+    const answers: (() => void)[] = [];
+    const fetch = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          if (typeof init?.body !== "string")
+            throw new Error("Expected JSON settings");
+          const saved = JSON.parse(init.body) as object;
+          answers.push(() => {
+            resolve(json({ ...DEFAULT_WEB_SETTINGS, ...saved }));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await load();
+    const pick = (theme: string) => {
+      const option = field(`input[name="theme"][value="${theme}"]`);
+      option.checked = true;
+      option.dispatchEvent(new Event("change", { bubbles: true }));
+      return option;
+    };
+    pick("dark");
+    const light = pick("light");
+    expect(fetch).toHaveBeenCalledOnce();
+    answers.shift()?.();
+    await flush();
+    // The later pick goes next, and its radio stays checked meanwhile.
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/settings/web",
+      expect.objectContaining({ body: '{"theme":"light"}' }),
+    );
+    expect(light.checked).toBe(true);
+    answers.shift()?.();
+    await flush();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
+    expect(light.checked).toBe(true);
+  });
+
   it("rejects invalid thresholds and persists a positive safe integer", async () => {
     const fetch = mockFetch(() =>
       json({ ...DEFAULT_WEB_SETTINGS, warnTokens: 120001 }),

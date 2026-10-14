@@ -326,7 +326,6 @@ describe("the preview dialog", () => {
     if (!(dialog instanceof HTMLDialogElement)) throw new Error("no dialog");
     expect(dialog.open).toBe(true);
     expect(dialog.querySelector("img")?.alt).toBe("a chart");
-    expect(document.body.style.overflow).toBe("hidden");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const escape = new KeyboardEvent("keydown", {
       key: "Escape",
@@ -337,7 +336,6 @@ describe("the preview dialog", () => {
     expect(escape.defaultPrevented).toBe(true);
     await flush();
     expect(document.querySelector("dialog.image-preview-dialog")).toBeNull();
-    expect(document.body.style.overflow).toBe("");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
   });

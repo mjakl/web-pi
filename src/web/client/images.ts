@@ -330,8 +330,6 @@ function openPreview(trigger: HTMLElement, source: string): void {
   close.innerHTML = IMAGE_PREVIEW_CLOSE_ICON;
   dialog.append(image, close);
   document.body.append(dialog);
-  const overflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
   trigger.setAttribute("aria-expanded", "true");
   const dismiss = () => {
     if (dialog.open) dialog.close();
@@ -355,7 +353,6 @@ function openPreview(trigger: HTMLElement, source: string): void {
     dismiss();
   });
   dialog.addEventListener("close", () => {
-    document.body.style.overflow = overflow;
     dialog.remove();
     trigger.setAttribute("aria-expanded", "false");
     if (trigger.isConnected) trigger.focus({ preventScroll: true });

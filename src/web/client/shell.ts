@@ -76,9 +76,6 @@ function mountSidebar(element: HTMLElement): void {
   const mobile = matchMedia("(max-width: 640px)").matches;
   setSidebarOpen(!mobile);
   element.classList.remove("sidebar-mobile-pending");
-  document
-    .querySelector(".sidebar-overlay-backdrop")
-    ?.classList.remove("sidebar-mobile-pending");
 }
 
 function mountSidebarResize(handle: HTMLElement, signal: AbortSignal): void {

@@ -56,8 +56,7 @@
   transition: background 0.12s ease;
 }
 .panel-resize-handle:hover::after,
-.panel-resize-handle:focus-visible::after,
-.panel-resize-handle.is-resizing::after {
+.panel-resize-handle:focus-visible::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
 .right-panel-overlay-backdrop {
@@ -1101,10 +1100,6 @@ a.shell-top-bar-tab:hover {
     white-space: normal;
     line-height: 1.2;
     text-align: right;
-  }
-  .sidebar-overlay-backdrop.sidebar-mobile-pending {
-    opacity: 0;
-    pointer-events: none;
   }
   .sidebar-container.sidebar-mobile-pending.sidebar-open {
     transform: translateX(calc(-100% - env(safe-area-inset-left)));

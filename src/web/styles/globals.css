@@ -59,7 +59,6 @@
   --text-muted: #444952;
   --text-dim: #5f6672;
   --accent: #225bd8;
-  --user-bg: #eff6ff;
   --user-band-bg: #edf3fc;
   --user-band-border: #c6d7ee;
   --bg-subtle: rgb(0 0 0 / 3%);
@@ -85,7 +84,6 @@ html.dark {
   --text-muted: #c0c4cc;
   --text-dim: #9ca3af;
   --accent: #60a5fa;
-  --user-bg: #1e293b;
   --user-band-bg: #202c3d;
   --user-band-border: #334b69;
   --bg-subtle: rgb(255 255 255 / 4%);

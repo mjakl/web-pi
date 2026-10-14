@@ -778,9 +778,6 @@ button.extension-widget-trigger:focus-visible {
   flex-shrink: 0;
   margin-top: 21px;
 }
-.model-switching-icon {
-  animation: spin 0.8s linear infinite;
-}
 .notice-shelf-item.is-warning .notice-shelf-dot {
   background: var(--warning);
 }

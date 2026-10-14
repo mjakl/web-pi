@@ -661,15 +661,13 @@
 
 /* Message hover actions. Was two `hovered` React state hooks in MessageView
    re-rendering a whole message subtree on every pointer enter and leave, when
-   opacity and pointer-events were the only things that changed. data-forking
-   keeps the edit and fork row up while a new session is being created. */
+   opacity and pointer-events were the only things that changed. */
 .message-actions {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
 }
-.message-row:hover .message-actions,
-.message-actions[data-forking] {
+.message-row:hover .message-actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1040,9 +1038,6 @@
   padding: var(--space-4) var(--space-8);
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-.branch-sync-notice[role="alert"] {
-  color: var(--danger);
 }
 
 /* Transcript items, tool results, Markdown, syntax and conversation rail. */

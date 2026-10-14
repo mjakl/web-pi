@@ -417,7 +417,7 @@ export function Shell({
   if (fragment) return region;
   return (
     <div class="shell-layout">
-      <div class="sidebar-overlay-backdrop sidebar-mobile-pending" />
+      <div class="sidebar-overlay-backdrop" />
       <div
         id="session-sidebar"
         class="sidebar-container sidebar-open sidebar-mobile-pending"

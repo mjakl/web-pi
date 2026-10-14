@@ -153,16 +153,8 @@
 
 .config-sidebar-message {
   padding: var(--space-5) var(--space-4);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.config-sidebar-message.is-error {
-  color: var(--danger);
-}
-
-.config-sidebar-message.is-empty {
   color: var(--text-dim);
+  font-size: var(--text-sm);
 }
 
 .config-detail {
@@ -381,10 +373,6 @@
   font-size: var(--text-sm);
 }
 
-.skill-update-status.is-checking {
-  color: var(--accent);
-}
-
 .skill-update-status.is-success {
   color: var(--success);
 }
@@ -459,10 +447,6 @@
 .config-switch:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-.config-switch.is-loading:disabled {
-  cursor: wait;
 }
 
 .config-switch-knob {

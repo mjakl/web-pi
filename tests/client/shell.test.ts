@@ -28,7 +28,7 @@ const SIDEBAR =
   '<div class="sidebar-resize-handle" tabindex="0"></div></aside>' +
   '<button type="button" id="sidebar-toggle" aria-expanded="false">' +
   "<span data-sidebar-open-icon hidden></span><span data-sidebar-closed-icon></span></button>" +
-  '<div class="sidebar-overlay-backdrop sidebar-mobile-pending"></div>';
+  '<div class="sidebar-overlay-backdrop"></div>';
 
 describe("the title", () => {
   it("names the opened folder, then the product", async () => {

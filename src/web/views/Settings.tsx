@@ -334,7 +334,7 @@ function SkillList({
   return (
     <div class="config-sidebar-list">
       {groups.length === 0 ? (
-        <div class="config-sidebar-message is-empty">No skills found</div>
+        <div class="config-sidebar-message">No skills found</div>
       ) : null}
       {groups.map((group) => (
         <div class="config-sidebar-group">
@@ -1039,9 +1039,7 @@ export function PluginsSection({
           <aside class="config-sidebar">
             <div class="config-sidebar-list">
               {view.packages.length === 0 ? (
-                <div class="config-sidebar-message is-empty">
-                  No plugins configured
-                </div>
+                <div class="config-sidebar-message">No plugins configured</div>
               ) : null}
               {scopes.map((scope) => {
                 const rows = view.packages.filter(

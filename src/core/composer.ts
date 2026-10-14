@@ -1,8 +1,9 @@
-// Everything the composer decides from the text in the box: which slash
-// command menu to show, where an `@` token starts and what completing it
-// inserts, and where ArrowUp lands in the input history. Pure rules, shared
-// by the server (which renders the command menu) and the client bundle
-// (which owns the keyboard and the local file index).
+// The composer's rules, shared by the server (which renders the command menu
+// and checks a submission) and the client bundle (which owns the keyboard and
+// the local file index): the slash menu and the built-ins, what selected
+// skills may go with, `@` tokens and the file search behind them, the input
+// history, shell commands, the recalled follow-up queue, attachment limits,
+// and when an on-screen keyboard sizes the page.
 
 import { Fzf } from "fzf";
 import type { SkillSelection } from "./ports.ts";
@@ -184,10 +185,6 @@ export function isFilePathQuery(query: string): boolean {
 
 export type FileEntry = { path: string; isDir: boolean };
 
-/**
- * Completing a directory leaves the token open so the next keystroke drills
- * into it; completing a file closes it with a trailing space.
- */
 /** `:12` or `:12-20`, clamped to real line numbers and put back in order. */
 function lineSuffix(range: { start: number; end?: number }): string {
   const first = Math.max(1, Math.trunc(range.start));
@@ -197,6 +194,10 @@ function lineSuffix(range: { start: number; end?: number }): string {
   return from === to ? `:${String(from)}` : `:${String(from)}-${String(to)}`;
 }
 
+/**
+ * Completing a directory leaves the token open so the next keystroke drills
+ * into it; completing a file closes it with a trailing space.
+ */
 export function buildAtInsertText(
   entry: FileEntry,
   quoted: boolean,

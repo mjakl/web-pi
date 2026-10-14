@@ -769,10 +769,12 @@ describe("web app", () => {
       "/sessions/s1/bash-output?path=%2Ftmp%2Fpi-bash-abc.log",
     );
     expect(res.status).toBe(403);
+    expect(await res.text()).toBe("This session did not produce that file");
     const wrong = await app.request(
       "/sessions/s1/bash-output?path=%2Fetc%2Fpasswd",
     );
     expect(wrong.status).toBe(403);
+    expect(await wrong.text()).toBe("Not a shell output file");
   });
 
   it.each(["/repo/two", "/repo/日本"])(

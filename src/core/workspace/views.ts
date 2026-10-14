@@ -8,9 +8,10 @@ import type { SessionSummary, SessionRowMetadata } from "@core/sessions";
 import type { TranscriptItem } from "@core/transcript";
 import type { ProjectInfo, WorktreeInfo } from "@core/workspaces";
 
-// What the workspace hands a page to render, and the one error a route maps
-// to a status. Pure data: the web layer renders it and never touches Pi or
-// the file system.
+// What the workspace hands a page to render, and the refusal of work on an
+// inspection-only session. Pure data: the web layer renders it and never
+// touches Pi or the file system. File refusals are `FileAccessError`s, which
+// carry the status a route answers with.
 
 /**
  * Where a files request is rooted: the open session's folder, or the folder
@@ -157,9 +158,6 @@ export type FileView = {
   /** The unified patch against HEAD, when Git has one. */
   diff?: string;
 };
-
-/** Where a file request may point: the session's own working folder. */
-export class ForbiddenPath extends Error {}
 
 /** Saved delegated runs must never be resumed or modified by this workspace. */
 export class InspectionOnlySession extends Error {

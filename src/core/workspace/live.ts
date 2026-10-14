@@ -1,7 +1,7 @@
 import type { SlashCommand } from "@core/composer";
 import type { DialogAnswer } from "@core/extension-ui";
 import type { StartupChoice } from "@core/models";
-import { isBashOutputPath } from "@core/path-access";
+import { FileAccessError, isBashOutputPath } from "@core/path-access";
 import type {
   ImageAttachment,
   LiveEvent,
@@ -28,7 +28,6 @@ import {
 import { isSubagentSession } from "@core/sessions";
 import { delegationFold } from "@core/session-delegation";
 import type { Shared } from "./deps.ts";
-import { ForbiddenPath } from "./views.ts";
 
 // The running agent: starting, prompting, stopping and steering a live
 // session, and what only its entries can answer (images, thinking, a tool
@@ -270,7 +269,7 @@ export function liveUseCases({
     /** A truncated shell run's capture file, if this session produced it. */
     async bashOutput(id: string, path: string): Promise<string> {
       if (!isBashOutputPath(deps.tmpdir, path)) {
-        throw new ForbiddenPath("Not a shell output file");
+        throw new FileAccessError("Not a shell output file", 403);
       }
       const stored = await entriesOf(id);
       const referenced = stored?.entries.some(
@@ -280,7 +279,10 @@ export function liveUseCases({
           entry.message.fullOutputPath === path,
       );
       if (!referenced) {
-        throw new ForbiddenPath("This session did not produce that file");
+        throw new FileAccessError(
+          "This session did not produce that file",
+          403,
+        );
       }
       return deps.files.readOutput(path);
     },

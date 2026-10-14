@@ -8,7 +8,6 @@ import { FileAccessError } from "@core/path-access";
 import { isSessionId } from "@core/sessions";
 import {
   type FileScope,
-  ForbiddenPath,
   InspectionOnlySession,
   type SessionView,
 } from "@core/workspace";
@@ -338,9 +337,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           : {}),
       });
     } catch (error) {
-      if (error instanceof ForbiddenPath) return c.text(errorText(error), 403);
-      // Too large to read is not "missing": the reader is told the size and
-      // the cap rather than being sent looking for a file that is right there.
+      // A refusal keeps its 403, and too large to read is not "missing": the
+      // reader is told the size and the cap rather than being sent looking
+      // for a file that is right there.
       if (error instanceof FileAccessError) {
         return c.text(errorText(error), error.status);
       }

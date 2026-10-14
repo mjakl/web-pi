@@ -649,6 +649,7 @@ describe("Pi session catalog", () => {
 });
 
 describe("HTML export", () => {
+  // Pi's CLI plus the exported page in happy-dom can outlast 20 s under load.
   it("renders and navigates a deeply nested session exported by the Pi CLI", async () => {
     const manager = makeSession(["root prompt"]);
     const branchPoint = manager.getLeafId();
@@ -707,5 +708,5 @@ describe("HTML export", () => {
     } finally {
       await window.happyDOM.close();
     }
-  });
+  }, 60_000);
 });

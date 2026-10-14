@@ -1141,17 +1141,15 @@ a.shell-top-bar-tab:hover {
 
 /* Shared icon shapes and terminal typography. Sizes belong to their owners. */
 /* Use the SVG alpha channel as a mask so file icons follow the app's
-   restrained text palette instead of Catppuccin's language-specific colors. */
+   restrained text palette instead of Catppuccin's language-specific colors.
+   Only the shape counts, so one set of icons serves both themes. */
 .catppuccin-file-icon {
   width: 14px;
   height: 14px;
   display: block;
   flex-shrink: 0;
   background: var(--text-dim);
-  mask: center / contain no-repeat var(--catppuccin-icon-light);
-}
-html.dark .catppuccin-file-icon {
-  mask-image: var(--catppuccin-icon-dark);
+  mask: center / contain no-repeat var(--catppuccin-icon);
 }
 
 .pi-icon {

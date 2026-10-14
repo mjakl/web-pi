@@ -930,17 +930,20 @@ export function TrustDialogShieldIcon({ size = 20 }: IconProps) {
 // --- Catppuccin file icons -------------------------------------------------
 //
 // Not shown in their own colours: `.catppuccin-file-icon` (shell.css) masks
-// the SVG with `var(--text-dim)`, and `html.dark` swaps in the mocha file. The
-// two URLs are set per icon, inline, exactly as pi-web does it.
+// the SVG with `var(--text-dim)`, so only its shape counts and one set of
+// files serves both themes. The URL is set per icon, inline, as pi-web does.
 
-const CATPPUCCIN_ROOT = "/static/icons/catppuccin";
+/** Where a vendored icon is served; the client bundle builds rows with it too. */
+export function catppuccinIconUrl(name: CatppuccinIconName): string {
+  return `/static/icons/catppuccin/latte/${name}.svg`;
+}
 
 function CatppuccinIcon({ name }: { name: CatppuccinIconName }) {
   return (
     <span
       aria-hidden="true"
       class="catppuccin-file-icon"
-      style={`--catppuccin-icon-light: url(${CATPPUCCIN_ROOT}/latte/${name}.svg); --catppuccin-icon-dark: url(${CATPPUCCIN_ROOT}/mocha/${name}.svg)`}
+      style={`--catppuccin-icon: url(${catppuccinIconUrl(name)})`}
     />
   );
 }

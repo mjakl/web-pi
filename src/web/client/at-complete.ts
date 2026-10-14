@@ -9,6 +9,7 @@ import {
 } from "@core/composer";
 import { catppuccinIcon } from "@core/file-types";
 import { escapeHtml } from "@core/html";
+import { catppuccinIconUrl } from "@web/views/icons";
 import { type MenuEndpoints, replaceRange } from "./editor.ts";
 import { createMenu, handleMenuKey, type Menu } from "./menu.ts";
 
@@ -22,8 +23,7 @@ const SEARCH_DEBOUNCE_MS = 150;
 /** pi-web's Catppuccin mask, built here because the rows are (§6.4). */
 function icon(entry: FileEntry): string {
   const name = entry.isDir ? "_folder" : catppuccinIcon(entry.path);
-  const root = "/static/icons/catppuccin";
-  return `<span aria-hidden="true" class="catppuccin-file-icon" style="--catppuccin-icon-light: url(${root}/latte/${name}.svg); --catppuccin-icon-dark: url(${root}/mocha/${name}.svg)"></span>`;
+  return `<span aria-hidden="true" class="catppuccin-file-icon" style="--catppuccin-icon: url(${catppuccinIconUrl(name)})"></span>`;
 }
 
 /** One row: the directory prefix dim, the name plain, "/" dim for folders. */

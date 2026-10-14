@@ -5,7 +5,7 @@ import { catppuccinIcon } from "@core/file-types";
 import { replaceRange, textarea } from "./editor.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpResize } from "./resize.ts";
-import { TAB_CLOSE_ICON } from "@web/views/icons";
+import { TAB_CLOSE_ICON, catppuccinIconUrl } from "@web/views/icons";
 
 // The files area's browser half: how wide it is, which tabs are open, where
 // each was scrolled, and the stream that tells the viewer its file moved.
@@ -15,8 +15,6 @@ import { TAB_CLOSE_ICON } from "@web/views/icons";
 const WIDTH_KEY = "web-pi-right-panel-width";
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 1200;
-
-const CATPPUCCIN_ROOT = "/static/icons/catppuccin";
 
 function htmx(): Htmx | undefined {
   return (globalThis as { htmx?: Htmx }).htmx;
@@ -134,16 +132,11 @@ function baseName(path: string): string {
 /** The masked Catppuccin span the views render, built without JSX. */
 function fileIcon(name: string): HTMLSpanElement {
   const icon = document.createElement("span");
-  const file = catppuccinIcon(name);
   icon.className = "catppuccin-file-icon";
   icon.ariaHidden = "true";
   icon.style.setProperty(
-    "--catppuccin-icon-light",
-    `url(${CATPPUCCIN_ROOT}/latte/${file}.svg)`,
-  );
-  icon.style.setProperty(
-    "--catppuccin-icon-dark",
-    `url(${CATPPUCCIN_ROOT}/mocha/${file}.svg)`,
+    "--catppuccin-icon",
+    `url(${catppuccinIconUrl(catppuccinIcon(name))})`,
   );
   return icon;
 }
@@ -451,14 +444,9 @@ function expand(item: HTMLElement, open: boolean): void {
   );
   // The folder icon has an open variant; the chevron is turned by CSS.
   if (folder) {
-    const name = open ? "_folder_open" : "_folder";
     folder.style.setProperty(
-      "--catppuccin-icon-light",
-      `url(${CATPPUCCIN_ROOT}/latte/${name}.svg)`,
-    );
-    folder.style.setProperty(
-      "--catppuccin-icon-dark",
-      `url(${CATPPUCCIN_ROOT}/mocha/${name}.svg)`,
+      "--catppuccin-icon",
+      `url(${catppuccinIconUrl(open ? "_folder_open" : "_folder")})`,
     );
   }
   if (open) item.dispatchEvent(new CustomEvent("expand"));

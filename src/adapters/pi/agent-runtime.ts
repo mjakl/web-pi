@@ -996,7 +996,11 @@ export function createPiAgentRuntime(options: {
       preparations,
       sessionServices: (id) => live.get(id)?.services,
     }),
-    get: (sessionId) => live.get(sessionId),
+    get(sessionId) {
+      const session = live.get(sessionId);
+      // A stopping session takes no new work; open() starts a fresh one.
+      return session?.stopping ? undefined : session;
+    },
     live: () => [...live.values()],
     subscribeAll(listener) {
       watchers.add(listener);
@@ -1018,12 +1022,15 @@ export function createPiAgentRuntime(options: {
         );
       }
       const existing = live.get(target.sessionId);
-      if (existing) return existing;
+      if (existing && !existing.stopping) return existing;
       const inflight = starting.get(target.sessionId);
       if (inflight) return inflight;
       // The lock has to be in place before the first await, or two opens that
       // arrive together both pass this point and start two sessions on one file.
       const promise = (async () => {
+        // A stopping runtime still writes its last entries; its successor
+        // opens the file only once it is done.
+        await existing?.stop().catch(() => {});
         const filePath = await options.catalog.pathOf(target.sessionId);
         if (!filePath) throw new Error(`Unknown session ${target.sessionId}`);
         return start(SessionManager.open(filePath));

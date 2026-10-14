@@ -331,9 +331,8 @@ export async function createHarness(
       return runtime.open(target);
     },
     async dispose(): Promise<void> {
-      for (const session of runtime.live()) {
-        if (runtime.get(session.id)) await session.stop();
-      }
+      // Stopping ones too: their last writes must land before the removal.
+      for (const session of runtime.live()) await session.stop();
       await temp.dispose();
     },
   };

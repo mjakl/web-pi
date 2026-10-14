@@ -21,6 +21,7 @@ import {
   PROVIDER,
   next,
   type Harness,
+  type Script,
 } from "#/adapters/pi-harness";
 import { required } from "#/web/helpers";
 import { htmxBrowser, page } from "#/web/htmx4-browser";
@@ -101,9 +102,10 @@ async function composer(app: App, id?: string) {
   );
 }
 
-it("refuses the compact route after Stop without invoking the provider or rewriting history", async () => {
+it("compacts after Stop on a fresh runtime, once the stopped one has finished", async () => {
   const entered = gate();
   const release = gate();
+  const order: string[] = [];
   const h = await harness({
     settings: {
       compaction: { enabled: true, reserveTokens: 1000, keepRecentTokens: 20 },
@@ -113,6 +115,7 @@ it("refuses the compact route after Stop without invoking the provider or rewrit
         pi.on("session_shutdown", async () => {
           entered.open();
           await release.wait;
+          order.push("stopped");
         });
       },
     ],
@@ -136,34 +139,27 @@ it("refuses the compact route after Stop without invoking the provider or rewrit
   });
   const stopping = session.stop();
   await entered.wait;
-  const before = session.snapshot().branch;
-  const callsBefore = h.calls.length;
-  h.script(
-    reply("Unexpected compaction summary"),
-    reply("Unexpected second summary"),
-  );
-  let response: Response;
-  let callsAfter: number;
-  let branchAfter: typeof before;
-  try {
-    expect(h.runtime.get(session.id)).toBe(session);
-    response = await app.request(`/sessions/${session.id}/compact`, {
-      method: "POST",
-    });
-    callsAfter = h.calls.length;
-    branchAfter = session.snapshot().branch;
-    expect(session.stop()).toBe(stopping);
-  } finally {
-    release.open();
-    await stopping;
-  }
-  expect(callsAfter).toBe(callsBefore);
-  expect(response.status).toBe(200);
-  expect(response.headers.get("HX-Trigger")).toContain(
-    "Cannot compact a stopping or stopped session",
-  );
-  expect(response.headers.get("HX-Reswap")).toBe("none");
-  expect(branchAfter).toEqual(before);
+  const summary: Script = (turn) => {
+    order.push("summary");
+    turn.text("Summary");
+    turn.done();
+  };
+  h.script(summary, summary);
+  const compacting = app.request(`/sessions/${session.id}/compact`, {
+    method: "POST",
+  });
+  release.open();
+  const response = await compacting;
+  await stopping;
+  expect(response.status).toBe(204);
+  // The stopping runtime never summarised; only its successor did.
+  expect(order[0]).toBe("stopped");
+  expect(order).toContain("summary");
+  const fresh = h.runtime.get(session.id);
+  expect(fresh).not.toBe(session);
+  expect(
+    fresh?.snapshot().entries.some((entry) => entry.type === "compaction"),
+  ).toBe(true);
 });
 
 function shell() {

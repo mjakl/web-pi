@@ -1,5 +1,5 @@
 import { createFakeWorld } from "@adapters/fake/index";
-import type { RuntimeEvent } from "@core/ports";
+import type { LiveSession, RuntimeEvent } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { STAR_TYPE } from "@core/session-entries";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
@@ -271,6 +271,48 @@ describe("opening", () => {
         ) as string,
       },
     ]);
+  });
+
+  it("reopens a stopping session only after its stop has finished writing", async () => {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", async () => {
+            await shutdown.wait;
+            pi.appendEntry("last-word", {});
+          });
+        },
+      ],
+    });
+    const first = await h.open();
+    h.script(reply("answer"));
+    let done = next(first, "turn_done");
+    await first.prompt("question");
+    await done;
+    const stopping = first.stop();
+    let reopening: Promise<LiveSession>;
+    try {
+      expect(h.runtime.get(first.id)).toBeUndefined();
+      reopening = h.open({ sessionId: first.id });
+    } finally {
+      shutdown.open();
+    }
+    const second = await reopening;
+    await stopping;
+    expect(second).not.toBe(first);
+    expect(
+      second
+        .snapshot()
+        .entries.some(
+          (entry) =>
+            entry.type === "custom" && entry.customType === "last-word",
+        ),
+    ).toBe(true);
+    h.script(reply("again"));
+    done = next(second, "turn_done");
+    await second.prompt("after reopening");
+    await done;
   });
 
   it("resumes a persisted session and coalesces concurrent opens", async () => {

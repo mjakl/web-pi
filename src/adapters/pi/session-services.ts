@@ -1,3 +1,4 @@
+import type { SlashCommand } from "@core/composer";
 import {
   DEFAULT_SYSTEM_PROMPT_ADDITION,
   type WebSettingsStore,
@@ -8,11 +9,15 @@ import {
   createCodemodeExtension,
   createMcpExtension,
   createToolSearchExtension,
+  ExtensionRunner,
   getAgentDir,
+  ModelRegistry,
+  SessionManager,
   SettingsManager,
   type AgentSessionServices,
   type BashOperations,
   type InlineExtension,
+  type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -76,6 +81,36 @@ function resourceSettingsStamp(agentDir: string): string {
   } catch {
     return fileStamp(path);
   }
+}
+
+/**
+ * The `/` menu Pi offers a session: extension commands under the invocation
+ * names Pi gives duplicates (`name:2`), prompt templates, and skills, those
+ * Pi may not invoke on its own marked so the menu can say who may run them.
+ */
+export function slashCommands(
+  runner: ExtensionRunner,
+  loader: ResourceLoader,
+): SlashCommand[] {
+  return [
+    ...runner.getRegisteredCommands().map((command): SlashCommand => ({
+      name: command.invocationName,
+      description: command.description ?? "",
+      source: "extension",
+    })),
+    ...loader.getPrompts().prompts.map((prompt): SlashCommand => ({
+      name: prompt.name,
+      description: prompt.description,
+      source: "prompt",
+    })),
+    ...loader.getSkills().skills.map((skill): SlashCommand => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: "skill",
+      skillId: skill.filePath,
+      ...(skill.disableModelInvocation ? { manual: true } : {}),
+    })),
+  ];
 }
 
 /** Unbound services only. A claim removes ownership before its first await. */
@@ -204,6 +239,20 @@ export function createPiServicePreparations(options: {
   }
   return {
     prepare: stateFor,
+    /** The menu a session started in `cwd` would offer, without one. */
+    async commands(cwd: string): Promise<SlashCommand[]> {
+      const { services } = await stateFor(cwd);
+      const { extensions, runtime } = services.resourceLoader.getExtensions();
+      // Never bound: only here for Pi's naming of duplicate commands.
+      const runner = new ExtensionRunner(
+        extensions,
+        runtime,
+        services.cwd,
+        SessionManager.inMemory(services.cwd),
+        new ModelRegistry(services.modelRuntime),
+      );
+      return slashCommands(runner, services.resourceLoader);
+    },
     claim(cwd: string) {
       const state = stateFor(cwd);
       cache.delete(resolve(cwd || options.agentDir));

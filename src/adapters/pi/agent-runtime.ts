@@ -11,6 +11,7 @@ import type {
   LiveStatus,
   ModelOption,
   ModelCatalog,
+  ProjectResources,
   PromptInput,
   QueuedMessage,
   RunningTool,
@@ -42,7 +43,10 @@ import { existsSync, statSync, writeFileSync } from "node:fs";
 import { createProjectBashOperations } from "./bash-env.ts";
 import { createExtensionUi } from "./extension-ui.ts";
 import { createPiModelCatalog, startupModel } from "./model-catalog.ts";
-import { createPiServicePreparations } from "./session-services.ts";
+import {
+  createPiServicePreparations,
+  slashCommands,
+} from "./session-services.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
 import { resolveSnapshotEntryId } from "./session-snapshot.ts";
 import { checkSettingsErrors } from "./settings-errors.ts";
@@ -597,35 +601,8 @@ class PiLiveSession implements LiveSession {
     return result;
   }
 
-  /**
-   * Extension commands, prompt templates, and skills, as the SDK reports them
-   * for this session. Skills Pi may not invoke on its own are marked so the
-   * menu can say who may run them.
-   */
   commands(): SlashCommand[] {
-    return [
-      ...this.inner.extensionRunner
-        .getRegisteredCommands()
-        .map((command): SlashCommand => ({
-          name: command.invocationName,
-          description: command.description ?? "",
-          source: "extension",
-        })),
-      ...this.inner.promptTemplates.map((prompt): SlashCommand => ({
-        name: prompt.name,
-        description: prompt.description,
-        source: "prompt",
-      })),
-      ...this.inner.resourceLoader
-        .getSkills()
-        .skills.map((skill): SlashCommand => ({
-          name: `skill:${skill.name}`,
-          description: skill.description,
-          source: "skill",
-          skillId: skill.filePath,
-          ...(skill.disableModelInvocation ? { manual: true } : {}),
-        })),
-    ];
+    return slashCommands(this.inner.extensionRunner, this.inner.resourceLoader);
   }
 
   /** Every configured tool; the active ones are what this turn may call. */
@@ -883,7 +860,7 @@ export function createPiAgentRuntime(options: {
   /** Inject the shell backend for offline hosts and tests. */
   bashOperations?: BashOperations;
   draftIdleMs?: number;
-}): AgentRuntime & { models: ModelCatalog } {
+}): AgentRuntime & { models: ModelCatalog; resources: ProjectResources } {
   const preparations = createPiServicePreparations(options);
   const draftIdleMs = options.draftIdleMs ?? DRAFT_IDLE_MS;
   const live = new Map<string, PiLiveSession>();
@@ -996,6 +973,9 @@ export function createPiAgentRuntime(options: {
       preparations,
       sessionServices: (id) => live.get(id)?.services,
     }),
+    // The preparation a session started there would claim, so the menu
+    // matches before and after the start.
+    resources: { commands: (cwd) => preparations.commands(cwd) },
     get(sessionId) {
       const session = live.get(sessionId);
       // A stopping session takes no new work; open() starts a fresh one.

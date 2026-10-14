@@ -1,7 +1,9 @@
 import { createDirectoryBrowser } from "@adapters/fs/browse";
+import { createWebSettingsStore } from "@adapters/fs/web-settings";
+import { createPiAgentRuntime } from "@adapters/pi/agent-runtime";
 import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
-import { createPiProjectResources } from "@adapters/pi/resources";
+import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createPiSkills } from "@adapters/pi/skills";
 import { SkillFrontmatterError } from "@core/skill-toggle";
 import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
@@ -100,7 +102,14 @@ describe("project trust", () => {
 });
 
 describe("folder commands", () => {
-  it("offers extension commands, and only once the project is trusted", async () => {
+  const runtime = () =>
+    createPiAgentRuntime({
+      agentDir,
+      catalog: createPiSessionCatalog({ agentDir }),
+      webSettings: createWebSettingsStore(agentDir),
+    });
+
+  it("offers project extension commands once the project is trusted, at once", async () => {
     const extensions = join(project, ".pi", "extensions");
     await mkdir(extensions, { recursive: true });
     await writeFile(
@@ -108,17 +117,39 @@ describe("folder commands", () => {
       'export default (pi) => { pi.registerCommand("probe",' +
         ' { description: "Project probe", handler: async () => {} }); };\n',
     );
-    const extensionCommands = async () =>
-      // A fresh adapter each time: the answer is cached per folder.
-      (await createPiProjectResources({ agentDir }).commands(project)).filter(
-        (command) => command.source === "extension",
+    const { resources } = runtime();
+    const probes = async () =>
+      (await resources.commands(project)).filter(
+        (command) => command.name === "probe",
       );
 
-    expect(await extensionCommands()).toEqual([]);
+    expect(await probes()).toEqual([]);
 
     await createPiProjectTrust({ agentDir }).trust(project);
-    expect(await extensionCommands()).toEqual([
+    expect(await probes()).toEqual([
       { name: "probe", description: "Project probe", source: "extension" },
+    ]);
+  });
+
+  it("lists a skill change once a skill action drops the preparation", async () => {
+    const { resources, models } = runtime();
+    const skills = async () =>
+      (await resources.commands(project)).filter(
+        (command) => command.source === "skill",
+      );
+    expect(await skills()).toEqual([]);
+    const file = join(agentDir, "skills", "tidy", "SKILL.md");
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, "---\nname: tidy\ndescription: Tidy up\n---\nBody\n");
+    // What installing, updating or toggling a skill calls.
+    models.invalidate();
+    expect(await skills()).toEqual([
+      {
+        name: "skill:tidy",
+        description: "Tidy up",
+        source: "skill",
+        skillId: file,
+      },
     ]);
   });
 });

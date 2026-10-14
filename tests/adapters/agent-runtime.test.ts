@@ -477,6 +477,26 @@ describe("session commands", () => {
     }
   });
 
+  it("lists a folder's commands before a session starts as the session then does", async () => {
+    const probe = (description: string) => (pi: ExtensionAPI) => {
+      pi.registerCommand("probe", {
+        description,
+        handler: () => Promise.resolve(),
+      });
+    };
+    h = await createHarness({ extensions: [probe("First"), probe("Second")] });
+    const before = await h.runtime.resources.commands(h.cwd);
+    expect(before).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "mcp", source: "extension" }),
+        { name: "probe:1", description: "First", source: "extension" },
+        { name: "probe:2", description: "Second", source: "extension" },
+      ]),
+    );
+    const session = await h.open();
+    expect(session.commands()).toEqual(before);
+  });
+
   it("lists commands from extensions, prompts, and skills, and the tools", async () => {
     h = await createHarness({
       extensions: [

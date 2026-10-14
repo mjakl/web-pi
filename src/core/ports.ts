@@ -439,9 +439,10 @@ export type ModelCatalog = {
 };
 
 /**
- * Prompt templates and skills a folder offers, read without starting an
- * agent. Project extensions are never loaded here: listing commands must not
- * run an untrusted repository's code.
+ * The `/` menu a session started in a folder would offer, read without
+ * starting one: extension commands, prompt templates and skills. Project
+ * extensions load, as they would for that session, only once the folder is
+ * trusted.
  */
 export type ProjectResources = {
   commands(cwd: string): Promise<SlashCommand[]>;

@@ -14,7 +14,6 @@ import { createPiAgentRuntime } from "@adapters/pi/agent-runtime";
 import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectResolver } from "@adapters/pi/projects";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
-import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createPiSkills } from "@adapters/pi/skills";
 import { createWebPushNotifier } from "@adapters/pi/web-push";
@@ -265,7 +264,7 @@ export function createDeps(config: Config): {
       trust: createPiProjectTrust({ agentDir: config.agentDir }),
       skills: createPiSkills({ agentDir: config.agentDir }),
       packages: createPiPackages({ agentDir: config.agentDir }),
-      resources: createPiProjectResources({ agentDir: config.agentDir }),
+      resources: runtime.resources,
       files: createFileTree(),
       git: createGit(),
       watcher: createWatcher(),

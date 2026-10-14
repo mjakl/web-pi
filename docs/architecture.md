@@ -26,7 +26,7 @@ Internal interfaces, all consumers in this repository. Defined in
 | `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`        | same                                 |
 | `ModelCatalog`     | Extension-aware models from a folder preparation or the named session, with Pi scope, thinking and diagnostics                      | `src/adapters/pi/model-catalog.ts`   |
 | `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                          | `src/adapters/pi/projects.ts`        |
-| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                  | `src/adapters/pi/resources.ts`       |
+| `ProjectResources` | The `/` menu a session in a folder would offer, from the folder preparation, without starting one                                   | `src/adapters/pi/agent-runtime.ts`   |
 | `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                            | `src/adapters/fs/file-tree.ts`       |
 | `Git`              | `git status` of a folder and the patch for one file                                                                                 | `src/adapters/git/git.ts`            |
 | `Watcher`          | One file's changes on disk, deduplicated                                                                                            | `src/adapters/fs/watch.ts`           |

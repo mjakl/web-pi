@@ -146,10 +146,13 @@ export function recallSkillPrompts(
   // A selected identity or the combined draft's first command already includes it.
   const included = new Set(skills.map((skill) => skill.id));
   const lost = new Set<string>();
+  const leadingSkill = (text: string) => {
+    const name = /^\/skill:([^\s]+)/.exec(text.trimStart())?.[1];
+    return { name, id: available.find((skill) => skill.name === name)?.id };
+  };
   let precedingText = false;
   for (const [index, draft] of drafts.entries()) {
-    const name = /^\/skill:([^\s]+)/.exec(draft.text.trimStart())?.[1];
-    const id = available.find((skill) => skill.name === name)?.id;
+    const { name, id } = leadingSkill(draft.text);
     const invoked =
       draft.skills !== undefined ||
       skillCommand(queued[index]?.text ?? "") !== undefined;
@@ -159,6 +162,11 @@ export function recallSkillPrompts(
     }
     precedingText ||= draft.text.trim() !== "";
   }
+  // The reader's draft goes after the queued text, so a /skill: command
+  // typed at its start no longer starts the request either.
+  const typed = leadingSkill(current.text);
+  if (typed.name && typed.id && precedingText && !included.has(typed.id))
+    lost.add(typed.name);
   const warning =
     lost.size > 0
       ? `After queue recall, ${[...lost].map((name) => `/skill:${name}`).join(", ")} will not invoke from the middle of the combined request. Select ${[...lost].join(", ")} in Skills to include ${lost.size === 1 ? "it" : "them"} on resend.`

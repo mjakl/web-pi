@@ -273,6 +273,31 @@ describe("skill prompt provenance", () => {
     ).toBe("typed");
   });
 
+  it("warns about a command the reader typed that queued text now precedes", () => {
+    const typed = { text: "/skill:second plan it" };
+    expect(
+      recallSkillPrompts([queued("queued text")], [first, second], typed),
+    ).toEqual({
+      text: "queued text\n\n/skill:second plan it",
+      images: [],
+      warning: expect.stringContaining(
+        "/skill:second will not invoke",
+      ) as string,
+    });
+    // Selected in Skills, it still reaches the resend.
+    expect(
+      recallSkillPrompts([queued("queued text")], [first, second], {
+        ...typed,
+        skills: [second],
+      }).warning,
+    ).toBeUndefined();
+    // With no queued text before it, it still starts the request.
+    expect(
+      recallSkillPrompts([{ ...queued(""), images: [] }], [second], typed)
+        .warning,
+    ).toBeUndefined();
+  });
+
   it("does not infer an invocation from a plain unexpanded command or inline prose", () => {
     expect(
       recallSkillPrompts(

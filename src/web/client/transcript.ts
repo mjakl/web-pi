@@ -246,7 +246,14 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       } else if (follow && appended) {
         view.scrollTop = view.scrollHeight;
       }
-      if (target instanceof Element) highlightIn(target);
+      // A morph of #turn-live moves the messages that finished out of it,
+      // into an element of #turn that is not part of the swap's new content.
+      const turn =
+        target instanceof Element && target.id === "turn-live"
+          ? target.closest("#turn")
+          : null;
+      if (turn) highlightIn(turn);
+      else if (target instanceof Element) highlightIn(target);
       for (const element of settledContent(event)) highlightIn(element);
       sync();
     },

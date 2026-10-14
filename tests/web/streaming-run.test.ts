@@ -2,7 +2,8 @@
 // morphs only what is still in flight, finished reasoning follows the same
 // budget as a settled page, and reasoning the reader already has stays put.
 
-import { assistantEntry } from "@adapters/fake/index";
+import { assistantEntry, userEntry } from "@adapters/fake/index";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement } from "happy-dom";
 import { expect, it } from "vitest";
 import { reconnected, required } from "#/web/helpers";
@@ -235,4 +236,69 @@ it("fetches deferred reasoning in the running turn on open and keeps it", async 
   expect(document.querySelector("#thinking-round-0000-0")).toBe(card);
   expect(card.textContent).toContain("reasoning 0000 ");
   expect(thinkingRequests(requests)).toHaveLength(1);
+});
+
+it("colours the code of a message once the morph moves it out of the running part", async () => {
+  const f = await streamingFixture();
+  const settled = f.snapshot.branch.slice(0, f.snapshot.turnStart);
+  const user = userEntry("go", settled.at(-1)?.id ?? null, "go");
+  // A message with a tool call stays in #turn-live until the call is answered.
+  const asked = assistantEntry("asked", user.id, "", 100);
+  if (asked.type !== "message" || asked.message.role !== "assistant")
+    throw new Error("Invalid fixture");
+  asked.message.content = [
+    { type: "text", text: "Here:\n\n```ts\nconst a = 1;\n```" },
+    { type: "toolCall", id: "call-a", name: "read", arguments: {} },
+  ];
+  let branch = [...settled, user, asked];
+  f.update({
+    branch,
+    entries: branch,
+    partial: undefined,
+    status: {
+      ...f.snapshot.status,
+      running: true,
+      tools: [{ id: "call-a", name: "read" }],
+    },
+  });
+  const { document, firstFrame } = await open(f);
+  await firstFrame;
+  expect(document.querySelector("#turn-live #entry-asked")).not.toBeNull();
+  const answered: SessionEntry = {
+    type: "message",
+    id: "answered",
+    parentId: asked.id,
+    timestamp: new Date().toISOString(),
+    message: {
+      role: "toolResult",
+      toolCallId: "call-a",
+      toolName: "read",
+      content: [{ type: "text", text: "ok" }],
+      isError: false,
+      timestamp: Date.now(),
+    },
+  };
+  const partial = assistantEntry("unused", answered.id, "next words", 100);
+  if (partial.type !== "message" || partial.message.role !== "assistant")
+    throw new Error("Invalid fixture");
+  branch = [...branch, answered];
+  f.update(
+    {
+      branch,
+      entries: branch,
+      partial: partial.message,
+      status: { ...f.snapshot.status, running: true, tools: [] },
+    },
+    "activity",
+  );
+  await expect
+    .poll(() =>
+      document
+        .querySelector("#entry-asked code")
+        ?.getAttribute("data-highlighted"),
+    )
+    .toBe("1");
+  expect(
+    document.querySelector("#entry-asked")?.closest("#turn-live"),
+  ).toBeNull();
 });

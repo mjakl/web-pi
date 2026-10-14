@@ -8,7 +8,7 @@ import {
 import { createFileTree } from "@adapters/fs/file-tree";
 import { createWatcher } from "@adapters/fs/watch";
 import { createGit } from "@adapters/git/git";
-import type { SlashCommand } from "@core/composer";
+import { fileSearch, type SlashCommand } from "@core/composer";
 import {
   createCustomUiHost,
   createDialogHost,
@@ -973,6 +973,8 @@ export function createFakeWorld(
     options.script ?? ((prompt: string) => [{ text: reply(prompt) }]);
   const delayMs = options.delayMs ?? 5;
   const realFiles = createFileTree();
+  const indexed = options.files ?? ["src/main.ts", "README.md"];
+  const searchIndexed = fileSearch(indexed);
   const gated = new Set(options.trustRequired ?? []);
   const missing = new Set(options.missingFolders ?? []);
   const trusted = new Set<string>();
@@ -1391,12 +1393,16 @@ export function createFakeWorld(
     files: {
       index: () =>
         Promise.resolve({
-          files: [...(options.files ?? ["src/main.ts", "README.md"])],
+          files: searchIndexed("", indexed.length, "files").map(
+            (entry) => entry.path,
+          ),
           truncated: false,
         }),
+      search: (_cwd, query, limit, only) =>
+        Promise.resolve(searchIndexed(query, limit, only)),
       children: (query, cwd) =>
         Promise.resolve(
-          (options.files ?? ["src/main.ts", "README.md"])
+          indexed
             .map((file) => ({
               path: `${cwd}/${file}`,
               isDir: false,

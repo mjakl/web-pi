@@ -3,6 +3,7 @@ import {
   createFakeWorld,
   userEntry,
 } from "@adapters/fake/index";
+import { createFileTree } from "@adapters/fs/file-tree";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createWorkspace } from "@core/workspace";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -185,6 +186,58 @@ describe("explorer", () => {
       await app.request("/files/search?session=s1&q=")
     ).text();
     expect(cleared).toContain('data-name="notes.md"');
+  });
+});
+
+describe("a folder with more files than the browser's index", () => {
+  let big = "";
+  let bigApp: ReturnType<typeof createWebApp>;
+
+  beforeAll(async () => {
+    big = await mkdtemp(join(tmpdir(), "web-pi-big-"));
+    // One at a time: thousands of parallel writes can run out of handles.
+    for (let index = 0; index < 5_000; index += 1) {
+      await writeFile(join(big, `f${String(index)}.txt`), "");
+    }
+    await mkdir(join(big, "zebra"));
+    await writeFile(join(big, "zebra", "late.ts"), "");
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "big",
+            cwd: big,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    bigApp = createWebApp({
+      workspace: createWorkspace({ ...world, files: createFileTree() }),
+      staticRoot: "/nonexistent",
+      defaultCwd: big,
+    });
+  });
+
+  afterAll(async () => {
+    await rm(big, { recursive: true, force: true });
+  });
+
+  it("finds a file past the first 5,000 paths by @ and by the file search", async () => {
+    const index = (await (
+      await bigApp.request("/sessions/big/file-index?q=")
+    ).json()) as { files: string[]; truncated: boolean };
+    expect(index.truncated).toBe(true);
+    expect(index.files).not.toContain("zebra/late.ts");
+    const at = await bigApp.request("/sessions/big/file-index?q=late");
+    expect(await at.json()).toEqual({
+      matches: [{ path: "zebra/late.ts", isDir: false }],
+    });
+    const search = await bigApp.request("/files/search?session=big&q=late");
+    expect(await search.text()).toContain('data-name="late.ts"');
   });
 });
 

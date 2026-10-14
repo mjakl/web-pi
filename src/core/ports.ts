@@ -458,8 +458,21 @@ export type FileStat = {
 
 /** Files under a working folder, for `@` completion and shell output. */
 export type Files = {
-  /** Every tracked and untracked file, cwd-relative; capped. */
+  /**
+   * Tracked and untracked files, cwd-relative, in `fileSearch`'s fixed
+   * order: the first 5,000, which the browser filters on its own.
+   */
   index(cwd: string): Promise<{ files: string[]; truncated: boolean }>;
+  /**
+   * The best matches of `query` over the whole listing, not only the part
+   * `index` hands out: files and the folders they imply, or files alone.
+   */
+  search(
+    cwd: string,
+    query: string,
+    limit: number,
+    only?: "files",
+  ): Promise<FileEntry[]>;
   /**
    * Immediate children matching a path-like query (`~/pro`, `./src/co`),
    * resolved against `cwd`. Absolute paths, capped; the caller decides which

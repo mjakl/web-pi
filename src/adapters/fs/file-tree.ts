@@ -1,4 +1,4 @@
-import type { FileEntry } from "@core/composer";
+import { type FileEntry, type FileSearch, fileSearch } from "@core/composer";
 import { FileAccessError } from "@core/path-access";
 import type { DirEntry, Files, FileStat } from "@core/ports";
 import { execFile } from "node:child_process";
@@ -11,8 +11,10 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-// Caps chosen so a monorepo cannot stall a keystroke: git is asked once per
-// folder and the answer is reused for ten seconds.
+// The browser filters the first MAX_FILES paths on its own and asks the
+// server about the rest, which searches the whole listing up to the hard
+// caps. Git is asked once per folder, and the answer and its prepared search
+// are reused for ten seconds.
 const MAX_FILES = 5000;
 const GIT_HARD_CAP = 200_000;
 const WALK_HARD_CAP = 50_000;
@@ -107,39 +109,50 @@ function expand(query: string, cwd: string): string {
   return isAbsolute(path) ? path : resolve(cwd, path);
 }
 
+type Listing = {
+  index: { files: string[]; truncated: boolean };
+  search: FileSearch;
+};
+
 export function createFileTree(): Files {
   const cache = new Map<
     string,
-    {
-      expiresAt: number;
-      index: Promise<{ files: string[]; truncated: boolean }>;
-    }
+    { expiresAt: number; listing: Promise<Listing> }
   >();
 
-  async function load(
-    cwd: string,
-  ): Promise<{ files: string[]; truncated: boolean }> {
+  async function load(cwd: string): Promise<Listing> {
     const listed = (await gitFiles(cwd)) ?? (await walkFiles(cwd));
-    const files = listed.map(toPosix).sort((a, b) => a.localeCompare(b));
+    const search = fileSearch(listed.map(toPosix));
     return {
-      files: files.slice(0, MAX_FILES),
-      truncated: files.length > MAX_FILES,
+      index: {
+        files: search("", MAX_FILES, "files").map((entry) => entry.path),
+        truncated: listed.length > MAX_FILES,
+      },
+      search,
     };
   }
 
+  function listing(cwd: string): Promise<Listing> {
+    const hit = cache.get(cwd);
+    if (hit && hit.expiresAt > Date.now()) return hit.listing;
+    const loaded = load(cwd);
+    cache.set(cwd, { expiresAt: Date.now() + CACHE_TTL_MS, listing: loaded });
+    loaded.catch(() => cache.delete(cwd));
+    while (cache.size > CACHE_MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+    return loaded;
+  }
+
   return {
-    index(cwd) {
-      const hit = cache.get(cwd);
-      if (hit && hit.expiresAt > Date.now()) return hit.index;
-      const index = load(cwd);
-      cache.set(cwd, { expiresAt: Date.now() + CACHE_TTL_MS, index });
-      index.catch(() => cache.delete(cwd));
-      while (cache.size > CACHE_MAX_ENTRIES) {
-        const oldest = cache.keys().next().value;
-        if (oldest === undefined) break;
-        cache.delete(oldest);
-      }
-      return index;
+    async index(cwd) {
+      return (await listing(cwd)).index;
+    },
+
+    async search(cwd, query, limit, only) {
+      return (await listing(cwd)).search(query, limit, only);
     },
 
     async children(query, cwd) {

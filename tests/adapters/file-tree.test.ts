@@ -48,6 +48,35 @@ describe("file tree", () => {
     await rm(plain, { recursive: true, force: true });
   });
 
+  it("hands the browser the first 5,000 paths and searches all of them", async () => {
+    const big = await mkdtemp(join(tmpdir(), "web-pi-big-"));
+    try {
+      // One at a time: thousands of parallel writes can run out of handles.
+      for (let index = 0; index < 5_000; index += 1) {
+        await writeFile(join(big, `f${String(index)}.txt`), "");
+      }
+      await mkdir(join(big, "zebra"));
+      await writeFile(join(big, "zebra", "late.ts"), "");
+      const files = createFileTree();
+      const index = await files.index(big);
+      expect(index.truncated).toBe(true);
+      expect(index.files).toHaveLength(5_000);
+      expect(index.files).not.toContain("zebra/late.ts");
+      expect(await files.search(big, "zelate", 20)).toEqual([
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+      expect(await files.search(big, "zebra", 20)).toEqual([
+        { path: "zebra", isDir: true },
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+      expect(await files.search(big, "zebra", 20, "files")).toEqual([
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+    } finally {
+      await rm(big, { recursive: true, force: true });
+    }
+  });
+
   it("completes immediate children by prefix, directories first", async () => {
     const files = createFileTree();
     const children = await files.children("./src/", root);

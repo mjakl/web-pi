@@ -1,8 +1,4 @@
-import {
-  buildEntriesFromFiles,
-  type FileEntry,
-  filterFileEntries,
-} from "@core/composer";
+import { AT_RESULT_LIMIT, type FileEntry } from "@core/composer";
 import { type FileKind, fileKind, languageOf } from "@core/file-types";
 import { directoryWithin, FileAccessError, samePath } from "@core/path-access";
 import type { DirEntry, GitChangeFile, GitStatus } from "@core/ports";
@@ -62,11 +58,8 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       { files: string[]; truncated: boolean } | { matches: FileEntry[] }
     > {
       const cwd = await completionCwd(scope);
-      const index = await deps.files.index(cwd);
-      if (query === "") return index;
-      return {
-        matches: filterFileEntries(buildEntriesFromFiles(index.files), query),
-      };
+      if (query === "") return deps.files.index(cwd);
+      return { matches: await deps.files.search(cwd, query, AT_RESULT_LIMIT) };
     },
 
     /** Immediate children for a path-like `@` query, containment enforced. */
@@ -199,7 +192,7 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       return deps.watcher.watch(path, handlers);
     },
 
-    /** The explorer's search box: files of the index, ranked. */
+    /** The explorer's search box: files of the whole listing, ranked. */
     async searchFiles(
       scope: FileScope,
       query: string,
@@ -210,9 +203,8 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       const cwd = await resolveScopeCwd(scope);
       if (cwd === "") return undefined;
       const status = await deps.git.status(cwd);
-      const index = await deps.files.index(cwd);
-      const entries = index.files.map((path) => ({ path, isDir: false }));
-      return { cwd, status, matches: filterFileEntries(entries, query, limit) };
+      const matches = await deps.files.search(cwd, query, limit, "files");
+      return { cwd, status, matches };
     },
   };
 }

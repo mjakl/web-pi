@@ -38,6 +38,7 @@
     "@types/web-push": "3.6.4",
     "@vitest/coverage-v8": "^5.0.3",
     "esbuild": "0.28.2",
+    "fzf": "0.5.2",
     "happy-dom": "20.14.5",
     "highlight.js": "11.12.0",
     "hono": "4.13.13",

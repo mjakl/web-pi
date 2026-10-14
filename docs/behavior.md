@@ -52,7 +52,11 @@ model or a second context formula.
 - Slash completion combines built-ins, extension commands, prompt templates, and
   skills. Commands that require idle state are refused while running.
 - `@` supports indexed project files, directory-by-directory path completion,
-  quoted paths, and line-range references.
+  quoted paths, and line-range references. Names are ranked with fzf's
+  algorithm, so an abbreviation can span folder and file names (`@rtcomp` finds
+  `src/web/routes/composer.tsx`). The browser filters the first **5,000** paths
+  itself and asks the server, which searches the whole listing (up to
+  **200,000** Git paths or **50,000** walked files), when a folder has more.
 - Attach up to **10 images, 10 MiB each**. Image drafts survive in-app
   navigation in memory, not a reload. Text drafts persist per session or
   new-session folder.

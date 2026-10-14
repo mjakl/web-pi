@@ -1,10 +1,10 @@
 import {
   type AtQuery,
   buildAtInsertText,
-  buildEntriesFromFiles,
   extractAtQuery,
   type FileEntry,
-  filterFileEntries,
+  type FileSearch,
+  fileSearch,
   isFilePathQuery,
 } from "@core/composer";
 import { catppuccinIcon } from "@core/file-types";
@@ -80,8 +80,11 @@ export function setUpAtCompletion(
   const textarea = () =>
     owner.querySelector<HTMLTextAreaElement>("#composer-text");
   let token: AtQuery | null = null;
-  let index: { files: string[]; truncated: boolean; loadedAt: number } | null =
-    null;
+  let index: {
+    search: FileSearch;
+    truncated: boolean;
+    loadedAt: number;
+  } | null = null;
   let indexLoad: Promise<void> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let search: AbortController | undefined;
@@ -128,12 +131,7 @@ export function setUpAtCompletion(
       : query === ""
         ? " · index truncated"
         : " · searching all files…";
-    menu.render(
-      renderEntries(
-        filterFileEntries(buildEntriesFromFiles(index.files), query),
-        hint,
-      ),
-    );
+    menu.render(renderEntries(index.search(query), hint));
   }
 
   /**
@@ -165,8 +163,9 @@ export function setUpAtCompletion(
         files?: string[];
         truncated?: boolean;
       };
+      // Prepared once per load: a keystroke only runs the query.
       index = {
-        files: body.files ?? [],
+        search: fileSearch(body.files ?? []),
         truncated: body.truncated ?? false,
         loadedAt: Date.now(),
       };

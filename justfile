@@ -25,14 +25,21 @@ update-pi:
 doctor:
     pnpm exec tsx scripts/doctor.ts
 
-# DEV: Start the server with reload plus the CSS and client-script watchers
+# DEV: Serve the sources on port 30143, restarting on source and asset changes
 dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export WEB_PI_PORT="${WEB_PI_PORT:-30143}"
     {{ esbuild-css }}
     {{ esbuild }} --sourcemap
-    node --watch --import tsx src/dev.ts & \
-    {{ esbuild }} --sourcemap --watch & \
-    {{ esbuild-css }} --watch; \
-    kill %1 %2
+    # Background jobs get a closed stdin, which stops a plain --watch.
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    {{ esbuild-css }} --watch=forever &
+    {{ esbuild }} --sourcemap --watch=forever &
+    # Asset URLs are hashed once at boot, so a rebuilt asset needs a restart.
+    # Watching any path turns off import tracking, so src is listed as well.
+    node --watch-path=src --watch-path=static/app.css \
+        --watch-path=static/client.js --import tsx src/dev.ts
 
 # DEV: Build the stylesheet once
 build-css:
@@ -46,9 +53,9 @@ build-js:
 build: update-pi doctor typecheck build-css build-js
     {{ esbuild-server }}
 
-# DEV: Start the built server, as the published bin does
+# DEV: Start the built server on port 30143, as the published bin does
 start: build
-    node bin/web-pi.js
+    WEB_PI_PORT="${WEB_PI_PORT:-30143}" node bin/web-pi.js
 
 # DOCS: Serve fictional screenshot sessions on an ephemeral loopback port
 screenshots: build

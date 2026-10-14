@@ -331,7 +331,7 @@ the restrictions on concurrent access to one session.
 After the checkout setup above:
 
 ```bash
-just dev              # http://127.0.0.1:30142, sources and asset watchers
+just dev              # http://127.0.0.1:30143, sources and asset watchers
 just qa               # format/fix, lint, typecheck, tests
 just ci               # refresh/build, non-fixing checks, installed-package smoke
 just test-one tests/web

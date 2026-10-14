@@ -752,9 +752,11 @@ composition root and the only importer of Pi adapters.
   placeholders that fetch their text when opened. The running turn applies the
   same budget to its finished messages, never to the partial one.
 - **Code fences keep their source and Copy action.** highlight.js is part of
-  `static/client.js` and colours settled code blocks (never the running turn,
-  whose text changes every frame). Unsupported languages, including Mermaid,
-  remain plain code; web-pi does not render diagrams.
+  `static/client.js` and colours settled code blocks, the running turn's
+  finished messages included, but never `#turn-live`, whose text changes every
+  frame. `hx-morph-skip` keeps a coloured block through later morphs.
+  Unsupported languages, including Mermaid, remain plain code; web-pi does not
+  render diagrams.
 - **One client bundle besides htmx.** `src/web/client/main.ts` (scroll-follow,
   theme, keyboard shortcuts) is bundled by esbuild into `static/client.js` and
   loaded as a module with a content hash in its URL. The only inline script is

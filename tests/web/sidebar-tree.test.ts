@@ -3,7 +3,7 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { describe, expect, it } from "vitest";
 import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
-import { parseHtml } from "#/web/helpers";
+import { parseHtml, requestFinished } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
 function session(id: string, parent?: string, age = 0): FakeStoredSession {
@@ -234,12 +234,12 @@ describe("sidebar tree with native HTMX", () => {
       expect(disclosure(b, "child").open).toBe(true);
       expect(b.document.querySelectorAll("#row-grandchild")).toHaveLength(1);
     }
+    const navigated = requestFinished(b.document, "/sessions/other");
     click(b, "#row-other a");
-    await expect
-      .poll(() =>
-        b.document.querySelector("main")?.getAttribute("data-session-id"),
-      )
-      .toBe("other");
+    await navigated;
+    expect(
+      b.document.querySelector("main")?.getAttribute("data-session-id"),
+    ).toBe("other");
     expect(disclosure(b, "parent").open).toBe(false);
     expect(disclosure(b, "child").open).toBe(false);
     expect(
@@ -257,12 +257,12 @@ describe("sidebar tree with native HTMX", () => {
     await expect
       .poll(() => b.document.querySelector("#row-pinned"))
       .not.toBeNull();
+    const navigated = requestFinished(b.document, "/sessions/root-1");
     click(b, "#row-root-1 a");
-    await expect
-      .poll(() =>
-        b.document.querySelector("main")?.getAttribute("data-session-id"),
-      )
-      .toBe("root-1");
+    await navigated;
+    expect(
+      b.document.querySelector("main")?.getAttribute("data-session-id"),
+    ).toBe("root-1");
     await b.window.eval(
       `htmx.ajax('GET', '/sidebar/rows?after=50&selected=pinned', {source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'})`,
     );
@@ -310,12 +310,12 @@ describe("sidebar tree with native HTMX", () => {
           ),
         )
         .toBe(true);
+      const navigated = requestFinished(b.document, "/sessions/root-1");
       click(b, "#row-root-1 a");
-      await expect
-        .poll(() =>
-          b.document.querySelector("main")?.getAttribute("data-session-id"),
-        )
-        .toBe("root-1");
+      await navigated;
+      expect(
+        b.document.querySelector("main")?.getAttribute("data-session-id"),
+      ).toBe("root-1");
       release();
       await b.window.eval("window.pendingPage");
       expect(b.document.querySelector("#row-root-54")).not.toBeNull();

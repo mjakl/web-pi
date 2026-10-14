@@ -25,7 +25,6 @@ import {
 import { required } from "#/web/helpers";
 import { htmxBrowser, page } from "#/web/htmx4-browser";
 
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -722,25 +721,17 @@ describe("production shell admission and persistence", () => {
       await expect
         .poll(() => control.operations.exec.mock.calls.length)
         .toBe(1);
-      const response = await Promise.race([
-        request,
-        pause(100).then(() => null),
-      ]);
-      expect(
-        response,
-        "response must not wait for shell completion",
-      ).not.toBeNull();
+      // The shell is still running, so a response that waited for it never comes.
+      const response = await request;
       const live = required(h.runtime.live()[0]);
       expect(
-        JSON.parse(required(response).headers.get("HX-Location") ?? "{}"),
+        JSON.parse(response.headers.get("HX-Location") ?? "{}"),
       ).toMatchObject({
         path: `/sessions/${live.id}`,
         target: "#session-region",
       });
-      expect(required(response).headers.get("HX-Trigger")).toContain(live.id);
-      expect(required(response).headers.get("X-Web-Pi-Submission")).toBe(
-        "accepted",
-      );
+      expect(response.headers.get("HX-Trigger")).toContain(live.id);
+      expect(response.headers.get("X-Web-Pi-Submission")).toBe("accepted");
       expect(live.snapshot().status.bashRunning).toBe(true);
       const browser = await composer(app, live.id);
       const button = required(
@@ -788,11 +779,8 @@ describe("production shell admission and persistence", () => {
       await expect
         .poll(() => control.operations.exec.mock.calls.length)
         .toBe(1);
-      const response = await Promise.race([
-        request,
-        pause(100).then(() => null),
-      ]);
-      expect(response).not.toBeNull();
+      // The shell is still running, so a response that waited for it never comes.
+      await request;
       const live = required(h.runtime.live()[0]);
       const browser = await composer(app, live.id);
       const draft = required(browser.document.querySelector("textarea"));

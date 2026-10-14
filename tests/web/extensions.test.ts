@@ -1,9 +1,12 @@
 import { createFakeWorld, userEntry } from "@adapters/fake/index";
 import type { DialogSpec, FrameComponent } from "@core/extension-ui";
+import type { LiveStatus } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import { until } from "#/adapters/pi-harness";
+import { required } from "#/web/helpers";
 
 const ARROW_UP = "\u001B[A";
 
@@ -74,10 +77,21 @@ function input(
   });
 }
 
-/** The scripted turn runs on timers; give it a tick to reach the dialog. */
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 30));
+/**
+ * The scripted turn runs on timers: wait until its status satisfies `ready`,
+ * checked now and at every event it emits. A finished turn has stopped
+ * running, and announced its completion in the same step.
+ */
+async function reached(
+  world: ReturnType<typeof testApp>["world"],
+  ready: (status: LiveStatus) => boolean,
+): Promise<void> {
+  await until(required(world.runtime.get("s1")), (snapshot) =>
+    ready(snapshot.status),
+  );
 }
+const waiting = (status: LiveStatus) => status.dialog !== null;
+const finished = (status: LiveStatus) => !status.running;
 
 function status(world: ReturnType<typeof testApp>["world"]) {
   const live = world.runtime.get("s1");
@@ -91,7 +105,7 @@ describe("extension dialogs", () => {
       { dialog: { method: "select", title: "Pick one", options: ["a", "b"] } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
 
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("Pick one");
@@ -106,7 +120,7 @@ describe("extension dialogs", () => {
       body,
     });
     expect(answered.status).toBe(200);
-    await settle();
+    await reached(world, finished);
     expect(status(world)?.dialog).toBeNull();
   });
 
@@ -115,7 +129,7 @@ describe("extension dialogs", () => {
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
 
     const answer = () => {
@@ -133,12 +147,12 @@ describe("extension dialogs", () => {
       { dialog: { method: "confirm", title: "Push?", message: "Sure?" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
     const body = new FormData();
     body.append("cancelled", "1");
     await app.request(`/sessions/s1/ui/${id}`, { method: "POST", body });
-    await settle();
+    await reached(world, finished);
     expect(status(world)?.dialog).toBeNull();
   });
 
@@ -147,14 +161,14 @@ describe("extension dialogs", () => {
       { dialog: { method: "editor", title: "Message" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
     const body = new FormData();
     // Leading spaces and the trailing newline are content in an editor, and
     // a select option with spaces has to match what the extension offered.
     body.append("value", "  keep\n  the newline\n");
     await app.request(`/sessions/s1/ui/${id}`, { method: "POST", body });
-    await settle();
+    await reached(world, finished);
     // (multipart normalises the line endings themselves; nothing is trimmed)
     const answered = status(world)?.notices[0]?.message ?? "";
     expect(answered).toContain('{"value":"  keep');
@@ -162,11 +176,11 @@ describe("extension dialogs", () => {
   });
 
   it("renders the editor dialog with its prefill", async () => {
-    const { app } = testApp(() => [
+    const { app, world } = testApp(() => [
       { dialog: { method: "editor", title: "Message", prefill: "Fix it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("<textarea");
     expect(page).toContain("Fix it");
@@ -180,11 +194,11 @@ describe("extension dialogs", () => {
   ] as const)(
     "puts the %s answer before cancel, so Enter answers",
     async (method, label) => {
-      const { app } = testApp(() => [
+      const { app, world } = testApp(() => [
         { dialog: { method, title: "Name it", options: ["Local preview"] } },
       ]);
       await send(app, "go");
-      await settle();
+      await reached(world, waiting);
       const page = await (await app.request("/sessions/s1")).text();
       const form = /<form[^>]*\/ui\/[\S\s]*?<\/form>/.exec(page)?.[0] ?? "";
       expect(form).not.toBe("");
@@ -201,7 +215,7 @@ describe("extension dialogs", () => {
   it("forwards keystrokes to the custom UI and redraws the frame", async () => {
     const { app, world } = testApp(() => [{ custom: counter() }]);
     await send(app, "go");
-    await settle();
+    await reached(world, (status) => status.custom !== null);
 
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("count 0");
@@ -227,7 +241,7 @@ describe("extension dialogs", () => {
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     expect(status(world)?.dialog).not.toBeNull();
     await app.request("/sessions/s1/stop", { method: "POST" });
     expect(world.runtime.get("s1")).toBeUndefined();
@@ -236,9 +250,12 @@ describe("extension dialogs", () => {
 
 describe("extension page bridge", () => {
   it("shows a title an extension set, for the browser tab", async () => {
-    const { app } = testApp(() => [{ title: "Reviewing" }, { text: "done" }]);
+    const { app, world } = testApp(() => [
+      { title: "Reviewing" },
+      { text: "done" },
+    ]);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain('id="extension-title"');
     expect(page).toContain("Reviewing");
@@ -251,7 +268,7 @@ describe("extension page bridge", () => {
     ]);
     const live = await world.runtime.open({ sessionId: "s1" });
     await live.prompt("go");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await until(live, (snapshot) => snapshot.status.editorText.length > 0);
     // A sidebar row reads the same session and must not swallow it.
     await workspace.row("s1");
     expect(live.snapshot().status.editorText).toEqual(["git log --oneline"]);
@@ -366,26 +383,26 @@ describe("web push routes", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     await report("another-session-on-phone", 1, true);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
     await report("settings-with-no-enrollment", 2, false);
     await send(app, "again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
     await report("another-session-on-phone", 2, false);
     await send(app, "away");
-    await settle();
+    await reached(world, finished);
     await send(app, "still away");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(1);
     await report("restored-page", 1, false);
     await send(app, "hidden load");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(1);
     await report("restored-page", 2, true);
     await report("restored-page", 3, false);
     await send(app, "away again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(2);
   });
 
@@ -431,11 +448,11 @@ describe("web push routes", () => {
     });
     const child = await world.runtime.open({ sessionId: "subagent.child" });
     await child.prompt("go");
-    await settle();
+    await until(child, (snapshot) => !snapshot.status.running);
     expect(world.push.sent).toEqual([]);
     const root = await world.runtime.open({ sessionId: "root" });
     await root.prompt("go");
-    await settle();
+    await until(root, (snapshot) => !snapshot.status.running);
     expect(world.push.sent).toHaveLength(1);
     expect(world.push.sent[0]?.url).toBe("/sessions/root");
   });
@@ -532,7 +549,7 @@ describe("web push routes", () => {
   it("pushes when a run finishes, and not when nobody subscribed", async () => {
     const { app, world } = testApp(() => [{ text: "done" }]);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
 
     await app.request("/push/subscribe", {
@@ -547,7 +564,7 @@ describe("web push routes", () => {
       }),
     });
     await send(app, "again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent.at(-1)).toMatchObject({
       title: "Stored one",
       body: "Task finished.",

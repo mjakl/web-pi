@@ -8,7 +8,7 @@ import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
 import { expect, it, onTestFinished, vi } from "vitest";
-import { required } from "#/web/helpers";
+import { nextEvent, required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 
@@ -262,12 +262,14 @@ it.each([false, true])(
         "Newly completed tool output",
       ),
     );
+    // The saved check swaps a changed transcript, then says so on the log.
+    const log = required(document.querySelector("#log"));
+    let refreshed = nextEvent(log, "web-pi:saved-after");
     await browser.advanceTime(2000);
-    await expect
-      .poll(() => document.querySelector("#tool-pending-call")?.textContent, {
-        timeout: 4000,
-      })
-      .toContain("Newly completed tool output");
+    await refreshed;
+    expect(document.querySelector("#tool-pending-call")?.textContent).toContain(
+      "Newly completed tool output",
+    );
     expect(document.querySelectorAll("#messages .message-row")).toHaveLength(
       itemCount,
     );
@@ -279,12 +281,12 @@ it.each([false, true])(
         100,
       ),
     );
+    refreshed = nextEvent(log, "web-pi:saved-after");
     await browser.advanceTime(2000);
-    await expect
-      .poll(() => document.querySelector("#entry-completed")?.textContent, {
-        timeout: 4000,
-      })
-      .toContain("Completed answer");
+    await refreshed;
+    expect(document.querySelector("#entry-completed")?.textContent).toContain(
+      "Completed answer",
+    );
     expect(
       document
         .querySelector(
@@ -327,7 +329,6 @@ it.each([false, true])(
       expect(document.querySelector("#messages [hx-post]")).toBeNull();
     }
   },
-  10000,
 );
 
 it("uses fresh streams for repeated ownership and resumes saved observation after each stop", async () => {
@@ -423,7 +424,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
     .toContain("External question two");
   expect(f.open).not.toHaveBeenCalled();
   expect(sessionStreams()).toHaveLength(2);
-}, 10000);
+});
 
 it("resets a saved window absent from the owned branch without losing pending notices", async () => {
   const f = fixture(false, [
@@ -456,7 +457,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   expect(browser.document.querySelector("#toasts")?.textContent).not.toContain(
     "Live updates failed",
   );
-}, 10000);
+});
 
 it("returns to saved observation when ownership ends before the stream connects", async () => {
   const f = fixture(false, [userEntry("u1", null, "Saved question")]);
@@ -496,7 +497,7 @@ it("returns to saved observation when ownership ends before the stream connects"
     )
     .toContain("External answer after race");
   expect(f.open).not.toHaveBeenCalled();
-}, 10000);
+});
 
 it.each(["initial", "reconnect"])(
   "recovers a missed stop on %s from the rendered branch without losing history or accepting a rewind",
@@ -791,7 +792,6 @@ it.each(["initial", "reconnect"])(
     expect(availableModels).not.toHaveBeenCalled();
     expect(thinking).not.toHaveBeenCalled();
   },
-  15000,
 );
 
 it("observes an empty saved session and keeps its last good content when the file disappears", async () => {
@@ -844,4 +844,4 @@ it("observes an empty saved session and keeps its last good content when the fil
   );
   expect(f.open).not.toHaveBeenCalled();
   expect(f.models).not.toHaveBeenCalled();
-}, 10000);
+});

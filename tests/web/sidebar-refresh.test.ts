@@ -36,15 +36,13 @@ it("discovers stored external sessions on initial connection and real SSE reconn
   const second = controlledStream();
   let connections = 0;
   const b = await htmxBrowser(
-    markup.replace(
-      'hx-sse:connect="/events"',
-      'hx-sse:connect="/events" hx-config="sse.reconnectDelay:1 sse.reconnectJitter:0"',
-    ),
+    markup,
     (request) => {
       if (new URL(request.url).pathname === "/events")
         return ++connections === 1 ? first.response : second.response;
       return app.request(request);
     },
+    { instantReconnect: true },
   );
   const owner = b.document.querySelector("#sidebar-events");
   const nav = b.document.querySelector("#session-nav");

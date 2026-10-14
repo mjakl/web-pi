@@ -21,8 +21,6 @@ const client = buildSync({
 
 export type Transport = (request: Request) => Promise<Response> | Response;
 
-const realSetTimeout = globalThis.setTimeout;
-
 /**
  * Separate JS realm: no tests/client/setup.ts and no fake HTMX object. The
  * page closes itself when the test finishes, after any afterEach hook.
@@ -33,6 +31,8 @@ export async function htmxBrowser(
   options: {
     clientAfterHtmx?: boolean;
     clock?: boolean;
+    /** Reconnect a dropped stream at once, not after htmx's 350–650 ms. */
+    instantReconnect?: boolean;
     afterMarkup?: (window: Window) => void;
   } = {},
 ) {
@@ -144,29 +144,40 @@ export async function htmxBrowser(
   window.eval(
     `document.getElementById = id => id ? document.querySelector('#' + CSS.escape(id)) : null`,
   );
+  // HTMX initializes by processing the body once.
   let htmxProcessed = false;
-  window.document.addEventListener(
-    "htmx:after:process",
-    () => {
-      htmxProcessed = true;
-    },
-    { once: true },
-  );
+  const initialized = new Promise<void>((resolve) => {
+    window.document.addEventListener(
+      "htmx:after:process",
+      () => {
+        htmxProcessed = true;
+        resolve();
+      },
+      { once: true },
+    );
+  });
   for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
     window.eval(readFileSync(resolve(process.cwd(), path.slice(1)), "utf8"));
   }
+  if (options.instantReconnect)
+    window.eval(
+      "htmx.config.sse = {...htmx.config.sse, reconnectDelay: 0, reconnectJitter: 0}",
+    );
+  // A written document is past loading, so HTMX initializes from setTimeout.
+  const initialize = async () => {
+    if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    await initialized;
+  };
   if (options.clientAfterHtmx) {
     window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-    await new Promise((resolve) => realSetTimeout(resolve, 10));
-    // HTMX may defer initialization with setTimeout instead of waiting for DCL.
-    if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    await initialize();
   }
   const htmxProcessedBeforeClient = htmxProcessed;
   window.eval(client);
-  if (!options.clientAfterHtmx)
+  if (!options.clientAfterHtmx) {
     window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-  await new Promise((resolve) => realSetTimeout(resolve, 10));
-  if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    await initialize();
+  }
   return {
     window,
     document: window.document,
@@ -174,6 +185,8 @@ export async function htmxBrowser(
     htmxProcessedBeforeClient,
     advanceTime: async (milliseconds: number) => {
       if (!options.clock) throw new Error("Browser clock is not enabled");
+      // A test that timed out runs on; it must not move the next test's clock.
+      if (closed) throw new Error("The browser is closed");
       await vi.advanceTimersByTimeAsync(milliseconds);
     },
     close,

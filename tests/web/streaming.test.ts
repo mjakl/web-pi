@@ -5,7 +5,13 @@ import type {
   HTMLTextAreaElement,
 } from "happy-dom";
 import { expect, it } from "vitest";
-import { required } from "#/web/helpers";
+import {
+  flushPromises,
+  nextEvent,
+  reconnected,
+  requestFinished,
+  required,
+} from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { streamingFixture } from "#/web/fixtures/streaming";
 import { disconnectable } from "#/web/fixtures/disconnect";
@@ -66,27 +72,37 @@ async function liveFrameBytes(f: Awaited<ReturnType<typeof streamingFixture>>) {
     await reader.cancel();
   }
 }
+/** The session page, which reconnects at once, and its first live frame. */
 async function open(
   f: Awaited<ReturnType<typeof streamingFixture>>,
   markup?: string,
   transport = (request: Request) => f.app.request(request),
 ) {
-  return htmxBrowser(
+  let firstFrame: Promise<unknown> | undefined;
+  const browser = await htmxBrowser(
     markup ?? (await (await f.app.request(`/sessions/${f.id}`)).text()),
     (request) =>
       new URL(request.url).pathname === "/events"
         ? new Response("")
         : transport(request),
+    {
+      instantReconnect: true,
+      afterMarkup: (window) => {
+        firstFrame = nextEvent(window.document, "htmx:sse:after:message");
+      },
+    },
   );
+  return { ...browser, firstFrame: required(firstFrame) };
 }
 
 it.each(["decoration", "models"] as const)(
   "captures pending events before awaited %s and delivers later events in the next live view",
   async (phase) => {
     const f = await streamingFixture();
-    const { document } = await open(f);
+    const { document, firstFrame } = await open(f);
     await expect.poll(() => f.subscribers).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Only the next render may meet the blocked step, not the initial one.
+    await firstFrame;
 
     const entered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
@@ -556,11 +572,14 @@ it("retries a failed deferred request when the card is reopened", async () => {
   const card = required(
     document.querySelector<HTMLDetailsElement>("#tool-call-rich-ordinary"),
   );
+  const failed = requestFinished(
+    document,
+    required(card.querySelector(".tool-result")?.getAttribute("hx-get")),
+  );
   openDetails(card);
-  await expect.poll(() => attempts).toBe(1);
-  await expect.poll(() => card.querySelector(".htmx-request")).toBeNull();
+  await failed;
+  expect(attempts).toBe(1);
   toggleDetails(card);
-  await new Promise((resolve) => setTimeout(resolve, 10));
   toggleDetails(card);
   await expect.poll(() => card.textContent).toContain("ordinary-output-body:");
   expect(attempts).toBe(2);
@@ -573,8 +592,10 @@ it("keeps completed tools lazy through SSE reconnect and fetches on later open",
   const transport = disconnectable((request) => f.app.request(request));
   const { document, requests } = await open(f, undefined, transport.request);
   await expect.poll(() => transport.connections.length).toBe(1);
+  const reconnect = reconnected(required(document.querySelector("main")));
   required(transport.connections[0]).disconnect();
-  await expect.poll(() => transport.connections.length).toBe(2);
+  await reconnect;
+  expect(transport.connections).toHaveLength(2);
   expect(document.body.textContent).not.toContain("ordinary-output-body:");
   expect(toolRequests(requests, "call-rich-ordinary")).toHaveLength(0);
 
@@ -623,9 +644,9 @@ it("recovers a canonical answer settled between page render and initial subscrip
 it("keeps an opened completed tool and fetched full output while another message streams", async () => {
   const f = await streamingFixture();
   f.runningTools();
-  const { document } = await open(f);
+  const { document, firstFrame } = await open(f);
   await expect.poll(() => f.subscribers).toBe(1);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await firstFrame;
   const card = required(
     document.querySelector<HTMLDetailsElement>('[data-tool="read"]'),
   );
@@ -735,15 +756,18 @@ it.each([0, 1, 3, 30])(
     await expect
       .poll(() => document.querySelector("#entry-a41")?.textContent)
       .toContain("already delivered");
+    const reconnect = reconnected(required(document.querySelector("main")));
     required(transport.connections[0]).disconnect();
     for (let i = 0; i < missed; i += 1)
       f.finish(`missed answer ${String(i)}`, false);
     // Also cover reconnection to an active newer turn, not only an empty idle tail.
     if (missed > 1) f.runningTools();
-    await expect.poll(() => transport.connections.length).toBe(2);
-    await expect
-      .poll(() => document.querySelector(`#entry-a${String(41 + missed)}`))
-      .not.toBeNull();
+    // One reconciliation frame carries the missed turns, the tail and status.
+    await reconnect;
+    expect(transport.connections).toHaveLength(2);
+    expect(
+      document.querySelector(`#entry-a${String(41 + missed)}`),
+    ).not.toBeNull();
     expect(
       required(transport.connections[1]).request.headers.get("Last-Event-ID"),
     ).toBe("settled=a41");
@@ -755,9 +779,9 @@ it.each([0, 1, 3, 30])(
     expect(document.querySelector("#entry-u1")).toBe(oldest);
     expect(document.querySelector(".load-earlier")).toBeNull();
     expect(log.scrollTop).toBe(500);
-    await expect
-      .poll(() => document.querySelector("#status [data-running]") !== null)
-      .toBe(missed > 1);
+    expect(document.querySelector("#status [data-running]") !== null).toBe(
+      missed > 1,
+    );
     expect(done).toBe(0);
   },
 );
@@ -787,13 +811,30 @@ it("recovers settlement during the native initial 500ms subscription retry gap",
   const f = await streamingFixture();
   f.runningTools();
   let attempts = 0;
-  const { document } = await open(f, undefined, (request) => {
-    if (new URL(request.url).pathname.endsWith("/events") && ++attempts === 1) {
-      f.finish("finished during retry", false);
-      return Promise.resolve(new Response("busy", { status: 503 }));
-    }
-    return f.app.request(request);
-  });
+  let failed: Promise<unknown> | undefined;
+  const { document, advanceTime } = await htmxBrowser(
+    await (await f.app.request(`/sessions/${f.id}`)).text(),
+    (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/events") return new Response("");
+      if (path.endsWith("/events") && ++attempts === 1) {
+        f.finish("finished during retry", false);
+        return new Response("busy", { status: 503 });
+      }
+      return f.app.request(request);
+    },
+    {
+      clock: true,
+      afterMarkup: (window) => {
+        failed = requestFinished(window.document, `/sessions/${f.id}/events`);
+      },
+    },
+  );
+  // The retry is scheduled when the failed attempt finishes.
+  await failed;
+  await advanceTime(499);
+  expect(attempts).toBe(1);
+  await advanceTime(1);
   await expect
     .poll(() => document.querySelector("#entry-a1")?.textContent)
     .toContain("finished during retry");
@@ -806,12 +847,18 @@ it.each(["disconnect", "body replacement"])(
   async (action) => {
     const f = await streamingFixture();
     const transport = disconnectable((request) => f.app.request(request));
-    const { document, window } = await open(f, undefined, transport.request);
+    const { document, window, firstFrame } = await open(
+      f,
+      undefined,
+      transport.request,
+    );
     await expect.poll(() => f.subscribers).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Only the next render may be held, not the initial one.
+    await firstFrame;
     const original = f.workspace.viewSession;
     const blocked = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
+    const returned = Promise.withResolvers<undefined>();
     let delay = true;
     f.workspace.viewSession = async (...args) => {
       const view = await original(...args);
@@ -819,11 +866,19 @@ it.each(["disconnect", "body replacement"])(
         delay = false;
         blocked.resolve(undefined);
         await release.promise;
+        returned.resolve(undefined);
       }
       return view;
     };
     f.finish("delayed old answer");
     await blocked.promise;
+    const answered = nextEvent(document, "htmx:sse:after:message", () =>
+      Boolean(
+        document
+          .querySelector("#entry-a2")
+          ?.textContent?.includes("new canonical answer"),
+      ),
+    );
     if (action === "disconnect")
       required(transport.connections[0]).disconnect();
     else
@@ -839,12 +894,12 @@ it.each(["disconnect", "body replacement"])(
         `htmx.swap({target:document.body,sourceElement:document.body,text:${JSON.stringify(body)},swap:'innerHTML'})`,
       );
     }
-    await expect.poll(() => transport.connections.length).toBe(2);
-    await expect
-      .poll(() => document.querySelector("#entry-a2")?.textContent)
-      .toContain("new canonical answer");
+    await answered;
+    expect(transport.connections).toHaveLength(2);
     release.resolve(undefined);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await returned.promise;
+    // The old stream's render resumes with promise work only.
+    await flushPromises();
     expect(document.querySelectorAll("#entry-a1")).toHaveLength(1);
     expect(document.querySelectorAll("#entry-a2")).toHaveLength(1);
     expect(document.querySelector("#turn")?.textContent).toContain(

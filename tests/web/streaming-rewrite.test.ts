@@ -1,6 +1,11 @@
 import type { HTMLButtonElement } from "happy-dom";
 import { expect, it, vi } from "vitest";
-import { required } from "#/web/helpers";
+import {
+  nextEvent,
+  reconnected,
+  requestFinished,
+  required,
+} from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 import { rewritableSession } from "#/web/fixtures/rewritable-session";
@@ -17,6 +22,7 @@ it.each([false, true])(
         new URL(request.url).pathname === "/events"
           ? new Response("")
           : transport.request(request),
+      { instantReconnect: true },
     );
     const { document, window } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
@@ -33,6 +39,11 @@ it.each([false, true])(
       `htmx.ajax('GET', ${JSON.stringify(earlier)}, {target:'.load-earlier',swap:'outerHTML'})`,
     );
     expect(document.querySelector("#entry-u11")).not.toBeNull();
+    const reset = nextEvent(
+      owner,
+      "htmx:sse:after:message",
+      () => document.querySelector("#log") !== oldLog,
+    );
     if (disconnected) required(transport.connections[0]).disconnect();
     // The response goes to the other tab; only this tab's SSE can update its DOM.
     const changed = await f.app.request(`/sessions/${f.id}/navigate`, {
@@ -40,9 +51,7 @@ it.each([false, true])(
       body: new URLSearchParams({ entryId: "a30" }),
     });
     expect(changed.status).toBe(200);
-    await expect
-      .poll(() => document.querySelector("#log") !== oldLog)
-      .toBe(true);
+    await reset;
     expect(document.querySelector("main")).toBe(owner);
     const rail = required(document.querySelector("#rail-column"));
     expect(rail).not.toBe(oldRail);
@@ -61,21 +70,24 @@ it.each([false, true])(
       expect(
         required(transport.connections[1]).request.headers.get("Last-Event-ID"),
       ).toBe("settled=a60");
+    const done = nextEvent(document.body, "done");
     await f.workspace.send(f.id, "continue after rewrite");
-    await expect
-      .poll(() => document.querySelector("#messages")?.textContent)
-      .toContain("Reply after rewrite");
-    await expect
-      .poll(() => document.querySelector("#status [data-running]"))
-      .toBeNull();
+    // Completion is announced after the turn's final frame.
+    await done;
+    expect(document.querySelector("#messages")?.textContent).toContain(
+      "Reply after rewrite",
+    );
+    expect(document.querySelector("#status [data-running]")).toBeNull();
     const answer = required(
       document.querySelector(
         "#messages .turn:last-child [data-role=assistant]",
       ),
     );
     const count = transport.connections.length;
+    const reconnect = reconnected(owner);
     required(transport.connections.at(-1)).disconnect();
-    await expect.poll(() => transport.connections.length).toBe(count + 1);
+    await reconnect;
+    expect(transport.connections).toHaveLength(count + 1);
     expect(document.querySelector("#log")).toBe(log);
     expect(document.querySelector("#rail-column")).toBe(rail);
     expect(document.querySelectorAll(`#${answer.id}`)).toHaveLength(1);
@@ -98,31 +110,22 @@ it.each(["u31", "u1"])(
         new URL(request.url).pathname === "/events"
           ? new Response("")
           : transport.request(request),
+      { instantReconnect: true },
     );
-    const { document, window } = browser;
+    const { document } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
     // A response body exists before async inspection checks finish. This case
     // must stop an already-subscribed runtime to exercise reconnection.
     await expect.poll(() => subscribed.mock.calls.length).toBe(1);
     subscribed.mockRestore();
-    const owner = document.querySelector("main");
+    const owner = required(document.querySelector("main"));
     const oldLog = document.querySelector("#log");
-    const reconnected = window.eval(`new Promise(resolve => {
-      const owner = document.querySelector('main');
-      let connected = false;
-      const connectionReady = event => {
-        if (!event.detail.connection.lastEventId) return;
-        connected = true;
-        owner.removeEventListener('htmx:sse:after:connection', connectionReady);
-      };
-      owner.addEventListener('htmx:sse:after:connection', connectionReady);
-      const rendered = event => {
-        if (!connected || event.detail.message.event) return;
-        owner.removeEventListener('htmx:sse:after:message', rendered);
-        resolve();
-      };
-      owner.addEventListener('htmx:sse:after:message', rendered);
-    })`) as Promise<void>;
+    const reset = nextEvent(
+      owner,
+      "htmx:sse:after:message",
+      () => document.querySelector("#log") !== oldLog,
+    );
+    const reconnect = reconnected(owner);
     expect(
       (
         await f.app.request(`/sessions/${f.id}/rewind`, {
@@ -131,9 +134,7 @@ it.each(["u31", "u1"])(
         })
       ).status,
     ).toBe(200);
-    await expect
-      .poll(() => document.querySelector("#log") !== oldLog)
-      .toBe(true);
+    await reset;
     expect(document.querySelector("main")).toBe(owner);
     expect(document.querySelector("#entry-a60")).toBeNull();
     expect(document.querySelector("#turn")?.textContent).toBe("");
@@ -147,27 +148,29 @@ it.each(["u31", "u1"])(
         document.querySelector(".load-earlier")?.getAttribute("hx-get"),
       ).toContain("before=u6");
     }
-    // DOM replacement can precede stream EOF and the jittered reconnect delay.
-    await expect
-      .poll(() => transport.connections.length, { timeout: 5000 })
-      .toBe(2);
+    // DOM replacement can precede stream EOF and the reconnection. Response
+    // creation is not readiness; finish the reconnect's initial frame.
+    await reconnect;
+    expect(transport.connections).toHaveLength(2);
     expect(
       required(transport.connections[1]).request.headers.get("Last-Event-ID"),
     ).not.toBeNull();
-    // Response creation is not readiness; finish the reconnect's initial frame.
-    await reconnected;
+    const done = nextEvent(document.body, "done");
     await f.workspace.send(f.id, "continue from the rewritten branch");
-    await expect
-      .poll(() => document.querySelector("#messages")?.textContent)
-      .toContain("Reply after rewrite");
+    await done;
+    expect(document.querySelector("#messages")?.textContent).toContain(
+      "Reply after rewrite",
+    );
     const log = document.querySelector("#log");
     const answer = required(
       document.querySelector(
         "#messages .turn:last-child [data-role=assistant]",
       ),
     );
+    const again = reconnected(owner);
     required(transport.connections.at(-1)).disconnect();
-    await expect.poll(() => transport.connections.length).toBe(3);
+    await again;
+    expect(transport.connections).toHaveLength(3);
     expect(document.querySelector("#log")).toBe(log);
     expect(document.querySelectorAll(`#${answer.id}`)).toHaveLength(1);
   },
@@ -204,12 +207,16 @@ it("restores the rewound prompt when SSE replaces history before the action resp
       '#entry-u51 [hx-post$="/rewind"]',
     ),
   );
+  const reset = nextEvent(
+    required(document.querySelector("main")),
+    "htmx:sse:after:message",
+    () => document.querySelector("#log") !== oldLog,
+  );
+  const rewound = requestFinished(document, `/sessions/${f.id}/rewind`);
   try {
     button.click();
     const pending = await responseHeld.promise;
-    await expect
-      .poll(() => document.querySelector("#log") !== oldLog)
-      .toBe(true);
+    await reset;
     expect(document.querySelector("#entry-u51")).toBeNull();
     expect(document.querySelector("#entry-a60")).toBeNull();
     expect(document.querySelector("#entry-a50")).not.toBeNull();
@@ -217,9 +224,8 @@ it("restores the rewound prompt when SSE replaces history before the action resp
   } finally {
     release.resolve(undefined);
   }
-  await expect
-    .poll(() => document.querySelector("#composer") !== oldComposer)
-    .toBe(true);
+  await rewound;
+  expect(document.querySelector("#composer")).not.toBe(oldComposer);
   expect(document.querySelector("textarea")?.value).toBe("Question 51");
   expect(f.world.runtime.get(f.id)?.snapshot().status.running).toBe(false);
   expect(
@@ -257,11 +263,14 @@ it("aborts the old owner's pending history request and rejects its late content 
     `void htmx.ajax('GET', ${JSON.stringify(earlier)}, {source:document.querySelector('.load-earlier'),target:'.load-earlier',swap:'outerHTML'}).finally(()=>window.earlierFinished=true)`,
   );
   await expect.poll(() => pending !== undefined).toBe(true);
+  const reset = nextEvent(
+    required(document.querySelector("main")),
+    "htmx:sse:after:message",
+    () => document.querySelector("#log") !== oldLog,
+  );
   try {
     await f.workspace.navigateTree(f.id, "a30");
-    await expect
-      .poll(() => document.querySelector("#log") !== oldLog)
-      .toBe(true);
+    await reset;
     expect(required(pending).signal.aborted).toBe(true);
   } finally {
     release.resolve(undefined);

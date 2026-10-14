@@ -11,7 +11,6 @@ import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
 type Browser = Awaited<ReturnType<typeof htmxBrowser>>;
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function fixture() {
   const world = createFakeWorld({
@@ -151,12 +150,14 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
       });
       expect(area(browser).value).toBe(text);
       expect(notices(browser)).toMatch(/folder|Prompt rejected|Usage/);
-      await pause(350);
-      expect(
-        browser.window.localStorage.getItem(
-          `web-pi:draft:${fresh ? "new:/repo" : "s1"}`,
-        ),
-      ).toBe(text);
+      // The debounced draft save is the page's last delayed work.
+      await expect
+        .poll(() =>
+          browser.window.localStorage.getItem(
+            `web-pi:draft:${fresh ? "new:/repo" : "s1"}`,
+          ),
+        )
+        .toBe(text);
       if (image) await expectImage(image);
       expect(posts(browser)).toHaveLength(1);
     },
@@ -175,7 +176,10 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
     expect(notices(browser)).toContain(
       "Check the conversation before sending again",
     );
-    await pause(350);
+    // The debounced draft save is the page's last delayed work.
+    await expect
+      .poll(() => browser.window.localStorage.getItem("web-pi:draft:s1"))
+      .toBe("possibly accepted");
     expect(posts(browser)).toHaveLength(1);
   });
 
@@ -196,8 +200,8 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
       }),
     );
     pending.resolve(undefined);
+    // A queued repeat would be issued as the first request ends, before this.
     await done;
-    await pause(30);
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(posts(browser)).toHaveLength(1);
   });

@@ -8,7 +8,8 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
-import { parseHtml } from "#/web/helpers";
+import { until } from "#/adapters/pi-harness";
+import { parseHtml, required } from "#/web/helpers";
 
 function renderedHtml(html: string): string {
   const document = parseHtml(html);
@@ -191,7 +192,7 @@ describe("web app", () => {
   });
 
   it("renders a pending extension request in its dialog panel", async () => {
-    const { app } = testApp({
+    const { app, world } = testApp({
       script: () =>
         [
           {
@@ -202,7 +203,11 @@ describe("web app", () => {
     const body = new FormData();
     body.set("text", "go");
     await app.request("/sessions/s1/prompt", { method: "POST", body });
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // The scripted turn reaches its dialog on a timer.
+    await until(
+      required(world.runtime.get("s1")),
+      (snapshot) => snapshot.status.dialog !== null,
+    );
     const page = await (await app.request("/sessions/s1")).text();
     const dialog = page.slice(page.indexOf('class="extension-dialog"'));
     expect(dialog).toContain("extension request");

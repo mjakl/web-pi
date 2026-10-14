@@ -4,7 +4,7 @@ import { createWebApp } from "@web/app";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 import type { HTMLButtonElement, HTMLInputElement } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { required } from "#/web/helpers";
+import { nextEvent, required } from "#/web/helpers";
 import { controlledStream, htmxBrowser, page } from "#/web/htmx4-browser";
 
 afterEach(() => {
@@ -616,9 +616,9 @@ describe("shipped HTMX 4 with the real browser client", () => {
     const first = controlledStream();
     const second = controlledStream();
     let connections = 0;
-    const { window, document, requests } = await htmxBrowser(
+    const { window, document, requests, advanceTime } = await htmxBrowser(
       page(
-        `<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-config="sse.reconnectDelay:1 sse.reconnectJitter:0" hx-swap="none"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
+        `<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
       ),
       (request) => {
         const path = new URL(request.url).pathname;
@@ -633,14 +633,26 @@ describe("shipped HTMX 4 with the real browser client", () => {
         expect(path).toBe("/events");
         return ++connections === 1 ? first.response : second.response;
       },
+      // The suite's one test of htmx's real retry timing; others reconnect at once.
+      { clock: true },
     );
     await eventually(() => {
       expect(
         window.eval("document.getElementById('live')._htmx?.sse?.status"),
       ).toBe(200);
     });
+    // The extension picks the retry delay and sets its timer as this fires.
+    const retrying = nextEvent(
+      required(document.getElementById("live")),
+      "htmx:sse:before:connection",
+    );
     first.send("payload", "checkpoint", "42");
     first.end();
+    await retrying;
+    // 500 ms with up to 30% jitter either way: never before 350 ms, always by 650.
+    await advanceTime(349);
+    expect(connections).toBe(1);
+    await advanceTime(301);
     await eventually(() => {
       expect(connections).toBe(2);
     });
@@ -668,7 +680,8 @@ describe("shipped HTMX 4 with the real browser client", () => {
     await eventually(() => {
       expect(message).toBe("visible again");
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Past any retry delay, so a dropped stream would have reconnected.
+    await advanceTime(1000);
     expect(connections).toBe(2);
     expect(second.cancelled).toBe(false);
     required(document.querySelector<HTMLButtonElement>("#remove")).click();
@@ -678,7 +691,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
     await eventually(() => {
       expect(second.cancelled).toBe(true);
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await advanceTime(1000);
     expect(connections).toBe(2);
   });
 });

@@ -329,9 +329,6 @@
   overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
-.extension-widget-triggers::-webkit-scrollbar {
-  display: none;
-}
 .extension-widget-trigger {
   position: relative;
   display: flex;

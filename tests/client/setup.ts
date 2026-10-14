@@ -8,9 +8,11 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { device, FakeAudioContext, installFakeHtmx } from "./helpers.ts";
 
 // --- Popover API (absent from happy-dom 20) --------------------------------
-// Only what the modules observe: the toggle events, with their `newState`.
+// Only what the modules observe: the toggle events, with their `newState`,
+// and `document.querySelector(":popover-open")`. happy-dom matches nothing
+// for that pseudo-class, so an open popover carries an attribute instead.
 
-const openPopovers = new WeakSet<HTMLElement>();
+const POPOVER_OPEN = "data-fake-popover-open";
 
 function toggleEvent(type: "beforetoggle" | "toggle", open: boolean): Event {
   return Object.assign(
@@ -23,10 +25,9 @@ function toggleEvent(type: "beforetoggle" | "toggle", open: boolean): Event {
 }
 
 function setPopover(element: HTMLElement, open: boolean): void {
-  if (openPopovers.has(element) === open) return;
+  if (element.hasAttribute(POPOVER_OPEN) === open) return;
   element.dispatchEvent(toggleEvent("beforetoggle", open));
-  if (open) openPopovers.add(element);
-  else openPopovers.delete(element);
+  element.toggleAttribute(POPOVER_OPEN, open);
   element.dispatchEvent(toggleEvent("toggle", open));
 }
 
@@ -38,8 +39,21 @@ Object.assign(HTMLElement.prototype, {
     setPopover(this, false);
   },
   togglePopover(this: HTMLElement, force?: boolean): boolean {
-    setPopover(this, force ?? !openPopovers.has(this));
-    return openPopovers.has(this);
+    setPopover(this, force ?? !this.hasAttribute(POPOVER_OPEN));
+    return this.hasAttribute(POPOVER_OPEN);
+  },
+});
+
+// The global `Document` is not the class the page's document inherits from,
+// so the document itself gets the replacement.
+// eslint-disable-next-line typescript/unbound-method, typescript/no-deprecated -- called below with `this` and a string, whose overload is not deprecated
+const { querySelector } = document;
+Object.assign(document, {
+  querySelector(this: Document, selector: string): Element | null {
+    return querySelector.call(
+      this,
+      selector.replaceAll(":popover-open", `[${POPOVER_OPEN}]`),
+    );
   },
 });
 

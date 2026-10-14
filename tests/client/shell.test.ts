@@ -196,7 +196,11 @@ describe("shortcuts", () => {
   const LIST =
     '<main data-session-id="s1"></main><div id="session-list">' +
     '<a href="/sessions/s1">1</a><a href="/sessions/s2">2</a></div>' +
-    '<textarea id="composer-text"></textarea>';
+    '<form id="composer" data-session-id="s1"><textarea id="composer-text"></textarea></form>';
+  const PANELS =
+    '<div id="top-bar"><button type="button" data-top-panel="stats" aria-pressed="false"></button></div>' +
+    '<div id="top-panel" hidden></div>' +
+    '<div id="row-menu" popover="auto"></div>';
 
   it("opens a new session on Ctrl+K", async () => {
     await load(LIST);
@@ -218,6 +222,42 @@ describe("shortcuts", () => {
     document.body.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
     keydown(document.body, "Escape");
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("closes an open top panel or popover first, and only then aborts", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load(LIST + PANELS);
+    click(query('[data-top-panel="stats"]'));
+    keydown(document.body, "Escape");
+    expect(byId("top-panel").hidden).toBe(true);
+    // The browser closes a popover after the key's listeners have run.
+    byId("row-menu").showPopover();
+    keydown(document.body, "Escape");
+    expect(fetch).not.toHaveBeenCalled();
+    byId("row-menu").hidePopover();
+    keydown(document.body, "Escape");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/sessions/s1/abort", {
+      method: "POST",
+    });
+  });
+
+  it("does not abort for a top panel mounted after the shortcuts", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load(LIST);
+    // A navigation swaps the bar in later, so the panel hears keys last.
+    document.body.insertAdjacentHTML("beforeend", PANELS);
+    htmxEvent(document.body, "htmx:after:process");
+    click(query('[data-top-panel="stats"]'));
+    keydown(document.body, "Escape");
+    expect(byId("top-panel").hidden).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing from a page without a composer", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load('<main data-session-id="s1"></main>');
+    keydown(document.body, "Escape");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

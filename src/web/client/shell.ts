@@ -209,7 +209,10 @@ function mountTopPanels(host: HTMLElement, signal: AbortSignal): void {
   document.addEventListener(
     "keydown",
     (event) => {
-      if (event.key === "Escape" && !host.hidden) close();
+      if (event.key !== "Escape" || host.hidden) return;
+      // Handled, or the shortcut would stop the turn as well.
+      event.preventDefault();
+      close();
     },
     { signal },
   );
@@ -223,14 +226,28 @@ function inTextEntry(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * What Escape closes before it may stop the turn. The browser closes a
+ * dialog or popover only after the key's listeners have run, and a panel
+ * mounted after the shortcuts hears the key after them.
+ */
+function somethingOpen(): boolean {
+  return (
+    dialogOpen() ||
+    document.querySelector("#top-panel:not([hidden]), :popover-open") !== null
+  );
+}
+
 function setUpShortcuts(): void {
   document.addEventListener("keydown", (event) => {
-    // Escape inside a field is the composer's: it closes a menu first, and
-    // an open dialog owns it outright, or closing the picker would abort the
-    // turn behind it.
+    // Escape inside a field is the composer's: it closes a menu first.
     if (event.key === "Escape") {
-      if (dialogOpen()) return;
-      if (!event.defaultPrevented && !inTextEntry(event.target)) abortTurn();
+      if (
+        !event.defaultPrevented &&
+        !inTextEntry(event.target) &&
+        !somethingOpen()
+      )
+        abortTurn();
       return;
     }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {

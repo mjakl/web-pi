@@ -67,7 +67,10 @@ const ACTIONS: Record<Action, { shape: string; label: string; title: string }> =
 let altHeld = false;
 
 export function abortTurn(): void {
-  const id = document.querySelector("main")?.getAttribute("data-session-id");
+  // Only a page with a composer can run a turn: an inspection-only or other
+  // read-only page names its session too, and would only be refused.
+  const id =
+    document.querySelector<HTMLElement>("#composer")?.dataset["sessionId"];
   if (id) void fetch(`/sessions/${id}/abort`, { method: "POST" });
 }
 

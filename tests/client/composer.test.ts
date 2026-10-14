@@ -195,6 +195,21 @@ describe("sending", () => {
       method: "POST",
     });
   });
+
+  it("leaves Escape in the textarea to an open top panel", async () => {
+    const fetch = mockFetch(() => text(""));
+    page();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div id="system-panel" class="shell-top-panel" popover="auto"></div>',
+    );
+    const { setUpComposer } = await load();
+    setUpComposer();
+    byId("system-panel").showPopover();
+    // The browser closes the popover after the key's listeners have run.
+    expect(keydown(area(), "Escape").defaultPrevented).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("the primary button", () => {

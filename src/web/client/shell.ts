@@ -5,7 +5,7 @@
 
 import { baseName } from "@core/file-types";
 import { setUpRegion } from "./lifecycle.ts";
-import { abortTurn } from "./composer.ts";
+import { abortTurn, somethingOpen } from "./composer.ts";
 import { dialogOpen, setUpDialogs } from "./dialogs.ts";
 import { setUpExtensions } from "./extensions.ts";
 import { setUpNotifications } from "./notify.ts";
@@ -154,14 +154,6 @@ function setUpTopPanels(): void {
       .querySelector(`[popovertarget="${panel.id}"]`)
       ?.toggleAttribute("data-panel-loaded", loaded);
   });
-}
-
-/**
- * What Escape closes before it may stop the turn: the browser closes a dialog
- * or popover only after the key's listeners have run, so it is still open.
- */
-function somethingOpen(): boolean {
-  return dialogOpen() || document.querySelector(":popover-open") !== null;
 }
 
 function setUpShortcuts(): void {

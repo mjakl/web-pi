@@ -8,6 +8,7 @@ import {
 } from "@core/composer";
 import { skillSelections } from "@core/skill-prompt";
 import { setUpAtCompletion } from "./at-complete.ts";
+import { dialogOpen } from "./dialogs.ts";
 import { draftKey, setUpDrafts } from "./drafts.ts";
 import type { HtmxRequestCtx } from "htmx.org";
 import {
@@ -50,6 +51,14 @@ const ACTIONS: Record<ComposerAction, { label: string; title: string }> = {
 
 /** Alt turns steer into follow-up while it is down, as pi-web does. */
 let altHeld = false;
+
+/**
+ * What Escape closes before it may stop the turn: the browser closes a dialog
+ * or popover only after the key's listeners have run, so it is still open.
+ */
+export function somethingOpen(): boolean {
+  return dialogOpen() || document.querySelector(":popover-open") !== null;
+}
 
 export function abortTurn(): void {
   // Only a page with a composer can run a turn: an inspection-only or other
@@ -420,7 +429,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
         submit(event.altKey ? "followUp" : "steer");
         return;
       }
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !somethingOpen()) {
         event.preventDefault();
         abortTurn();
       }

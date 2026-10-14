@@ -618,18 +618,22 @@ describe("web push store", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it("persists VAPID keys privately and keeps them across restarts", () => {
+  it("persists VAPID keys privately once and keeps them across restarts", () => {
     const directory = agentDir();
-    const first = createWebPushNotifier({ agentDir: directory }).publicKey();
+    const path = join(directory, "web-pi", "push.json");
+    const notifier = createWebPushNotifier({ agentDir: directory });
+    const first = notifier.publicKey();
     expect(first).not.toBe("");
     expect(stored(directory).vapidKeys.publicKey).toBe(first);
-    expect(statSync(join(directory, "web-pi", "push.json")).mode & 0o777).toBe(
-      0o600,
-    );
-    // A second process reads the same keys rather than minting new ones.
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const saved = statSync(path).ino;
+    // Reading the key again, here or in a second process that reads the
+    // same keys rather than minting new ones, writes nothing.
+    expect(notifier.publicKey()).toBe(first);
     expect(createWebPushNotifier({ agentDir: directory }).publicKey()).toBe(
       first,
     );
+    expect(statSync(path).ino).toBe(saved);
   });
 
   it("upserts a subscription by endpoint", () => {

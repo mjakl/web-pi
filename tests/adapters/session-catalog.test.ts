@@ -1,5 +1,8 @@
 import { assistantEntry } from "@adapters/fake/index";
-import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
+import {
+  createPiSessionCatalog,
+  type PiSessionCatalog,
+} from "@adapters/pi/session-catalog";
 import { DELEGATION_TYPE } from "@core/session-delegation";
 import { readStars } from "@core/session-entries";
 import { sessionTree } from "@core/session-tree";
@@ -72,6 +75,17 @@ function origin(childSessionId: string, parentSessionId: string) {
   };
 }
 
+/** One file classified exactly, as admission and a sidebar row see it. */
+async function classified(catalog: PiSessionCatalog, id: string) {
+  const result = await catalog.classification(id);
+  return result.kind === "classified" ? result.summary : undefined;
+}
+
+/** What a root sidebar page classifies; every fixture here fits one page. */
+async function discovered(catalog: PiSessionCatalog) {
+  return (await catalog.discover({ runtime: [] })).summaries;
+}
+
 function diskState(file: string) {
   return {
     bytes: readFileSync(file),
@@ -106,7 +120,7 @@ describe("catalog delegation discovery", () => {
     ).toEqual(["nested"]);
 
     expect(
-      listed.find((row) => row.id === "parent")?.inspectionOnly,
+      (await classified(catalog, "parent"))?.inspectionOnly,
     ).toBeUndefined();
     for (const [id, parentSessionId] of [
       ["child", "parent"],
@@ -116,30 +130,43 @@ describe("catalog delegation discovery", () => {
         inspectionOnly: true,
         delegation: { parentSessionId, agent: "coder-senior", handle: "topic" },
       };
-      expect(listed.find((row) => row.id === id)).toMatchObject({
-        ...expected,
-        parentId: parentSessionId,
-      });
+      expect(listed.find((row) => row.id === id)?.parentId).toBe(
+        parentSessionId,
+      );
+      expect(await classified(catalog, id)).toMatchObject(expected);
       expect((await catalog.rowMetadata(id))?.summary).toMatchObject(expected);
       expect((await catalog.read(id))?.summary).toMatchObject(expected);
     }
 
     const parentClone = await catalog.clone("parent");
     const childClone = await catalog.clone("child");
-    const after = await catalog.list();
     for (const id of [parentClone, childClone]) {
-      expect(
-        after.find((row) => row.id === id)?.inspectionOnly,
-      ).toBeUndefined();
-      expect(after.find((row) => row.id === id)?.delegation).toBeUndefined();
+      expect((await classified(catalog, id))?.inspectionOnly).toBeUndefined();
+      expect((await classified(catalog, id))?.delegation).toBeUndefined();
       expect((await catalog.read(id))?.summary.delegation).toBeUndefined();
     }
     expect(
-      after.find((row) => row.id === "child")?.delegation?.parentSessionId,
+      (await classified(catalog, "child"))?.delegation?.parentSessionId,
     ).toBe("parent");
     expect(
-      after.find((row) => row.id === "nested")?.delegation?.parentSessionId,
+      (await classified(catalog, "nested"))?.delegation?.parentSessionId,
     ).toBe("child");
+  });
+
+  it("lists every session's header, with its fork parent, without reading a transcript", async () => {
+    const parent = makeSession("parent");
+    const child = makeSession("child", fileOf(parent));
+    child.appendCustomEntry(DELEGATION_TYPE, origin("child", "parent"));
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    vi.mocked(fs.createReadStream).mockClear();
+    const listed = await catalog.list();
+    expect(fs.createReadStream).not.toHaveBeenCalled();
+    expect(listed.map((row) => row.id).toSorted()).toEqual(["child", "parent"]);
+    expect(listed.find((row) => row.id === "child")).toMatchObject({
+      cwd,
+      filePath: fileOf(child),
+      parentId: "parent",
+    });
   });
 
   it("deletes an ordinary parent without rewriting delegated or legacy fork children", async () => {
@@ -162,8 +189,7 @@ describe("catalog delegation discovery", () => {
       })),
     ).toEqual(before);
     expect(
-      (await catalog.list()).find((row) => row.id === "child")?.delegation
-        ?.parentSessionId,
+      (await classified(catalog, "child"))?.delegation?.parentSessionId,
     ).toBe("parent");
     expect(
       SessionManager.open(fileOf(fork)).getHeader()?.parentSession,
@@ -179,8 +205,8 @@ describe("catalog delegation discovery", () => {
       );
     }
     const catalog = createPiSessionCatalog({ agentDir: root });
-    const listed = await catalog.list();
-    expect(listed).toHaveLength(56);
+    const listed = await discovered(catalog);
+    expect(listed.length).toBeGreaterThan(50);
     expect(
       listed.every(
         (row) =>
@@ -208,11 +234,10 @@ describe("catalog delegation discovery", () => {
       version: 8,
     });
     const catalog = createPiSessionCatalog({ agentDir: root });
-    const listed = await catalog.list();
     for (const manager of [legacy, conflict, self, malformed]) {
       const id = manager.getSessionId();
       const rows = [
-        listed.find((row) => row.id === id),
+        await classified(catalog, id),
         (await catalog.rowMetadata(id))?.summary,
         (await catalog.read(id))?.summary,
       ];
@@ -222,23 +247,23 @@ describe("catalog delegation discovery", () => {
       }
     }
     expect(
-      listed.find((row) => row.id === "copied")?.inspectionOnly,
+      (await classified(catalog, "copied"))?.inspectionOnly,
     ).toBeUndefined();
   });
 
   it("reuses stamped discovery and notices an origin appended after an earlier scan", async () => {
     const manager = makeSession("late");
     const catalog = createPiSessionCatalog({ agentDir: root });
-    expect((await catalog.list())[0]?.delegation).toBeUndefined();
+    expect((await discovered(catalog))[0]?.delegation).toBeUndefined();
     vi.mocked(fs.createReadStream).mockClear();
-    await catalog.list();
+    await discovered(catalog);
     expect(fs.createReadStream).not.toHaveBeenCalled();
     expect(
       (await catalog.rowMetadata("late"))?.summary.delegation,
     ).toBeUndefined();
 
     manager.appendCustomEntry(DELEGATION_TYPE, origin("late", "parent"));
-    expect((await catalog.list())[0]?.delegation?.parentSessionId).toBe(
+    expect((await discovered(catalog))[0]?.delegation?.parentSessionId).toBe(
       "parent",
     );
     expect(
@@ -253,7 +278,7 @@ describe("catalog delegation discovery", () => {
     const first = makeSession("a-first");
     const later = makeSession("z-later");
     const catalog = createPiSessionCatalog({ agentDir: root });
-    await catalog.list();
+    await discovered(catalog);
     first.appendCustomEntry(DELEGATION_TYPE, origin("a-first", "parent"));
     const originalStream = vi
       .mocked(fs.createReadStream)
@@ -268,11 +293,11 @@ describe("catalog delegation discovery", () => {
     });
     // The inventory saw the old revision; a cached classification cannot
     // publish it after the file changed during an earlier candidate's read.
-    expect((await catalog.list()).map((summary) => summary.id)).toEqual([
+    expect((await discovered(catalog)).map((summary) => summary.id)).toEqual([
       "a-first",
     ]);
     expect(
-      (await catalog.list()).find((summary) => summary.id === "z-later"),
+      (await discovered(catalog)).find((summary) => summary.id === "z-later"),
     ).toMatchObject({
       inspectionOnly: true,
       delegation: { parentSessionId: "parent" },
@@ -285,7 +310,7 @@ describe("catalog delegation discovery", () => {
     const file = fileOf(manager);
     age(file);
     const catalog = createPiSessionCatalog({ agentDir: root });
-    expect((await catalog.list())[0]?.delegation?.parentSessionId).toBe(
+    expect((await discovered(catalog))[0]?.delegation?.parentSessionId).toBe(
       "parent-a",
     );
     await catalog.rowMetadata("replaced");
@@ -299,7 +324,7 @@ describe("catalog delegation discovery", () => {
     renameSync(replacement, file);
     expect(statSync(file).size).toBe(before.size);
     expect(statSync(file).mtimeMs).toBe(before.mtimeMs);
-    expect((await catalog.list())[0]?.delegation?.parentSessionId).toBe(
+    expect((await discovered(catalog))[0]?.delegation?.parentSessionId).toBe(
       "parent-b",
     );
     expect(

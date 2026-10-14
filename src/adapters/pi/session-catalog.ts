@@ -358,18 +358,6 @@ export function createPiSessionCatalog(options: {
     }
   }
 
-  async function scan(): Promise<SessionSummary[]> {
-    const summaries: SessionSummary[] = [];
-    // Freeze at most the existing cache capacity. Early misses must not evict
-    // later hits from the same scan when the inventory exceeds that capacity.
-    const scanCache = new Map(delegations);
-    for (const { header, summary } of await inventory()) {
-      const classified = await classifyFile(header, summary, scanCache);
-      if (classified) summaries.push(classified);
-    }
-    return summaries;
-  }
-
   async function pathOf(id: string): Promise<string | undefined> {
     if (!isSessionId(id)) return undefined;
     if (!paths.has(id)) await inventory();
@@ -450,9 +438,13 @@ export function createPiSessionCatalog(options: {
   }
 
   return {
-    list: scan,
+    async list() {
+      return (await inventory()).map((file) => file.summary);
+    },
     classification,
     async discover(options) {
+      // Freeze at most the existing cache capacity. Early misses must not
+      // evict later hits from the same scan when the inventory exceeds it.
       const scanCache = new Map(delegations);
       const files = await inventory();
       const bySummary = new Map(

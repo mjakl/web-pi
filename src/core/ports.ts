@@ -63,7 +63,7 @@ export type SavedSessionRead =
 
 /** Pi's session files: read without starting an agent, and edited in place. */
 export type SessionCatalog = {
-  /** Headers plus stamped, streamed delegation metadata; no retained transcripts. */
+  /** Header summaries, with `parentId`, of every readable file; no transcript is read. */
   list(): Promise<SessionSummary[]>;
   /** Priority-certified root prefix; never returns unclassified headers. */
   discover(options: SessionDiscoveryOptions): Promise<SessionDiscovery>;

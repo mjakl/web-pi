@@ -8,8 +8,13 @@ import {
   type SessionHeader,
 } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
+import { closeSync, fstatSync, openSync, readSync, type Stats } from "node:fs";
 import { open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+
+const HEADER_MAX_BYTES = 8192;
+/** readSessionHeader is synchronous, so one buffer serves every file. */
+const headerBuffer = Buffer.alloc(HEADER_MAX_BYTES);
 
 export function fileStamp(info: {
   size: number;
@@ -41,6 +46,46 @@ export function sessionHeader(value: unknown): SessionHeader | undefined {
     return undefined;
   }
   return header as SessionHeader;
+}
+
+export function isFileReadError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "syscall" in error &&
+    (error.syscall === "open" ||
+      error.syscall === "read" ||
+      error.syscall === "stat" ||
+      error.syscall === "fstat")
+  );
+}
+
+/**
+ * A session file's header and the stat of the file it came from, reading no
+ * further than the first 8 KiB. Undefined when the file cannot be read or does
+ * not start with a valid header line.
+ */
+export function readSessionHeader(
+  filePath: string,
+): { header: SessionHeader; info: Stats } | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(filePath, "r");
+    const info = fstatSync(fd);
+    const bytes = readSync(fd, headerBuffer, 0, HEADER_MAX_BYTES, 0);
+    const buffer = headerBuffer.subarray(0, bytes);
+    const newline = buffer.indexOf(10);
+    if (newline < 0 && info.size > bytes) return undefined;
+    const header = sessionHeader(
+      JSON.parse(buffer.subarray(0, newline < 0 ? bytes : newline).toString()),
+    );
+    return header && { header, info };
+  } catch (error) {
+    if (error instanceof SyntaxError || isFileReadError(error))
+      return undefined;
+    throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function legacyEntryId(entry: SessionEntry, index: number): string {

@@ -33,6 +33,7 @@ vi.mock("node:fs", async (importOriginal) => {
   return {
     ...actual,
     createReadStream: vi.fn(actual.createReadStream),
+    readFileSync: vi.fn(actual.readFileSync),
     renameSync: vi.fn(actual.renameSync),
     writeFileSync: vi.fn(actual.writeFileSync),
   };
@@ -153,6 +154,21 @@ describe("session file edits", () => {
     ).toBeUndefined();
     expect(readFileSync(file, "utf8").split("\n").slice(1)).toEqual(
       entriesBefore,
+    );
+  });
+
+  it("reads only the deleted session's children past their header line", () => {
+    const parent = makeSession(["parent"]);
+    const child = fileOf(
+      makeSession(["child"], { parentSession: fileOf(parent) }),
+    );
+    for (const text of ["unrelated", "also unrelated"]) makeSession([text]);
+    vi.mocked(fs.readFileSync).mockClear();
+
+    removeSessionFile(fileOf(parent));
+
+    expect(vi.mocked(fs.readFileSync).mock.calls.map(([path]) => path)).toEqual(
+      [child],
     );
   });
 

@@ -22,13 +22,7 @@ import {
   estimateTokens,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  closeSync,
-  createReadStream,
-  fstatSync,
-  openSync,
-  readSync,
-} from "node:fs";
+import { createReadStream } from "node:fs";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -36,6 +30,8 @@ import { createInterface } from "node:readline";
 import { exportSessionHtml } from "./session-export.ts";
 import {
   fileStamp,
+  isFileReadError,
+  readSessionHeader,
   readSessionSnapshot,
   resolveSnapshotEntryId,
   sessionHeader,
@@ -52,10 +48,7 @@ import {
 // expansion classifies the parent's creation window and concrete ancestry.
 // Neither retains transcript bodies.
 
-const HEADER_MAX_BYTES = 8192;
 const METADATA_CACHE_MAX = 4096;
-/** readHeader is synchronous, so one buffer serves every file of a scan. */
-const headerBuffer = Buffer.alloc(HEADER_MAX_BYTES);
 
 type Header = {
   id: string;
@@ -77,48 +70,21 @@ function cacheFile<T>(cache: Map<string, T>, filePath: string, value: T): void {
 }
 
 function readHeader(filePath: string): Header | undefined {
-  let fd: number | undefined;
-  try {
-    fd = openSync(filePath, "r");
-    const info = fstatSync(fd);
-    const bytes = readSync(fd, headerBuffer, 0, HEADER_MAX_BYTES, 0);
-    const buffer = headerBuffer.subarray(0, bytes);
-    const newline = buffer.indexOf(10);
-    if (newline < 0 && info.size > bytes) return undefined;
-    const header = sessionHeader(
-      JSON.parse(buffer.subarray(0, newline < 0 ? bytes : newline).toString()),
-    );
-    if (!header) return undefined;
-    return {
-      id: header.id,
-      cwd: header.cwd,
-      timestamp: header.timestamp,
-      ...(typeof header.parentSession === "string" &&
-      isAbsolute(header.parentSession)
-        ? { parentSession: header.parentSession }
-        : {}),
-      modifiedAt: info.mtime.toISOString(),
-      fileSize: info.size,
-      stamp: fileStamp(info),
-    };
-  } catch (error) {
-    if (error instanceof SyntaxError || isFileReadError(error))
-      return undefined;
-    throw error;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
-}
-
-function isFileReadError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "syscall" in error &&
-    (error.syscall === "open" ||
-      error.syscall === "read" ||
-      error.syscall === "stat" ||
-      error.syscall === "fstat")
-  );
+  const read = readSessionHeader(filePath);
+  if (!read) return undefined;
+  const { header, info } = read;
+  return {
+    id: header.id,
+    cwd: header.cwd,
+    timestamp: header.timestamp,
+    ...(typeof header.parentSession === "string" &&
+    isAbsolute(header.parentSession)
+      ? { parentSession: header.parentSession }
+      : {}),
+    modifiedAt: info.mtime.toISOString(),
+    fileSize: info.size,
+    stamp: fileStamp(info),
+  };
 }
 
 /**

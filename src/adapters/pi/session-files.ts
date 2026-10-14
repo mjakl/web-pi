@@ -23,6 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { readSessionHeader } from "./session-snapshot.ts";
 
 // Direct edits to Pi's session JSONL, with web-pi custom entries for stars
 // and rewind markers. Pi's SessionManager does every append; only delete and
@@ -37,28 +38,13 @@ function jsonl(entries: readonly FileEntry[]): string {
   return entries.map((entry) => `${JSON.stringify(entry)}\n`).join("");
 }
 
-function headerOf(filePath: string): SessionHeader | undefined {
-  try {
-    const contents = readFileSync(filePath, "utf8");
-    const end = contents.indexOf("\n");
-    const parsed: unknown = JSON.parse(
-      end < 0 ? contents : contents.slice(0, end),
-    );
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const header = parsed as SessionHeader;
-    return header.type === "session" ? header : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Re-attach a session's children to its own parent before it is deleted, so a
  * fork chain survives a delete in the middle. Only the header line of each
  * child is rewritten; every entry line is preserved verbatim.
  */
 export function reparentChildren(filePath: string): void {
-  const newParent = headerOf(filePath)?.parentSession;
+  const newParent = readSessionHeader(filePath)?.header.parentSession;
   const target = pathKey(filePath);
   const directory = dirname(filePath);
   let files: string[];
@@ -71,7 +57,7 @@ export function reparentChildren(filePath: string): void {
     const child = join(directory, name);
     if (pathKey(child) === target) continue;
     try {
-      const header = headerOf(child);
+      const header = readSessionHeader(child)?.header;
       if (!header?.parentSession) continue;
       if (pathKey(header.parentSession) !== target) continue;
       const contents = readFileSync(child, "utf8");

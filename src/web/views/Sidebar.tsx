@@ -29,9 +29,10 @@ import {
   StoppedRingIcon,
 } from "./icons.tsx";
 
-// The sidebar: pi-web's header block, workspace pill, session rows and
-// explorer section (components/SessionSidebar.tsx §3.1, SessionItem.tsx §3.4,
-// ProjectFolderGroup.tsx §3.3). Presentation lives in areas/sidebar.css.
+// The sidebar: pi-web's header block, session rows and explorer section
+// (components/SessionSidebar.tsx, SessionItem.tsx). Presentation lives in
+// areas/sidebar.css. The folder picker further down (ProjectFolderGroup.tsx)
+// is not sidebar content: only the blank composer renders it.
 
 export type Row = { summary: SessionSummary; metadata: SessionRowMetadata };
 

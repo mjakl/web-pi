@@ -116,7 +116,7 @@ export function currentSessionId(c: Context): string | undefined {
     : undefined;
 }
 
-/** Only an https endpoint with both keys can receive an encrypted payload. */
+/** A text field without surrounding whitespace; a missing one is empty. */
 export function field(form: FormData, name: string): string {
   return rawField(form, name).trim();
 }

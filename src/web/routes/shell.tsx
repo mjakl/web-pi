@@ -1,8 +1,8 @@
-import { isPushPresence, isPushSubscription } from "@core/push";
-import { webSettingsPatch } from "@core/web-settings";
 // Pages, the top-bar panels, settings, extension dialogs, trust, push,
 // and the installable-app files. The shell area owns this module.
 
+import { isPushPresence, isPushSubscription } from "@core/push";
+import { webSettingsPatch } from "@core/web-settings";
 import {
   CWD_COOKIE,
   SESSION_COOKIE,

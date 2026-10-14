@@ -54,13 +54,14 @@ function setUpCompletion(): void {
 }
 
 /**
- * A run that finished in another session: the tone belongs to it too, because
- * the whole point of leaving a session running is not having to watch it. The
- * sidebar stream already reports every finished session; the unread handler
- * skips the one on screen, and so does this.
+ * A run that completed in another session: the tone belongs to it too,
+ * because the whole point of leaving a session running is not having to
+ * watch it. The sidebar stream reports completions by the same rule as the
+ * session stream's `done`, so a shell command, a failed prompt or an abort
+ * stays quiet. The one on screen already rang through `done`.
  */
 function setUpBackgroundCompletion(): void {
-  document.body.addEventListener("finished", (event) => {
+  document.body.addEventListener("completed", (event) => {
     const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
     if (typeof text !== "string") return;
     let finished: { id?: string } = {};

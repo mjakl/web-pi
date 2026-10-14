@@ -315,11 +315,14 @@ discovery certifies the root prefix before pagination; transcript bodies are not
 retained for the list. The runtime announces `started` only when it becomes
 busy, not for every token. A named `finished` event carries the session id,
 which the browser records as an unread dot in `localStorage`, including for rows
-that have not loaded yet. The list and its small `#sidebar-events` owner live in
-`#session-nav` and survive conversation and directory navigation. No cookie or
-query scopes the stream. Row selection is projected from the displayed `main` on
-processing and settlement, including paginated rows, star responses and stream
-updates.
+that have not loaded yet. A named `completed` event carries the id of a run that
+completed by the run-completion rule, so a shell command, a failed prompt or an
+abort sends none; the browser plays the completion tone for it unless the
+session is on screen, whose own stream already sent `done`. The list and its
+small `#sidebar-events` owner live in `#session-nav` and survive conversation
+and directory navigation. No cookie or query scopes the stream. Row selection is
+projected from the displayed `main` on processing and settlement, including
+paginated rows, star responses and stream updates.
 
 The browser also refreshes the list every 30 seconds while visible, on sidebar
 SSE connection or reconnection, and on visibility return or window focus. Return
@@ -402,8 +405,8 @@ that owner: every htmx request names the displayed session, or none, in
 `X-Web-Pi-Session`, and only a full page load falls back to its referrer and the
 `web-pi-session` cookie. Only a mounted blank new-session view commits the
 directory preference, so canceled responses and old-session navigation cannot
-change it.
-The notice shelf uses native `hx-preserve` across region replacements.
+change it. The notice shelf uses native `hx-preserve` across region
+replacements.
 
 Text drafts remain keyed by session or `new:<cwd>`, debounced for 300 ms and
 flushed on owner departure and `pagehide`. File drafts stay in per-key memory;

@@ -198,3 +198,61 @@ it("refreshes the global list without changing the blank draft or selected direc
     b.document.querySelector("#sidebar-events")?.getAttribute("hx-sse:connect"),
   ).toBe("/events");
 });
+
+it("sends finished for every turn and completed only for a completed run", async () => {
+  const world = createFakeWorld({
+    delayMs: 1,
+    sessions: [
+      {
+        summary: {
+          id: "s1",
+          cwd: "/s1",
+          name: "s1",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          modifiedAt: "2026-09-01T00:00:00.000Z",
+          fileSize: 0,
+        },
+        entries: [],
+      },
+    ],
+  });
+  const workspace = createWorkspace(world);
+  const app = createWebApp({
+    workspace,
+    defaultCwd: "/",
+    staticRoot: "static",
+  });
+  const reader = (await app.request("/events")).body?.getReader();
+  if (!reader) throw new Error("Missing event stream");
+  const decoder = new TextDecoder();
+  let received = "";
+  const named = () =>
+    [...received.matchAll(/^event: (\w+)\ndata: (.*)$/gm)].map(
+      ([, name, data]) => `${String(name)} ${String(data)}`,
+    );
+  const until = async (count: number) => {
+    while (named().length < count) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error("Event stream ended");
+      received += decoder.decode(chunk.value, { stream: true });
+    }
+  };
+  try {
+    await workspace.send("s1", "hello");
+    await until(2);
+    await workspace.runBash("s1", "ls", false);
+    await until(3);
+    await workspace.send("s1", "again");
+    await until(5);
+    expect(named()).toEqual([
+      'finished {"id":"s1"}',
+      'completed {"id":"s1"}',
+      // The shell command finished the turn but completed no run.
+      'finished {"id":"s1"}',
+      'finished {"id":"s1"}',
+      'completed {"id":"s1"}',
+    ]);
+  } finally {
+    await reader.cancel();
+  }
+});

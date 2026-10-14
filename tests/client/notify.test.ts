@@ -31,16 +31,25 @@ describe("completion feedback", () => {
 
   it("plays for another session's completion, not twice for this one", async () => {
     await load();
-    const finished = (id: string) =>
-      htmxEvent(byId("sidebar-stream"), "finished", {
-        data: JSON.stringify({ id, project: "/repo/one" }),
+    const completed = (id: string) =>
+      htmxEvent(byId("sidebar-stream"), "completed", {
+        data: JSON.stringify({ id }),
       });
-    finished("s1");
+    completed("s1");
     expect(FakeAudioContext.played).toBe(0);
-    finished("s2");
+    completed("s2");
     expect(FakeAudioContext.played).toBe(2);
-    htmxEvent(byId("sidebar-stream"), "finished", { data: "not json" });
+    htmxEvent(byId("sidebar-stream"), "completed", { data: "not json" });
     expect(FakeAudioContext.played).toBe(2);
+  });
+
+  it("stays quiet for another session's turn that only finished", async () => {
+    await load();
+    // A shell command, a failed prompt or an abort: the dot, not the tone.
+    htmxEvent(byId("sidebar-stream"), "finished", {
+      data: JSON.stringify({ id: "s2" }),
+    });
+    expect(FakeAudioContext.played).toBe(0);
   });
 
   it.each(["default", "granted", "denied"])(

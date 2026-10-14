@@ -190,22 +190,27 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  /** Lifecycle changes can change ordering across every directory. */
+  /**
+   * Lifecycle changes can change ordering across every directory. A finished
+   * turn also marks its row unread; a completed run, by the run-completion
+   * rule, is what rings another tab's tone, and changes nothing in the list.
+   */
   app.get("/events", (c) =>
     streamSSE(c, async (stream) => {
       let queue: Promise<void> = Promise.resolve();
       const send = (event: RuntimeEvent) => {
-        if (event.type === "completed") return;
         queue = queue
           .then(async () => {
-            await stream.writeSSE({
-              data: await html(
-                <SessionList view={await sidebarOf()} partial />,
-              ),
-            });
-            if (event.type === "finished") {
+            if (event.type !== "completed") {
               await stream.writeSSE({
-                event: "finished",
+                data: await html(
+                  <SessionList view={await sidebarOf()} partial />,
+                ),
+              });
+            }
+            if (event.type === "finished" || event.type === "completed") {
+              await stream.writeSSE({
+                event: event.type,
                 data: JSON.stringify({ id: event.sessionId }),
               });
             }

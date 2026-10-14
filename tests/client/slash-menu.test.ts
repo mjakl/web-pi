@@ -93,6 +93,19 @@ describe("leading skill completion", () => {
     expect(byId("slash-menu").hidden).toBe(true);
   });
 
+  it.each([
+    ["an error page", () => text("Internal Server Error", 500)],
+    ["an empty answer", () => text("")],
+  ])("keeps the menu closed for %s", async (_, answer) => {
+    const { menu, fetch } = await setup();
+    fetch.mockImplementation(() => Promise.resolve(answer()));
+    draft("/skill:fi");
+    await open(menu);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(byId("slash-menu").hidden).toBe(true);
+    expect(byId("slash-menu").textContent).toBe("");
+  });
+
   it("drops a lookup when the caret moves into request text before its reply", async () => {
     let reply: ((value: Response) => void) | undefined;
     const { menu, fetch } = await setup();

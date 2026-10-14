@@ -66,9 +66,11 @@ export function setUpSlashMenu(
     fetch(endpoints.commands(query), {
       signal: controller.signal,
     })
-      .then((response) => response.text())
+      // An error page or an empty answer is not a menu.
+      .then((response) => (response.ok ? response.text() : ""))
       .then((html) => {
         if (
+          html.trim() === "" ||
           signal?.aborted ||
           controller.signal.aborted ||
           slashCompletionQuery(

@@ -385,9 +385,11 @@ binding is never registered, and its open rejects with
 `Session stopped during startup.` Extension work that ignores cancellation and
 does not await UI can still delay a stop. `AgentRuntime.open` locks a session
 before its first await, so two concurrent opens cannot start two writers on one
-file, and reopens a stopping session only after its stop finished. Delete and
-rewind likewise wait for a stop already under way before they touch the file.
-Server shutdown stops every live session the same way.
+file, and reopens a stopping session only after its stop finished; a stop that
+has not finished within 10 seconds fails the open with
+`Cannot reopen a session that is still stopping.` Delete and rewind likewise
+wait for a stop already under way before they touch the file. Server shutdown
+stops every live session the same way.
 
 `runBash()` resolves when the session admits the command, before it finishes, so
 a new session can show its URL and Stop control at once; later failures arrive

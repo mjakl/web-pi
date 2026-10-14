@@ -315,6 +315,35 @@ describe("opening", () => {
     await done;
   });
 
+  it("gives up reopening a session whose stop does not finish", async () => {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", () => shutdown.wait);
+        },
+      ],
+    });
+    const first = await h.open();
+    h.script(reply("answer"));
+    const done = next(first, "turn_done");
+    await first.prompt("question");
+    await done;
+    const stopping = first.stop();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const reopening = expect(h.open({ sessionId: first.id })).rejects.toThrow(
+        "Cannot reopen a session that is still stopping.",
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      await reopening;
+    } finally {
+      vi.useRealTimers();
+      shutdown.open();
+      await stopping;
+    }
+  });
+
   it("resumes a persisted session and coalesces concurrent opens", async () => {
     h = await createHarness();
     const first = await h.open();

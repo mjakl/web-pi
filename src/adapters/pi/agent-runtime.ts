@@ -844,6 +844,34 @@ async function persistStartup(
 /** Abandoned drafts are shut down; a session with a file on disk is not. */
 const DRAFT_IDLE_MS = 10 * 60 * 1000;
 
+/**
+ * How long a reopen waits for the previous runtime's stop. The `exec` Pi
+ * gives extensions allows a cancelled command 5 seconds between SIGTERM and
+ * SIGKILL; twice that leaves room for the abort and the last writes.
+ */
+const STOP_WAIT_MS = 10_000;
+
+/** Whether `work` settles, either way, within `ms`. */
+async function settlesWithin(
+  work: Promise<unknown>,
+  ms: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(resolve, ms, false);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function createPiAgentRuntime(options: {
   agentDir: string;
   catalog: PiSessionCatalog;
@@ -1002,8 +1030,11 @@ export function createPiAgentRuntime(options: {
       // arrive together both pass this point and start two sessions on one file.
       const promise = (async () => {
         // A stopping runtime still writes its last entries; its successor
-        // opens the file only once it is done.
-        await existing?.stop().catch(() => {});
+        // opens the file only once it is done. A stop can hang on an
+        // extension's session_shutdown or a tool that ignores the abort, and
+        // then the caller is told so rather than left waiting.
+        if (existing && !(await settlesWithin(existing.stop(), STOP_WAIT_MS)))
+          throw new Error("Cannot reopen a session that is still stopping.");
         const filePath = await options.catalog.pathOf(target.sessionId);
         if (!filePath) throw new Error(`Unknown session ${target.sessionId}`);
         return start(SessionManager.open(filePath));

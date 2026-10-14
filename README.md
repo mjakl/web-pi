@@ -17,7 +17,7 @@ are shared across browsers. Browsing saved history does not start an agent.
 
 [Install and run](#install-and-run) ·
 [Explore the interface](#explore-the-interface) ·
-[Migration and deployment](docs/deployment.md)
+[Run it as a service](docs/deployment.md)
 
 ![The current dark workspace: project-first session cards, a starred answer, Git diff, and follow-up draft](docs/images/file-diff.png)
 
@@ -49,9 +49,8 @@ branch changes the active path; fork a request when you want a separate
 conversation. Fork and rewind restore its text and images for editing. Rewind
 removes later entries.
 
-Stars use `web-pi:star` entries. Old `pi-web:star` metadata is not read, so
-those answers must be starred again. See
-[the clean-cut naming change](docs/deployment.md#clean-cut-naming).
+Answers starred in pi-web are not recognized and must be starred again; see
+[Behavior](docs/behavior.md#sessions-and-conversation).
 
 ![Starred release decisions and the desktop conversation rail](docs/images/session-navigation.png)
 

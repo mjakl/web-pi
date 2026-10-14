@@ -10,7 +10,8 @@ Pi session JSONL and the live runtime own the conversation. The server projects
 settled history and a non-overlapping live tail into the same views for pages,
 HTMX responses, and SSE updates. History pages backwards, while the desktop rail
 covers all prompts and starred answers. Stars use `web-pi:star` custom entries;
-old `pi-web:star` entries are not recognized or migrated.
+old `pi-web:star` entries are not recognized or migrated, so answers starred in
+pi-web must be starred again.
 
 Open persisted conversations managed outside web-pi, including inspection-only
 subagents, check for saved updates every two seconds while the page is visible.

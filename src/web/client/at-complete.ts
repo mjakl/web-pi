@@ -82,7 +82,7 @@ export function setUpAtCompletion(
   let token: AtQuery | null = null;
   let index: { files: string[]; truncated: boolean; loadedAt: number } | null =
     null;
-  let indexInFlight = false;
+  let indexLoad: Promise<void> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let search: AbortController | undefined;
   const indexController = new AbortController();
@@ -136,10 +136,26 @@ export function setUpAtCompletion(
     );
   }
 
-  async function loadIndex(): Promise<void> {
-    if (signal?.aborted || endpoints === null || indexInFlight) return;
-    if (index && Date.now() - index.loadedAt < INDEX_TTL_MS) return;
-    indexInFlight = true;
+  /**
+   * Every keystroke waits for the same request, so the menu opens as soon as
+   * the list arrives however fast the reader types.
+   */
+  function loadIndex(): Promise<void> {
+    if (index && Date.now() - index.loadedAt < INDEX_TTL_MS) {
+      return Promise.resolve();
+    }
+    if (!indexLoad) {
+      const load = fetchIndex();
+      indexLoad = load;
+      void load.then(() => {
+        indexLoad = undefined;
+      });
+    }
+    return indexLoad;
+  }
+
+  async function fetchIndex(): Promise<void> {
+    if (signal?.aborted || endpoints === null) return;
     try {
       const response = await fetch(endpoints.index(""), {
         signal: indexController.signal,
@@ -156,8 +172,6 @@ export function setUpAtCompletion(
       };
     } catch {
       // Keep whatever index we had; the menu degrades to server search.
-    } finally {
-      indexInFlight = false;
     }
   }
 

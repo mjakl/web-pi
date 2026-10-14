@@ -7,7 +7,7 @@ import {
   fileSearch,
   isFilePathQuery,
 } from "@core/composer";
-import { catppuccinIcon } from "@core/file-types";
+import { baseName, catppuccinIcon } from "@core/file-types";
 import { escapeHtml } from "@core/html";
 import { catppuccinIconUrl } from "@web/views/icons";
 import { type MenuEndpoints, replaceRange } from "./editor.ts";
@@ -28,7 +28,7 @@ function icon(entry: FileEntry): string {
 
 /** One row: the directory prefix dim, the name plain, "/" dim for folders. */
 function row(entry: FileEntry, index: number): string {
-  const name = entry.path.split(/[\\/]/).pop() ?? entry.path;
+  const name = baseName(entry.path);
   const prefix = entry.path.slice(0, entry.path.length - name.length);
   const dim = (text: string) =>
     `<span class="composer-file-prefix">${escapeHtml(text)}</span>`;

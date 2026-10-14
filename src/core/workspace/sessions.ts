@@ -1,6 +1,7 @@
 import { conversationRail, hasBranches } from "@core/conversation-rail";
 import { contextUsage, type ContextUsage } from "@core/context-usage";
 import { isThinkingLevel } from "@core/models";
+import { sameModel } from "@core/model-settings";
 import type {
   EditableMessage,
   LiveSession,
@@ -173,17 +174,14 @@ export function sessionUseCases({
     const listing = readOnly
       ? { models: [], warnings: [] }
       : await modelsFor(stored.summary.cwd, stored.summary.id);
+    const { lastModel } = transcript;
     const model =
-      !readOnly && transcript.lastModel
+      !readOnly && lastModel
         ? (
             await deps.models
               .listAvailable(stored.summary.cwd, stored.summary.id)
               .catch(() => listing.models)
-          ).find(
-            (option) =>
-              option.provider === transcript.lastModel?.provider &&
-              option.id === transcript.lastModel.id,
-          )
+          ).find((option) => sameModel(option, lastModel))
         : undefined;
     return {
       summary,

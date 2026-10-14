@@ -67,7 +67,7 @@ it("keeps pre-session discovery through settings saves and carries the exact liv
     expect((await h.runtime.models.settings(h.cwd)).patterns).toEqual(patterns);
     expect(factories).toBe(1);
     const first = await workspace.createSession(h.cwd, {
-      model: { provider: "context", modelId: "model-1" },
+      model: { provider: "context", id: "model-1" },
     });
     expect(factories).toBe(1);
     const second = await workspace.createSession(h.cwd);

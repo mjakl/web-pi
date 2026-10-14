@@ -1,3 +1,4 @@
+import { formatBytes } from "@core/file-types";
 import { escapeHtml } from "@core/html";
 import { localFilePath } from "@core/path-access";
 import { Marked, type Tokens } from "marked";
@@ -40,12 +41,6 @@ function headingId(text: string): string {
     .trim()
     .replaceAll(/[^\p{L}\p{N}\s-]/gu, "")
     .replaceAll(/\s+/g, "-");
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${String(Math.round(bytes / 1024))} KB`;
-  return `${String(bytes)} B`;
 }
 
 /**

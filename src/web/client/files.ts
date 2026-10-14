@@ -1,7 +1,7 @@
 import type { Htmx, HtmxRequestCtx } from "htmx.org";
 import { requestContext } from "./htmx.ts";
 import { buildAtInsertText } from "@core/composer";
-import { catppuccinIcon } from "@core/file-types";
+import { baseName, catppuccinIcon } from "@core/file-types";
 import { replaceRange, textarea } from "./editor.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpResize } from "./resize.ts";
@@ -123,10 +123,6 @@ function setOpen(open: boolean): void {
 
 function tabBar(): HTMLElement | null {
   return document.getElementById("file-tabs");
-}
-
-function baseName(path: string): string {
-  return path.replaceAll("\\", "/").split("/").pop() ?? path;
 }
 
 /** The masked Catppuccin span the views render, built without JSX. */

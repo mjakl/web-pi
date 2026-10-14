@@ -137,7 +137,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const id =
         existingId ??
         (await deps.workspace.createSession(cwd, {
-          ...(provider && modelId ? { model: { provider, modelId } } : {}),
+          ...(provider && modelId ? { model: { provider, id: modelId } } : {}),
           ...(isThinkingLevel(thinking) ? { thinkingLevel: thinking } : {}),
         }));
       let response: Response;
@@ -369,7 +369,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     try {
       await deps.workspace.setModel(id, {
         provider,
-        modelId,
+        id: modelId,
         ...(isThinkingLevel(thinking) ? { thinkingLevel: thinking } : {}),
       });
     } catch (error) {
@@ -395,7 +395,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const modelId = rest.join("/");
       const thinkingOverride = isThinkingLevel(thinking) ? thinking : undefined;
       const view = await deps.workspace.newSession(cwd, {
-        ...(provider && modelId ? { model: { provider, modelId } } : {}),
+        ...(provider && modelId ? { model: { provider, id: modelId } } : {}),
         ...(thinkingOverride === undefined
           ? {}
           : { thinkingLevel: thinkingOverride }),

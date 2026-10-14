@@ -114,7 +114,7 @@ it("claims the displayed preparation once and gives concurrent sessions independ
     const [first, second] = await Promise.all([
       h.open({
         cwd: h.cwd,
-        model: { provider: "instance", modelId: "model-1" },
+        model: { provider: "instance", id: "model-1" },
       }),
       h.open(),
     ]);

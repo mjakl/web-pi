@@ -1,4 +1,5 @@
 import type { SlashCommand, SlashSource } from "@core/composer";
+import { sameModel } from "@core/model-settings";
 import type {
   ImageAttachment,
   ModelOption,
@@ -459,8 +460,7 @@ export function ModelSelector({
                   .filter((model) => model.provider === provider)
                   .map((model) => {
                     const active =
-                      current?.provider === model.provider &&
-                      current.id === model.id;
+                      current !== null && sameModel(current, model);
                     return (
                       <button
                         type="button"

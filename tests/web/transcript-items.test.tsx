@@ -8,6 +8,7 @@ import {
   ToolBody,
   TurnFragment,
 } from "@web/views/Items";
+import { WrittenFiles } from "@web/views/transcript/assistant";
 import { describe, expect, it } from "vitest";
 import { parseHtml } from "#/web/helpers";
 import {
@@ -436,6 +437,21 @@ describe("transcript items", () => {
       expect(prose.querySelector(".markdown-body")?.textContent).toContain(
         text,
       );
+  });
+
+  it("names a written file by its base name, whatever the separator", () => {
+    const document = rendered(
+      <WrittenFiles files={["/repo/src/answer.ts", "C:\\repo\\notes.md"]} />,
+    );
+    expect(
+      [...document.querySelectorAll(".written-file")].map((chip) => [
+        chip.getAttribute("aria-label"),
+        chip.getAttribute("data-file-path"),
+      ]),
+    ).toEqual([
+      ["Open answer.ts", "/repo/src/answer.ts"],
+      ["Open notes.md", "C:\\repo\\notes.md"],
+    ]);
   });
 
   it("keeps stars targeted at the answer and replaces only that button", () => {

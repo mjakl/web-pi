@@ -343,13 +343,13 @@ export function liveUseCases({
       id: string,
       choice: {
         provider: string;
-        modelId: string;
+        id: string;
         thinkingLevel?: ThinkingLevel;
       },
     ): Promise<void> {
       await requireFolder(id);
       const live = await deps.runtime.open({ sessionId: id });
-      await live.setModel(choice.provider, choice.modelId);
+      await live.setModel(choice.provider, choice.id);
       if (choice.thinkingLevel) live.setThinkingLevel(choice.thinkingLevel);
     },
 

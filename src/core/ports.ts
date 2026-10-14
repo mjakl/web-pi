@@ -389,7 +389,7 @@ export type AgentRuntime = {
       | { sessionId: string }
       | {
           cwd: string;
-          model?: { provider: string; modelId: string };
+          model?: { provider: string; id: string };
           thinkingLevel?: ThinkingLevel;
         },
   ): Promise<LiveSession>;

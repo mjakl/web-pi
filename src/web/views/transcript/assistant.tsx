@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import type { AssistantBlock, AssistantItem } from "@core/transcript";
 import { CardChevronIcon, FileIcon } from "@web/views/icons";
 import {
@@ -237,7 +238,7 @@ export function WrittenFiles({
   return (
     <div aria-label="Files changed" class="written-files">
       {files.map((path) => {
-        const name = path.split("/").pop() ?? path;
+        const name = baseName(path);
         return (
           <button
             type="button"

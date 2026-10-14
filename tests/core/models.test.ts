@@ -40,7 +40,7 @@ describe("the model a new session starts on", () => {
 
 describe("which startup choices become Pi's defaults", () => {
   const effective = {
-    model: { provider: "openai", modelId: "gpt" },
+    model: { provider: "openai", id: "gpt" },
     thinkingLevel: "high" as const,
     supportsThinking: true,
   };
@@ -51,17 +51,11 @@ describe("which startup choices become Pi's defaults", () => {
 
   it("writes the model only when the session really started on it", () => {
     expect(
-      startupWrites(
-        { model: { provider: "openai", modelId: "gpt" } },
-        effective,
-      ),
-    ).toEqual({ model: { provider: "openai", modelId: "gpt" } });
+      startupWrites({ model: { provider: "openai", id: "gpt" } }, effective),
+    ).toEqual({ model: { provider: "openai", id: "gpt" } });
     // A silent fallback must not become the new default.
     expect(
-      startupWrites(
-        { model: { provider: "openai", modelId: "o3" } },
-        effective,
-      ),
+      startupWrites({ model: { provider: "openai", id: "o3" } }, effective),
     ).toEqual({});
   });
 

@@ -337,7 +337,9 @@ describe("explicit startup choices from the rendered form", () => {
         [
           {
             cwd: "/repo",
-            ...(modelChosen ? { model: { provider: "fake", modelId } } : {}),
+            ...(modelChosen
+              ? { model: { provider: "fake", id: modelId } }
+              : {}),
             ...(thinkingChosen ? { thinkingLevel: "medium" } : {}),
           },
         ],

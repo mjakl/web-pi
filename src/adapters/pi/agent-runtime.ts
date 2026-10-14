@@ -826,15 +826,12 @@ async function persistStartup(
   const model = session.model;
   if (!model) return;
   const writes = startupWrites(explicit, {
-    model: { provider: model.provider, modelId: model.id },
+    model,
     thinkingLevel: session.thinkingLevel,
     supportsThinking: model.reasoning,
   });
   if (writes.model) {
-    settings.setDefaultModelAndProvider(
-      writes.model.provider,
-      writes.model.modelId,
-    );
+    settings.setDefaultModelAndProvider(writes.model.provider, writes.model.id);
   }
   if (writes.thinkingLevel !== undefined) {
     settings.setDefaultThinkingLevel(writes.thinkingLevel);

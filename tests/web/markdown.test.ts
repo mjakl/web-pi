@@ -195,7 +195,8 @@ describe("renderMarkdown", () => {
   it("prints the source of a document too large to parse", () => {
     const html = renderMarkdown(`# head\n${"x".repeat(100_001)}`);
     expect(html).toContain("<details");
-    expect(html).toContain("Message content is very large");
+    // 100,008 characters, with one decimal like the file panel's sizes.
+    expect(html).toContain("Message content is very large (97.7 KB).");
     expect(html).not.toContain("<h1");
   });
 });

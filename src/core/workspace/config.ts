@@ -1,6 +1,6 @@
 import type { SlashCommand } from "@core/composer";
 import { initialModel, type StartupChoice } from "@core/models";
-import { modelSettingsEdit } from "@core/model-settings";
+import { modelSettingsEdit, sameModel } from "@core/model-settings";
 import type { PackagesView, PackageScope } from "@core/packages";
 import { FileAccessError, isAbsolutePath, samePath } from "@core/path-access";
 import type {
@@ -138,12 +138,10 @@ export function configUseCases({
         usable && choice.model
           ? await deps.models.listAvailable(cwd).catch(() => listing.models)
           : listing.models;
+      const wanted = choice.model;
       const model =
-        candidates.find(
-          (option) =>
-            option.provider === choice.model?.provider &&
-            option.id === choice.model?.modelId,
-        ) ?? initialModel(listing.models, listing.preferred);
+        (wanted && candidates.find((option) => sameModel(option, wanted))) ??
+        initialModel(listing.models, listing.preferred);
       return {
         cwd,
         available,

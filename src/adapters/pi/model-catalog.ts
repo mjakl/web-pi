@@ -9,6 +9,7 @@ import {
   initialThinking,
   type StartupChoice,
 } from "@core/models";
+import { sameModel } from "@core/model-settings";
 import type {
   ModelCatalog,
   ModelListing,
@@ -82,20 +83,16 @@ export async function startupModel(
   const requested = startup.model;
   const selected = requested
     ? (await resolveModelListing(runtime, settings, true)).models.find(
-        (model) =>
-          model.provider === requested.provider &&
-          model.id === requested.modelId,
+        (model) => sameModel(model, requested),
       )
     : initialModel(listing.models, listing.preferred);
   if (requested && !selected) {
     throw new Error(
-      `Model is not available: ${requested.provider}/${requested.modelId}`,
+      `Model is not available: ${requested.provider}/${requested.id}`,
     );
   }
-  const scoped = listing.models.find(
-    (model) =>
-      model.provider === selected?.provider && model.id === selected.id,
-  );
+  const scoped =
+    selected && listing.models.find((model) => sameModel(model, selected));
   const thinkingLevel =
     startup.thinkingLevel ?? initialThinking(scoped ?? selected);
   const model = selected && runtime.getModel(selected.provider, selected.id);
@@ -155,10 +152,7 @@ export function createPiModelCatalog(options: {
       const scoped = await resolveModelListing(runtime, settings);
       return available.models.map(
         (model) =>
-          scoped.models.find(
-            (option) =>
-              option.provider === model.provider && option.id === model.id,
-          ) ?? model,
+          scoped.models.find((option) => sameModel(option, model)) ?? model,
       );
     },
     async list(cwd, sessionId) {

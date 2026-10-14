@@ -224,7 +224,7 @@ describe("opening", () => {
     );
     const session = await h.open({
       cwd: h.cwd,
-      model: { provider: PROVIDER, modelId: MODEL_2 },
+      model: { provider: PROVIDER, id: MODEL_2 },
       thinkingLevel: "high",
     });
     expect(session.snapshot().status.model?.id).toBe(MODEL_2);
@@ -241,7 +241,7 @@ describe("opening", () => {
     // Clamped to off on a model that cannot reason: nothing written back.
     const plain = await h.open({
       cwd: h.cwd,
-      model: { provider: PROVIDER, modelId: MODEL_ID },
+      model: { provider: PROVIDER, id: MODEL_ID },
       thinkingLevel: "high",
     });
     expect(plain.snapshot().status.thinkingLevel).toBe("off");
@@ -260,7 +260,7 @@ describe("opening", () => {
     await writeFile(join(h.agentDir, "settings.json"), "{");
     const session = await h.open({
       cwd: h.cwd,
-      model: { provider: PROVIDER, modelId: MODEL_2 },
+      model: { provider: PROVIDER, id: MODEL_2 },
     });
     expect(session.snapshot().status.model?.id).toBe(MODEL_2);
     expect(session.snapshot().status.notices).toEqual([

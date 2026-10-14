@@ -16,10 +16,10 @@ export function codeText(block: Element | null | undefined): string {
 
 /**
  * Colour every settled code block and number its lines, as pi-web's
- * `SyntaxHighlighter showLineNumbers` does (§4.5). Blocks in the running turn
- * are left plain: they change on every frame, and tokenising half a line is
- * wasted work. The file viewer is coloured on the server instead, where a
- * whole file can be split into numbered rows.
+ * `SyntaxHighlighter showLineNumbers` does (§4.5). What is still in flight in
+ * the running turn is left plain: it changes on every frame, and tokenising
+ * half a line is wasted work. The file viewer is coloured on the server
+ * instead, where a whole file can be split into numbered rows.
  */
 export function highlightIn(root: ParentNode): void {
   const blocks = root.querySelectorAll<HTMLElement>(
@@ -29,9 +29,14 @@ export function highlightIn(root: ParentNode): void {
   registerLanguages();
   for (const block of blocks) {
     if (block.dataset["highlighted"] === "1") continue;
-    if (block.closest("#turn")) continue;
+    if (block.closest("#turn-live")) continue;
     const language = /language-([\w+#-]+)/.exec(block.className)?.[1] ?? "";
     block.dataset["highlighted"] = "1";
+    // Settled code never changes, yet every morph of a saved window would put
+    // the plain source back to be coloured again. The morph pairs this element
+    // with whatever code sits in its place, which is the same code as long as
+    // its message renders the same blocks.
+    block.setAttribute("hx-morph-skip", "");
     const text = block.textContent ?? "";
     const lines =
       language !== "" && knownLanguage(language)

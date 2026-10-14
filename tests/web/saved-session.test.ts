@@ -331,6 +331,38 @@ it.each([false, true])(
   },
 );
 
+it("keeps coloured code through a saved update instead of colouring it again", async () => {
+  const f = fixture(false, [
+    userEntry("u1", null, "Show me code"),
+    assistantEntry("a1", "u1", "Here:\n\n```ts\nconst a = 1;\n```", 100),
+  ]);
+  const browser = await htmxBrowser(
+    await (await f.app.request(`/sessions/${f.id}`)).text(),
+    (request) => f.app.request(request),
+    { clock: true },
+  );
+  const { document } = browser;
+  const code = required(document.querySelector("#entry-a1 code"));
+  expect(code.getAttribute("data-highlighted")).toBe("1");
+  // Colouring writes its own markup; a mark in it shows whether it was redone.
+  required(code.querySelector(".linenumber")).setAttribute("data-probe", "");
+  f.stored.entries.push(
+    userEntry("u2", "a1", "And more?"),
+    assistantEntry("a2", "u2", "Also:\n\n```ts\nlet b = 2;\n```", 100),
+  );
+  const refreshed = nextEvent(
+    required(document.querySelector("#log")),
+    "web-pi:saved-after",
+  );
+  await browser.advanceTime(2000);
+  await refreshed;
+  expect(document.querySelector("#entry-a1 code")).toBe(code);
+  expect(code.querySelector("[data-probe]")).not.toBeNull();
+  expect(
+    document.querySelector("#entry-a2 code")?.getAttribute("data-highlighted"),
+  ).toBe("1");
+});
+
 it("uses fresh streams for repeated ownership and resumes saved observation after each stop", async () => {
   const f = fixture(false, [userEntry("u1", null, "Saved question")]);
   const browser = await htmxBrowser(

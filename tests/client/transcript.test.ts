@@ -282,7 +282,7 @@ describe("copy buttons", () => {
       );
       await load(live ? "" : content);
       if (live) {
-        byId("turn").innerHTML = content;
+        byId("turn").innerHTML = `<div id="turn-live">${content}</div>`;
         htmxEvent(byId("turn"), "htmx:after:settle");
       }
       const block = query(".markdown-code-block");
@@ -313,13 +313,14 @@ describe("copy buttons", () => {
 });
 
 describe("highlighting", () => {
-  it("colours settled fences with numbered lines and leaves the running turn alone", async () => {
+  it("colours settled fences with numbered lines and leaves what is in flight alone", async () => {
     await load(
       '<pre><code class="language-ts">const a = 1;\nlet b = "x";\n</code></pre>' +
         '<pre><code class="language-nonsense">plain &lt;b&gt;\n</code></pre>',
     );
     byId("turn").innerHTML =
-      '<pre><code class="language-ts">streaming</code></pre>';
+      '<div><pre><code id="finished" class="language-ts">done</code></pre></div>' +
+      '<div id="turn-live"><pre><code class="language-ts">streaming</code></pre></div>';
     htmxEvent(byId("turn"), "htmx:after:settle");
     const [typed, unknown] =
       document.querySelectorAll<HTMLElement>("#messages code");
@@ -329,7 +330,14 @@ describe("highlighting", () => {
     expect(typed?.style.getPropertyValue("--linenumber-width")).toBe("1.25em");
     expect(unknown?.innerHTML).toContain("plain &lt;b&gt;");
     expect(unknown?.querySelectorAll(".linenumber")).toHaveLength(1);
-    expect(query("#turn code").dataset["highlighted"]).toBeUndefined();
+    // A finished message of the running turn no longer changes either.
+    expect(byId("finished").dataset["highlighted"]).toBe("1");
+    expect(query("#turn-live code").dataset["highlighted"]).toBeUndefined();
+  });
+
+  it("asks a morph to leave a coloured block alone", async () => {
+    await load('<pre><code class="language-ts">const a = 1;</code></pre>');
+    expect(query("#messages code").hasAttribute("hx-morph-skip")).toBe(true);
   });
 });
 

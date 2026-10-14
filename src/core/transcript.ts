@@ -424,7 +424,10 @@ function contextTokensOf(message: AgentMessage): number | undefined {
   if (message.stopReason === "aborted" || message.stopReason === "error") {
     return undefined;
   }
+  // Typed as always present, but Pi checks for it too: one entry written
+  // without it must not take the whole transcript down.
   const { usage } = message;
+  if (!usage) return undefined;
   const total =
     usage.totalTokens ||
     usage.input + usage.output + usage.cacheRead + usage.cacheWrite;

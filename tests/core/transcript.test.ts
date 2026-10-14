@@ -363,6 +363,20 @@ describe("projectTranscript", () => {
     expect(transcript.lastContextTokens).toBe(300);
   });
 
+  it("reads an assistant entry without usage data as no context count", () => {
+    const bare = assistantEntry("a1", "a0", "no usage", 900);
+    if (bare.type === "message" && bare.message.role === "assistant") {
+      delete (bare.message as { usage?: unknown }).usage;
+    }
+    const transcript = projectTranscript([
+      assistantEntry("a0", null, "ok", 300),
+      bare,
+    ]);
+    expect(transcript.lastContextTokens).toBe(300);
+    const item = transcript.items[1];
+    expect(item?.kind === "assistant" && item.usage).toBeUndefined();
+  });
+
   it("defers the oldest reasoning once the page budget is spent", () => {
     const long = "x".repeat(15_000);
     const transcript = projectTranscript([

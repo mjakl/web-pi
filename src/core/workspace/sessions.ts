@@ -3,6 +3,7 @@ import { contextUsage, type ContextUsage } from "@core/context-usage";
 import { isThinkingLevel } from "@core/models";
 import type {
   EditableMessage,
+  LiveSession,
   LiveSnapshot,
   ModelListing,
   RuntimeEvent,
@@ -54,7 +55,7 @@ export function sessionUseCases({
   modelsFor,
   requireFolder,
   requireWritableSession,
-  inspectionOnly,
+  ownedRuntime,
   cwdOf,
 }: Shared) {
   function liveView(
@@ -259,7 +260,7 @@ export function sessionUseCases({
   ): Promise<SessionView | undefined> {
     // A running session owns its file, so even another branch of it is read
     // from the runtime: the file on disk may be a flush behind.
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
+    const live = await ownedRuntime(id);
     if (live) {
       const snapshot = live.snapshot();
       const resolved = resolveViewOptions(snapshot.entries, options);
@@ -310,11 +311,7 @@ export function sessionUseCases({
   async function savedOwned(id: string): Promise<boolean> {
     // Only a potential handoff needs the persisted authority check. On the
     // ordinary unchanged polling path, readSaved must be the first file read.
-    return (
-      !id.startsWith("subagent.") &&
-      deps.runtime.get(id) !== undefined &&
-      !(await inspectionOnly(id))
-    );
+    return (await ownedRuntime(id)) !== undefined;
   }
 
   async function observeSavedSession(
@@ -413,11 +410,11 @@ export function sessionUseCases({
   ): Promise<
     { summary: SessionSummary; metadata: SessionRowMetadata } | undefined
   > {
-    return readRow(id, await inspectionOnly(id));
+    return readRow(id, await ownedRuntime(id));
   }
 
-  async function readRow(id: string, readOnly: boolean) {
-    const snapshot = readOnly ? undefined : deps.runtime.get(id)?.snapshot();
+  async function readRow(id: string, live: LiveSession | undefined) {
+    const snapshot = live?.snapshot();
     const found = snapshot
       ? {
           summary: snapshot.summary,
@@ -480,7 +477,12 @@ export function sessionUseCases({
         const rows = await Promise.all(
           page.nodes.map(async (node) => {
             const { summary, children } = node;
-            const found = await readRow(summary.id, isSubagentSession(summary));
+            const found = await readRow(
+              summary.id,
+              isSubagentSession(summary)
+                ? undefined
+                : deps.runtime.get(summary.id),
+            );
             if (!found) return undefined;
             const preload =
               children.length > 0 &&

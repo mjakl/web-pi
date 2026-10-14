@@ -225,6 +225,59 @@ describe("workspace over the fake runtime", () => {
     );
   });
 
+  describe("a stopped session", () => {
+    function stopped(options: Parameters<typeof createFakeWorld>[0] = {}) {
+      const world = createFakeWorld({
+        sessions: [
+          {
+            summary: {
+              id: "s1",
+              cwd: "/repo/one",
+              createdAt: "2026-09-01T00:00:00.000Z",
+              modifiedAt: "2026-09-01T00:00:00.000Z",
+              fileSize: 2,
+            },
+            entries: [
+              userEntry("u1", null, "question"),
+              assistantEntry("a1", "u1", "answer", 100),
+            ],
+          },
+        ],
+        ...options,
+      });
+      return { world, workspace: createWorkspace(world) };
+    }
+
+    it("checks its folder and lists its commands without reading the transcript", async () => {
+      const { world, workspace } = stopped();
+      const read = vi.spyOn(world.sessions, "read");
+      const folder = vi.spyOn(world.sessions, "folder");
+      expect(await workspace.commands("s1", "review")).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "review" })]),
+      );
+      await workspace.activate("s1");
+      expect(folder).toHaveBeenCalledWith("s1");
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("refuses to run in a folder that is gone, naming the folder", async () => {
+      const { workspace } = stopped({ missingFolders: ["/repo/one"] });
+      await expect(workspace.activate("s1")).rejects.toThrow(
+        "Working folder is unavailable. This session is read-only: /repo/one",
+      );
+    });
+
+    it("is read without classifying it: only a runtime needs the check", async () => {
+      const { world, workspace } = stopped();
+      const classification = vi.spyOn(world.sessions, "classification");
+      expect((await workspace.viewSession("s1"))?.items).toHaveLength(2);
+      expect(await workspace.sessionFolder("s1")).toBe("/repo/one");
+      expect(await workspace.lastAssistantText("s1")).toBe("answer");
+      expect((await workspace.row("s1"))?.metadata.messageCount).toBe(2);
+      expect(classification).not.toHaveBeenCalled();
+    });
+  });
+
   it("puts the post-compaction estimate on the compaction card", async () => {
     const world = createFakeWorld({
       delayMs: 2,

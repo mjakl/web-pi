@@ -45,7 +45,6 @@ export function liveUseCases({
   requireFolder,
   requireWritableSession,
   slashMenu,
-  summaryOf,
 }: Shared) {
   /**
    * Eligible root completions ask the notifier for the global away allowance.
@@ -131,7 +130,7 @@ export function liveUseCases({
       const live = deps.runtime.get(id);
       return slashMenu(
         query,
-        live ? undefined : (await summaryOf(id))?.cwd,
+        live ? undefined : await deps.sessions.folder(id),
         live,
       );
     },

@@ -139,6 +139,16 @@ export function createShared(deps: WorkspaceDeps) {
     return deps.runtime.get(id) === undefined;
   }
 
+  /**
+   * The runtime of a session this workspace may drive. Without one there is
+   * nothing to classify, so a stopped session costs no file read here; with
+   * one, the persisted origin decides, never the runtime's own snapshot.
+   */
+  async function ownedRuntime(id: string): Promise<LiveSession | undefined> {
+    if (!deps.runtime.live().some((live) => live.id === id)) return undefined;
+    return (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
+  }
+
   async function requireWritableSession(id: string): Promise<void> {
     if (await inspectionOnly(id)) throw new InspectionOnlySession();
   }
@@ -150,9 +160,9 @@ export function createShared(deps: WorkspaceDeps) {
    */
   async function requireFolder(id: string): Promise<void> {
     await requireWritableSession(id);
-    const summary = await summaryOf(id);
-    if (summary?.cwdAvailable === false) {
-      throw new Error(unavailableFolderMessage(summary.cwd));
+    const cwd = await cwdOf(id);
+    if (cwd !== "" && !(await deps.projects.available(cwd))) {
+      throw new Error(unavailableFolderMessage(cwd));
     }
   }
 
@@ -179,25 +189,9 @@ export function createShared(deps: WorkspaceDeps) {
     });
   }
 
-  async function summaryOf(id: string): Promise<SessionSummary | undefined> {
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
-    if (live) {
-      const snapshot = live.snapshot();
-      const [decorated] = await decorate(
-        [snapshot.summary],
-        new Map([[id, snapshot]]),
-      );
-      return decorated;
-    }
-    const stored = await deps.sessions.read(id);
-    if (!stored) return undefined;
-    const [decorated] = await decorate([stored.summary]);
-    return decorated;
-  }
-
   /** Whichever of the two writers owns this session right now. */
   async function entriesOf(id: string): Promise<SessionRead | undefined> {
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
+    const live = await ownedRuntime(id);
     if (live) {
       const snapshot = live.snapshot();
       return {
@@ -212,9 +206,7 @@ export function createShared(deps: WorkspaceDeps) {
 
   async function cwdOf(sessionId: string | undefined): Promise<string> {
     if (sessionId === undefined) return "";
-    const live = (await inspectionOnly(sessionId))
-      ? undefined
-      : deps.runtime.get(sessionId);
+    const live = await ownedRuntime(sessionId);
     return live
       ? live.snapshot().summary.cwd
       : ((await deps.sessions.folder(sessionId)) ?? "");
@@ -324,10 +316,10 @@ export function createShared(deps: WorkspaceDeps) {
     decorate,
     requireFolder,
     inspectionOnly,
+    ownedRuntime,
     requireWritableSession,
     folderAvailable,
     slashMenu,
-    summaryOf,
     entriesOf,
     cwdOf,
     projectRootOf,

@@ -838,7 +838,7 @@ async function persistStartup(
   }
   if (!writes.model && writes.thinkingLevel === undefined) return;
   await settings.flush();
-  checkSettingsErrors(settings);
+  checkSettingsErrors(settings, "global");
 }
 
 /** Abandoned drafts are shut down; a session with a file on disk is not. */

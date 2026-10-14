@@ -219,7 +219,7 @@ export function createPiPackages(options: { agentDir: string }): Packages {
         else settings.setPackages(next);
       }
       await settings.flush();
-      checkSettingsErrors(settings);
+      checkSettingsErrors(settings, local ? "project" : "global");
     },
   };
 }

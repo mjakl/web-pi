@@ -334,6 +334,34 @@ describe("extension packages", () => {
     );
   });
 
+  it("reports only the errors of the settings file a package change writes", async () => {
+    const plugin = join(temp.root, "plugin");
+    await mkdir(plugin);
+    await writeSettings("global", { packages: [plugin] });
+    await mkdir(join(project, ".pi"), { recursive: true });
+    await writeFile(join(project, ".pi", "settings.json"), "{");
+    await createPiProjectTrust({ agentDir }).trust(project);
+    const packages = createPiPackages({ agentDir });
+    await packages.run("disable", {
+      cwd: project,
+      scope: "user",
+      source: plugin,
+    });
+    const saved: unknown = JSON.parse(
+      await readFile(join(agentDir, "settings.json"), "utf8"),
+    );
+    expect((saved as { packages: unknown[] }).packages).toEqual([
+      { source: plugin, extensions: [], skills: [], prompts: [], themes: [] },
+    ]);
+    await expect(
+      packages.run("install", {
+        cwd: project,
+        scope: "project",
+        source: plugin,
+      }),
+    ).rejects.toThrow("project settings:");
+  });
+
   it("says when there is no package to remove", async () => {
     await expect(
       createPiPackages({ agentDir }).run("remove", {

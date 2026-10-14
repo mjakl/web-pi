@@ -1,4 +1,5 @@
 import { createFakeWorld } from "@adapters/fake/index";
+import { createPiProjectTrust } from "@adapters/pi/project-trust";
 import type { LiveSession, RuntimeEvent } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { STAR_TYPE } from "@core/session-entries";
@@ -271,6 +272,22 @@ describe("opening", () => {
         ) as string,
       },
     ]);
+  });
+
+  it("saves the picked model as the default beside a damaged project settings file", async () => {
+    h = await createHarness();
+    await mkdir(join(h.cwd, ".pi"), { recursive: true });
+    await writeFile(join(h.cwd, ".pi", "settings.json"), "{");
+    await createPiProjectTrust({ agentDir: h.agentDir }).trust(h.cwd);
+    const session = await h.open({
+      cwd: h.cwd,
+      model: { provider: PROVIDER, id: MODEL_2 },
+    });
+    expect(session.snapshot().status.notices).toEqual([]);
+    const settings: unknown = JSON.parse(
+      await readFile(join(h.agentDir, "settings.json"), "utf8"),
+    );
+    expect(settings).toMatchObject({ defaultModel: MODEL_2 });
   });
 
   it("reopens a stopping session only after its stop has finished writing", async () => {

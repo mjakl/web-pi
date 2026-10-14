@@ -212,6 +212,7 @@ export function Rail({ view, oob }: { view: SessionView; oob?: boolean }) {
       id="rail"
       class="minimap-layer"
       data-branched={branched ? "true" : "false"}
+      data-strip-width={String(WIDTH)}
       data-graph-width={String(lanes * LANE + WIDTH)}
       {...(oob ? { "hx-swap-oob": "true" } : {})}
     >

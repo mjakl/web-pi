@@ -9,7 +9,7 @@ import {
 import { ProcessChevronIcon } from "@web/views/icons";
 import { AssistantMessage, WrittenFiles } from "./assistant.tsx";
 import { Bash, Compaction, Note } from "./notes.tsx";
-import { type ItemActions, Markdown } from "./shared.tsx";
+import { type ItemActions, itemKey, Markdown } from "./shared.tsx";
 import { UserMessage } from "./user.tsx";
 
 // One item of any kind, and the turns a settled transcript groups them
@@ -65,10 +65,7 @@ export function Item({
 function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
   const first =
     turn.boundary ?? turn.process[0] ?? turn.answer ?? turn.trailing[0];
-  const key =
-    first?.entryId === "partial"
-      ? `partial-${String(Date.parse(first.timestamp))}`
-      : first?.entryId;
+  const key = first === undefined ? undefined : itemKey(first);
   const count = (value: number, noun: string) =>
     `${String(value)} ${noun}${value === 1 ? "" : "s"}`;
   const label = [

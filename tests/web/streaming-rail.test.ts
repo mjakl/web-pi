@@ -124,6 +124,9 @@ it("activates a new branch and enables hover expansion while its response is sti
   expect(
     document.querySelector("#rail")?.getAttribute("data-graph-width"),
   ).toBe("72");
+  expect(
+    document.querySelector("#rail")?.getAttribute("data-strip-width"),
+  ).toBe("36");
   column.dispatchEvent(new window.PointerEvent("pointerenter"));
   await expect.poll(() => column.classList.contains("is-expanded")).toBe(true);
   column.dispatchEvent(new window.PointerEvent("pointerleave"));

@@ -37,6 +37,17 @@ export type ItemActions = {
   streaming?: boolean;
 };
 
+/**
+ * An item's id in markup. The streaming message has no entry yet, so its
+ * start time names it; the turn, the message and its thinking all derive
+ * their ids from this one key, which is what lets a morph match them up.
+ */
+export function itemKey(item: { entryId: string; timestamp: string }): string {
+  return item.entryId === "partial"
+    ? `partial-${String(Date.parse(item.timestamp))}`
+    : item.entryId;
+}
+
 /** pi-web's `formatTimestamp`: 24h, and the date once it is not today. */
 export function formatTimestamp(value: string, now = new Date()): string {
   const date = new Date(value);

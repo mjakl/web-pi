@@ -248,26 +248,23 @@ export function SubagentContent({
         />
       ) : (
         calls.map((item, index) => (
-          <details class="subagent-agent">
-            <summary>
-              <span class="subagent-summary-label">
-                <span class="subagent-header">
-                  <span class="subagent-name">{item.agent}</span>
-                  <SubagentStatusView
-                    status={runs?.[index]?.status ?? "unknown"}
-                  />
-                </span>
+          <SubagentDisclosure
+            class="subagent-agent"
+            label={
+              <span class="subagent-header">
+                <span class="subagent-name">{item.agent}</span>
+                <SubagentStatusView
+                  status={runs?.[index]?.status ?? "unknown"}
+                />
               </span>
-              <span class="subagent-chevron">
-                <CardChevronIcon colour="currentColor" />
-              </span>
-            </summary>
+            }
+          >
             <SubagentBody
               call={item}
               {...(runs?.[index] ? { run: runs[index] } : {})}
               actions={actions}
             />
-          </details>
+          </SubagentDisclosure>
         ))
       )}
       <div class="subagent-raw">

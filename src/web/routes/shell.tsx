@@ -39,6 +39,7 @@ import {
   SETTINGS_COOKIE,
   SKILL_COOKIE,
   currentSessionId,
+  displayedCwd,
   errorText,
   field,
   rawField,
@@ -86,7 +87,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   // Same-folder navigation retains the expanded tree. File requests use the
   // displayed session header, so its authorization context still changes.
   function navigationContext(c: Context, cwd: string, activeId?: string) {
-    if (c.req.header("X-Web-Pi-Cwd") === cwd) return null;
+    if (displayedCwd(c) === cwd) return null;
     return (
       <Partial target="#explorer-section" swap="outerHTML">
         <ExplorerSection

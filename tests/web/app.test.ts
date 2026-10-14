@@ -1242,6 +1242,63 @@ describe("the sidebar", () => {
   });
 });
 
+describe("the folder a page shows, as its requests report it", () => {
+  const folders = ["/repo/日本", "/repo/zürich", "/repo/100%", "/repo/other"];
+  function folderApp() {
+    const world = createFakeWorld({
+      delayMs: 2,
+      sessions: folders.map((cwd, index) => ({
+        summary: {
+          id: `f${String(index)}`,
+          cwd,
+          name: cwd,
+          createdAt: "2026-09-01T00:00:00.000Z",
+          modifiedAt: "2026-09-02T00:00:00.000Z",
+          fileSize: 1,
+          projectRoot: cwd,
+        },
+        entries: [userEntry(`u${String(index)}`, null, "question")],
+      })),
+    });
+    return createWebApp({
+      workspace: createWorkspace(world),
+      staticRoot: "/nonexistent",
+      defaultCwd: "/repo/other",
+    });
+  }
+
+  it.each([
+    ["encoded, beyond Latin-1", encodeURIComponent("/repo/日本"), "/repo/日本"],
+    ["raw from an older tab", "/repo/zürich", "/repo/zürich"],
+    ["raw and not decodable", "/repo/100%", "/repo/100%"],
+  ])("reads the folder %s", async (_, header, folder) => {
+    const menu = await (
+      await folderApp().request("/sidebar/projects", {
+        headers: { "X-Web-Pi-Cwd": header },
+      })
+    ).text();
+    expect(/aria-current="true"[^>]*title="([^"]*)"/.exec(menu)?.[1]).toBe(
+      folder,
+    );
+  });
+
+  it("keeps the explorer when a session opens in the folder on screen", async () => {
+    const app = folderApp();
+    const fragment = async (cwd: string) =>
+      (
+        await app.request("/sessions/f0", {
+          headers: {
+            "HX-Request": "true",
+            "HX-Target": "div#session-region",
+            "X-Web-Pi-Cwd": encodeURIComponent(cwd),
+          },
+        })
+      ).text();
+    expect(await fragment("/repo/日本")).not.toContain('id="explorer-section"');
+    expect(await fragment("/repo/other")).toContain('id="explorer-section"');
+  });
+});
+
 describe("the composer, as pi-web draws it", () => {
   /** Menu order determines which choice keyboard navigation reaches first. */
   function order(html: string, markers: string[]): void {

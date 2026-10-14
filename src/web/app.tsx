@@ -8,6 +8,7 @@ import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
   CWD_COOKIE,
+  displayedCwd,
   errorText,
   type RouteContext,
   SESSION_COOKIE,
@@ -56,7 +57,7 @@ export function createWebApp(deps: WebDeps) {
 
   /** Contextual controls follow the displayed conversation, not its preference. */
   async function currentCwd(c: Context): Promise<string> {
-    const explicit = c.req.query("cwd") ?? c.req.header("X-Web-Pi-Cwd");
+    const explicit = c.req.query("cwd") ?? displayedCwd(c);
     if (explicit !== undefined) return explicit;
     const id = currentSessionId(c);
     return (

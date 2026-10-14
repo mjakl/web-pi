@@ -106,7 +106,10 @@ export function setUpNavigation(): void {
     if (sessionTarget(ctx))
       ctx.request.headers["HX-Target"] = "div#session-region";
     ctx.request.headers["X-Web-Pi-Session"] = main?.dataset["sessionId"] ?? "";
-    ctx.request.headers["X-Web-Pi-Cwd"] = main?.dataset["cwd"] ?? "";
+    // A header cannot carry characters above U+00FF; the server decodes it.
+    ctx.request.headers["X-Web-Pi-Cwd"] = encodeURIComponent(
+      main?.dataset["cwd"] ?? "",
+    );
     const url = new URL(ctx.request.action, location.href);
     if (
       url.pathname.startsWith("/files/") &&

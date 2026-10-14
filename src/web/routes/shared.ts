@@ -99,6 +99,21 @@ export function sessionLocation(c: Context, path: string): void {
   );
 }
 
+/**
+ * The folder the page shows. The browser percent-encodes it, because a header
+ * cannot carry characters above U+00FF; a tab loaded before that sends the
+ * path itself, which is used as it is when it does not decode.
+ */
+export function displayedCwd(c: Context): string | undefined {
+  const value = c.req.header("X-Web-Pi-Cwd");
+  if (value === undefined) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /** An explicit displayed identity wins, including no open session. */
 export function currentSessionId(c: Context): string | undefined {
   const displayed = c.req.header("X-Web-Pi-Session");

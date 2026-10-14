@@ -243,7 +243,14 @@ function setUpShortcuts(): void {
     }
     if (event.key === "k") {
       event.preventDefault();
-      location.assign("/new");
+      if (dialogOpen()) return;
+      // The link swaps the session region, keeping attachments and streams
+      // that a page load would drop.
+      const link = document.querySelector<HTMLAnchorElement>(
+        "a[data-session-link]",
+      );
+      if (link) link.click();
+      else location.assign("/new");
     }
   });
 }

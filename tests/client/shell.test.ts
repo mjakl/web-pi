@@ -202,11 +202,26 @@ describe("shortcuts", () => {
     '<div id="top-panel" hidden></div>' +
     '<div id="row-menu" popover="auto"></div>';
 
-  it("opens a new session on Ctrl+K", async () => {
-    await load(LIST);
+  it("opens a new session on Ctrl+K through the sidebar's link", async () => {
+    await load(`${LIST}<a href="/new" data-session-link></a>`);
+    const clicked = vi.fn((event: Event) => {
+      event.preventDefault();
+    });
+    query("a[data-session-link]").addEventListener("click", clicked);
     expect(
       keydown(document.body, "k", { ctrlKey: true }).defaultPrevented,
     ).toBe(true);
+    expect(clicked).toHaveBeenCalledOnce();
+    expect(location.pathname).toBe("/");
+    // A dialog over the page keeps the shortcut from reaching under it.
+    document.body.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
+    keydown(document.body, "k", { metaKey: true });
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("loads the new-session page on Ctrl+K when there is no link", async () => {
+    await load(LIST);
+    keydown(document.body, "k", { ctrlKey: true });
     expect(location.pathname).toBe("/new");
   });
 

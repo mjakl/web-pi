@@ -1236,6 +1236,16 @@ html.dark .catppuccin-file-icon {
   font-size: 28px;
 }
 
+/* Phones hide the conversation rail, so its strip stops too. */
+@media (max-width: 640px) {
+  .chat-window:has(.chat-minimap) {
+    background-image: none;
+  }
+  .chat-empty h1 {
+    gap: var(--space-4);
+  }
+}
+
 .new-session-directory {
   width: min(100%, 320px);
   min-width: 0;

@@ -640,17 +640,11 @@
 
 /* No rail on mobile, so it sits at the edge and clears the composer. */
 @media (max-width: 640px) {
-  .chat-window:has(.chat-minimap) {
-    background-image: none;
-  }
   .chat-body {
     grid-template-columns: minmax(0, 1fr);
   }
   .chat-minimap {
     display: none;
-  }
-  .chat-empty h1 {
-    gap: var(--space-4);
   }
   .chat-jump-to-latest {
     right: 14px;
@@ -1929,14 +1923,4 @@ button.tool-output-link {
 .minimap-row.is-active .minimap-compaction,
 .minimap-row.is-near .minimap-compaction {
   opacity: 1;
-}
-
-/* ── Notice shelf ───────────────────────────────────────────────────────
-   pi-web's shelf is a right-anchored column whose cards keep their own
-   widths; the gap is its `marginBottom: index === last ? 0 : 6`. */
-#toasts {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-3);
 }

@@ -118,7 +118,7 @@ it("activates a new branch and enables hover expansion while its response is sti
   ).not.toBeNull();
   expect(
     document
-      .querySelector('[data-rail-entry-id="u2"]')
+      .querySelector('[data-minimap-entry-id="u2"]')
       ?.getAttribute("data-branch"),
   ).toBe("true");
   expect(

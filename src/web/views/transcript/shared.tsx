@@ -215,7 +215,6 @@ export function HistoryActionButtons({
     "hx-vals": JSON.stringify({ entryId }),
     "hx-target": "body",
     "hx-swap": "innerHTML",
-    "hx-indicator": "#branch-sync",
   };
   const branchTitle =
     actions.busy === true

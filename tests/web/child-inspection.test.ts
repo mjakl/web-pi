@@ -172,7 +172,7 @@ describe.each(children)("inspection-only child $id", (summary) => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("Latest saved answer");
-    expect(html).toContain('data-entry-id="u1"');
+    expect(html).toContain('data-minimap-entry-id="u1"');
     expect(html).not.toContain("Continue from here");
     expect(html).not.toContain("/navigate");
     expect(html).not.toContain("answer-star-toggle");

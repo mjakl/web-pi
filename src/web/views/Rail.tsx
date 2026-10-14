@@ -59,8 +59,7 @@ function Node({
       <button
         type="button"
         class={`minimap-branch${mark.kind === "star" ? " minimap-star" : ""}`}
-        data-rail-entry-id={mark.id}
-        data-entry-id={mark.id}
+        data-minimap-entry-id={mark.id}
         data-branch="true"
         aria-label={label}
         /* pi-web previews the branch this mark leads to while the pointer
@@ -71,7 +70,6 @@ function Node({
         hx-vals={JSON.stringify({ entryId: mark.targetLeafId })}
         hx-target="body"
         hx-swap="innerHTML"
-        hx-indicator="#branch-sync"
       >
         {mark.kind === "star" ? <StarIcon filled /> : <span />}
       </button>
@@ -83,7 +81,7 @@ function Node({
     return (
       <span
         class="minimap-junction"
-        data-rail-entry-id={mark.id}
+        data-minimap-entry-id={mark.id}
         style={`left:${left}; top:${top}`}
       />
     );
@@ -114,7 +112,6 @@ function Node({
         type="button"
         tabindex={-1}
         class={mark.kind === "star" ? "minimap-star" : "minimap-message"}
-        data-entry-id={mark.id}
         {...(mark.preview === undefined
           ? {}
           : { "data-preview": mark.preview })}

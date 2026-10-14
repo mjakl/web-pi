@@ -1,26 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { agentBrowser, fixtureUrl } from "./agent-browser.ts";
 
 // Run against the isolated screenshot fixture, never a real settings store.
-const url = new URL(process.argv[2] ?? "http://invalid");
-if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30142") {
-  throw new Error(
-    "Pass the ephemeral loopback URL printed by just screenshots",
-  );
-}
+const url = fixtureUrl();
 const output = resolve("dist/settings-scroll");
 mkdirSync(output, { recursive: true });
-const session = `settings-scroll-${String(process.pid)}`;
-function browser(...args: string[]) {
-  return execFileSync("agent-browser", ["--session", session, ...args], {
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-}
-function evaluate(code: string) {
-  return browser("eval", code);
-}
+const { browser, evaluate } = agentBrowser("settings-scroll");
 
 try {
   browser("open", new URL("/settings", url).href);

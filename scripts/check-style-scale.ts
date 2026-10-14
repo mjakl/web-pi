@@ -1,26 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { agentBrowser, fixtureUrl } from "./agent-browser.ts";
 
 // Like settings-scroll, this exercises the real app against fictional state.
-const url = new URL(process.argv[2] ?? "http://invalid");
-if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30142") {
-  throw new Error(
-    "Pass the ephemeral loopback URL printed by just screenshots",
-  );
-}
+const url = fixtureUrl();
 const output = resolve(process.argv[3] ?? "dist/style-scale");
 mkdirSync(output, { recursive: true });
-const session = `style-scale-${String(process.pid)}`;
-function browser(...args: string[]) {
-  return execFileSync("agent-browser", ["--session", session, ...args], {
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-}
-function evaluate(code: string) {
-  return browser("eval", code);
-}
+const { browser, evaluate, reachable } = agentBrowser("style-scale");
 function settle() {
   evaluate(
     "Promise.all(document.getAnimations().map(a => a.finished.catch(() => {}))).then(() => document.fonts.ready).then(() => true)",
@@ -34,18 +20,6 @@ function capture(name: string) {
   })()`);
   browser("screenshot", resolve(output, `${name}.png`));
   process.stdout.write(`PASS ${name}\n`);
-}
-function reachable(selector: string) {
-  evaluate(`(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) throw new Error('Missing control: ' + ${JSON.stringify(selector)});
-    const rect = element.getBoundingClientRect();
-    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-    if (rect.top < 0 || rect.bottom > innerHeight || rect.left < 0 || rect.right > innerWidth || !element.contains(hit)) {
-      throw new Error('Clipped or covered control: ' + ${JSON.stringify(selector)});
-    }
-    return true;
-  })()`);
 }
 function open(path: string, theme: string, width: number, height = 844) {
   // Each surface starts independently, without drafts, panel state or streams

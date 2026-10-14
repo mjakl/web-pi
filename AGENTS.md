@@ -92,7 +92,9 @@ src/server.ts  ownership-checked bootstrap; src/server-runtime.ts the server,
 bin/web-pi.js  the published entry point: imports dist/cli.js, nothing else
 tests/         vitest, mirrors src/ and scripts/; tests/client runs the
                bundle's modules in happy-dom, tests/smoke only from `just smoke`
-scripts/       repository tooling: build-time Pi refresh, doctor, doc checks
+scripts/       repository tooling: build-time Pi refresh, doctor, doc checks,
+               the screenshot fixture, and the opt-in browser checks that
+               drive agent-browser against it
 ```
 
 Rules enforced by `.oxlintrc.json`:

@@ -131,7 +131,7 @@ With the same isolated fixture and local Chromium running, check textarea growth
 and control reachability:
 
 ```bash
-node --import tsx scripts/check-composer-layout.ts http://127.0.0.1:<printed-port>
+just composer-layout http://127.0.0.1:<printed-port>
 ```
 
 The check fills but never submits a draft. In both themes at 390, 640, 641 and

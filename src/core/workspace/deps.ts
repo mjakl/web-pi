@@ -1,4 +1,9 @@
 import {
+  BUILTIN_COMMANDS,
+  rankCommands,
+  type SlashCommand,
+} from "@core/composer";
+import {
   FileAccessError,
   isAbsolutePath,
   parentPath,
@@ -13,6 +18,7 @@ import type {
   Git,
   ModelCatalog,
   ModelListing,
+  LiveSession,
   LiveSnapshot,
   Packages,
   ProjectResolver,
@@ -152,6 +158,25 @@ export function createShared(deps: WorkspaceDeps) {
 
   function folderAvailable(cwd: string): Promise<boolean> {
     return deps.projects.available(cwd);
+  }
+
+  /**
+   * The slash menu: built-ins, then what the live session offers, or else
+   * what a session started in `cwd` would.
+   */
+  async function slashMenu(
+    query: string,
+    cwd: string | undefined,
+    live?: LiveSession,
+  ): Promise<SlashCommand[]> {
+    const listed = live
+      ? live.commands()
+      : cwd === undefined
+        ? []
+        : await deps.resources.commands(cwd).catch(() => []);
+    return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
+      running: live?.snapshot().status.running ?? false,
+    });
   }
 
   async function summaryOf(id: string): Promise<SessionSummary | undefined> {
@@ -301,6 +326,7 @@ export function createShared(deps: WorkspaceDeps) {
     inspectionOnly,
     requireWritableSession,
     folderAvailable,
+    slashMenu,
     summaryOf,
     entriesOf,
     cwdOf,

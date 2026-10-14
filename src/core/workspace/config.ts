@@ -1,8 +1,4 @@
-import {
-  BUILTIN_COMMANDS,
-  rankCommands,
-  type SlashCommand,
-} from "@core/composer";
+import type { SlashCommand } from "@core/composer";
 import { initialModel, type StartupChoice } from "@core/models";
 import { modelSettingsEdit } from "@core/model-settings";
 import type { PackagesView, PackageScope } from "@core/packages";
@@ -26,6 +22,7 @@ export function configUseCases({
   inspectionOnly,
   modelsFor,
   projectRootOf,
+  slashMenu,
   validatedRoots,
 }: Shared) {
   /**
@@ -196,15 +193,10 @@ export function configUseCases({
       };
     },
 
-    /** The slash menu before a session exists: prompts and skills of a folder. */
+    /** The slash menu before a session exists in the folder. */
     async folderCommands(cwd: string, query: string): Promise<SlashCommand[]> {
       await authorize(cwd, { listing: true });
-      const listed = await deps.resources
-        .commands(cwd)
-        .catch(() => [] as SlashCommand[]);
-      return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
-        running: false,
-      });
+      return slashMenu(query, cwd);
     },
 
     // --- Project trust ----------------------------------------------------

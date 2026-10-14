@@ -1,8 +1,4 @@
-import {
-  BUILTIN_COMMANDS,
-  rankCommands,
-  type SlashCommand,
-} from "@core/composer";
+import type { SlashCommand } from "@core/composer";
 import type { DialogAnswer } from "@core/extension-ui";
 import type { StartupChoice } from "@core/models";
 import { isBashOutputPath } from "@core/path-access";
@@ -50,6 +46,7 @@ export function liveUseCases({
   folderAvailable,
   requireFolder,
   requireWritableSession,
+  slashMenu,
   summaryOf,
 }: Shared) {
   /**
@@ -132,26 +129,17 @@ export function liveUseCases({
     },
 
     /**
-     * The slash menu: built-ins plus whatever the session offers. A stopped
-     * session lists prompt templates and skills from disk rather than
-     * starting an agent just to fill a menu.
+     * The slash menu of a session. A stopped one lists what it would offer
+     * once started, rather than starting an agent just to fill a menu.
      */
     async commands(id: string, query: string): Promise<SlashCommand[]> {
       await requireWritableSession(id);
       const live = deps.runtime.get(id);
-      let listed: SlashCommand[] = [];
-      if (live) listed = live.commands();
-      else {
-        const summary = await summaryOf(id);
-        if (summary) {
-          listed = await deps.resources
-            .commands(summary.cwd)
-            .catch(() => [] as SlashCommand[]);
-        }
-      }
-      return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
-        running: live?.snapshot().status.running ?? false,
-      });
+      return slashMenu(
+        query,
+        live ? undefined : (await summaryOf(id))?.cwd,
+        live,
+      );
     },
 
     async compact(id: string, instructions?: string): Promise<void> {

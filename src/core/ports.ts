@@ -22,7 +22,7 @@ import type {
   SkillSearchHit,
   SkillUpdate,
 } from "./skills.ts";
-import type { ProjectInfo, WorktreeInfo } from "./workspaces.ts";
+import type { ProjectInfo } from "./workspaces.ts";
 
 // Outbound ports. The core describes what it needs from Pi and the file
 // system; adapters in src/adapters implement them. Everything here is an
@@ -125,16 +125,6 @@ export type ProjectResolver = {
    * every mutating command and is never served from a cache.
    */
   available(cwd: string): Promise<boolean>;
-  /**
-   * The sibling worktrees of a folder, always freshly probed: the picker is
-   * the only caller and a stale list would hide a worktree just created.
-   * `isGit` is false when git could not answer at all.
-   */
-  worktrees(cwd: string): Promise<{
-    project: ProjectInfo;
-    isGit: boolean;
-    worktrees: WorktreeInfo[];
-  }>;
 };
 
 /** Directories a reader may browse to when picking a working folder. */

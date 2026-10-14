@@ -1,13 +1,11 @@
 import { pathKey } from "@core/path-access";
 import type { ProjectResolver } from "@core/ports";
 import {
-  parseWorktreeList,
   plainProject,
   type ProjectInfo,
   projectIdentity,
   rememberProjects,
   removedProject,
-  selectableWorktrees,
 } from "@core/workspaces";
 import {
   migrateWebState,
@@ -100,7 +98,7 @@ function remember(agentDir: string, folders: string[], root: string): void {
     writeWebState(webStatePath(agentDir, PROJECTS_FILE), next);
   } catch {
     // Grouping is a convenience; a read-only agent directory must not break
-    // the picker.
+    // resolving a folder.
   }
 }
 
@@ -176,13 +174,13 @@ export function createPiProjectResolver(options: {
    * subprocesses per folder every time the minute is up stalls it by a
    * second. A branch switch shows up one render late.
    */
-  async function resolve(cwd: string, refresh = false): Promise<ProjectInfo> {
+  async function resolve(cwd: string): Promise<ProjectInfo> {
     if (!isDirectory(cwd)) {
       cache.delete(cwd);
       return removedProject(cwd, knownProjects(options.agentDir));
     }
     const hit = cache.get(cwd);
-    if (refresh || !hit) return lookAndCache(cwd);
+    if (!hit) return lookAndCache(cwd);
     if (Date.now() - hit.at >= CACHE_MS) {
       // Stamped now so concurrent callers share one refresh.
       hit.at = Date.now();
@@ -192,33 +190,7 @@ export function createPiProjectResolver(options: {
   }
 
   return {
-    resolve: (cwd) => resolve(cwd),
+    resolve,
     available: (cwd) => Promise.resolve(isDirectory(cwd)),
-    async worktrees(cwd) {
-      // Always refreshed: a worktree added in a terminal must show up at once.
-      const project = await resolve(cwd, true);
-      // A session whose own folder is gone still lists its repository's.
-      const from = isDirectory(cwd) ? cwd : project.root;
-      let stdout: string;
-      try {
-        stdout = await git(from, ["worktree", "list", "--porcelain", "-z"]);
-      } catch {
-        return { project, isGit: false, worktrees: [] };
-      }
-      const records = parseWorktreeList(stdout);
-      const main = records[0]?.path;
-      if (main !== undefined) {
-        remember(
-          options.agentDir,
-          records.map((record) => record.path),
-          main,
-        );
-      }
-      return {
-        project,
-        isGit: true,
-        worktrees: selectableWorktrees(records, isDirectory),
-      };
-    },
   };
 }

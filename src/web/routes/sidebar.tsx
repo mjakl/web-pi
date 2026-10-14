@@ -9,7 +9,7 @@ import {
   SessionList,
   SessionRows,
 } from "@web/views/Sidebar";
-import { BrowsePane, DirectoryPicker, FolderList } from "@web/views/Workspace";
+import { BrowsePane, DirectoryPicker } from "@web/views/Workspace";
 import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,
@@ -18,7 +18,6 @@ import {
   currentSessionId,
   errorText,
   field,
-  fileFailure,
   html,
   hxTrigger,
   sessionLocation,
@@ -165,21 +164,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       .browse(await currentCwd(c))
       .catch(() => deps.workspace.browse());
     return c.html(<DirectoryPicker {...browse} />);
-  });
-
-  app.get("/workspaces/folders", async (c) => {
-    const cwd = c.req.query("cwd") ?? "";
-    if (cwd === "") return c.text("cwd is required", 400);
-    try {
-      return await c.html(
-        <FolderList
-          choice={await deps.workspace.folders(cwd)}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
-        />,
-      );
-    } catch (error) {
-      return fileFailure(c, error);
-    }
   });
 
   // Browsing exposes names only. Validation, not browsing, grants file access.

@@ -221,10 +221,6 @@ export function createDeps(config: Config): {
       sessions: demoSessions(config.defaultCwd),
       delayMs: 40,
       script: (prompt) => demoScript(config.defaultCwd, prompt),
-      worktrees: (cwd) => [
-        { path: cwd, branch: "main" },
-        { path: `${cwd}/worktree`, branch: "feature" },
-      ],
       // The second demo session lives in a folder that is not there, which
       // is what the read-only notice is for.
       trustRequired: [config.defaultCwd],

@@ -6,7 +6,6 @@ import type { LiveStatus, ModelOption, ThinkingLevel } from "@core/ports";
 import type { SessionStats } from "@core/session-entries";
 import type { SessionSummary, SessionRowMetadata } from "@core/sessions";
 import type { TranscriptItem } from "@core/transcript";
-import type { ProjectInfo, WorktreeInfo } from "@core/workspaces";
 
 // What the workspace hands a page to render, and the refusal of work on an
 // inspection-only session. Pure data: the web layer renders it and never
@@ -112,18 +111,6 @@ export type SidebarView = {
   parentId?: string;
   /** Sibling offset, including unreadable and already-pinned rows. */
   nextOffset?: number;
-};
-
-/** One project row of the folder picker, once its worktrees are known. */
-export type FolderChoice = {
-  cwd: string;
-  available: boolean;
-  project: ProjectInfo;
-  /** False when git could not answer at all: a plain folder. */
-  isGit: boolean;
-  worktrees: WorktreeInfo[];
-  /** The listed worktree the reader is in right now, if any. */
-  current: string | null;
 };
 
 /** What the new-session page needs before there is a session. */

@@ -12,7 +12,6 @@ import { sessionUseCases } from "./sessions.ts";
 export type {
   FileScope,
   FileView,
-  FolderChoice,
   NewSessionView,
   SavedObservation,
   SavedObservationOptions,

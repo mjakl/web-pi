@@ -35,11 +35,8 @@ created by another tool. The picker fetches its session-derived list once per
 mounted menu; expanding a group only reveals its existing choices. Use **Custom
 path…** to select a new working folder.
 
-The separate `GET /workspaces/folders` route performs fresh Git discovery when
-requested, but no current picker control calls it. That endpoint reads worktree
-metadata rather than checkout files, and filters missing, prunable, and bare
-entries. Those filtering guarantees do not apply to the session-derived picker,
-which can retain a missing folder because its history still exists.
+The picker can list a folder that no longer exists, because its session history
+still does.
 
 web-pi records observed folder-to-repository associations in
 `web-pi/worktree-projects.json` inside the Pi agent directory. This keeps
@@ -74,8 +71,6 @@ These routes serve the browser workflow, not the old Next.js JSON API:
   `/sidebar?project=<root>&cwd=<folder>` links navigate to `/new?cwd=<folder>`;
   a project query alone no longer filters sessions. Old project cookies are
   ignored.
-- `GET /workspaces/folders?cwd=<directory>` renders freshly discovered Git
-  worktree choices. It is not wired into the current picker UI.
 - `GET /workspaces/picker` opens the custom-folder dialog.
 - `GET /workspaces/browse?path=<directory>` renders directory names without
   granting file-content access.

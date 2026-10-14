@@ -10,7 +10,7 @@ import type {
   SkillUpdate,
 } from "@core/skills";
 import type { Shared } from "./deps.ts";
-import type { FolderChoice, NewSessionView } from "./views.ts";
+import type { NewSessionView } from "./views.ts";
 
 // Everything before and around a session: choosing a folder, what `/new`
 // offers there, project trust, skills and extension packages.
@@ -104,37 +104,6 @@ export function configUseCases({
     /** Directory names only, for the picker's browse pane. */
     browse(path?: string) {
       return deps.browser.browse(path);
-    },
-
-    /**
-     * One project row of the picker: its worktrees, freshly probed. Probing
-     * runs git in the folder, so the folder has to be one this reader may
-     * already reach; the worktrees it reports join the allowed roots, which is
-     * how a session in a sibling worktree stays readable after a restart.
-     */
-    async folders(cwd: string): Promise<FolderChoice> {
-      const available = await folderAvailable(cwd);
-      // A folder that is gone is never probed, so there is nothing to gate;
-      // one that is there has git run in it, and that needs a folder this
-      // reader may already reach.
-      if (available) await authorize(cwd, { listing: true });
-      const listing = await deps.projects.worktrees(cwd);
-      const worktrees =
-        listing.worktrees.length > 0
-          ? listing.worktrees
-          : available
-            ? [{ path: cwd, branch: listing.project.branch }]
-            : [];
-      for (const tree of worktrees) validatedRoots.add(tree.path);
-      return {
-        cwd,
-        available,
-        project: listing.project,
-        isGit: listing.isGit,
-        worktrees,
-        current:
-          worktrees.find((tree) => samePath(tree.path, cwd))?.path ?? null,
-      };
     },
 
     /** What `/new` renders: models and trust for the chosen folder. */

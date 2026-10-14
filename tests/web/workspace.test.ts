@@ -6,7 +6,7 @@ import {
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -91,61 +91,6 @@ const form = (fields: Record<string, string>) => {
 };
 
 describe("the directory picker", () => {
-  it("lists a project's worktrees and marks the folder in use", async () => {
-    const { app } = testApp({
-      worktrees: (cwd) => [
-        { path: cwd, branch: "main" },
-        { path: `${cwd}/wt`, branch: "feature" },
-      ],
-    });
-    const html = await (
-      await app.request(`/workspaces/folders?cwd=${encodeURIComponent(repo)}`)
-    ).text();
-    expect(html).toContain("feature");
-    expect(html).toContain('aria-current="true"');
-    expect(html).toContain("repo · main");
-  });
-
-  it("refuses to probe a folder outside every allowed root", async () => {
-    const { app } = testApp();
-    // Probing runs git in the folder the query names; pi-web gates it the
-    // same way, through the allowed roots.
-    const denied = await app.request("/workspaces/folders?cwd=/etc");
-    expect(denied.status).toBe(403);
-  });
-
-  it("adds a listed worktree to the roots a file may be read from", async () => {
-    const { app } = testApp({
-      worktrees: (cwd) => [
-        { path: cwd, branch: "main" },
-        { path: join(root, "wt"), branch: "feature" },
-      ],
-    });
-    await mkdir(join(root, "wt"), { recursive: true });
-    await writeFile(join(root, "wt", "note.txt"), "hello\n");
-    const before = await app.request(
-      `/files/view?path=${encodeURIComponent(join(root, "wt", "note.txt"))}`,
-    );
-    expect(before.status).toBe(403);
-
-    await app.request(`/workspaces/folders?cwd=${encodeURIComponent(repo)}`);
-    const after = await app.request(
-      `/files/view?path=${encodeURIComponent(join(root, "wt", "note.txt"))}`,
-    );
-    expect(after.status).toBe(200);
-  });
-
-  it("says so when a project has no folder left to offer", async () => {
-    const { app } = testApp({
-      worktrees: () => [],
-      missingFolders: [repo],
-    });
-    const html = await (
-      await app.request(`/workspaces/folders?cwd=${encodeURIComponent(repo)}`)
-    ).text();
-    expect(html).toContain("No working folders available");
-  });
-
   it("browses directory names only, hidden ones included", async () => {
     await mkdir(join(repo, ".hidden"));
     const { app } = testApp();

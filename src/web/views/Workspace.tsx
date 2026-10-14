@@ -1,5 +1,3 @@
-import { shortPath } from "@core/workspaces";
-import type { FolderChoice } from "@core/workspace";
 import { ParentFolderIcon, PickerFolderIcon } from "./icons.tsx";
 import { ConfigButton } from "./ConfigControls.tsx";
 
@@ -7,37 +5,6 @@ import { ConfigButton } from "./ConfigControls.tsx";
 // (components/DirectoryPicker.tsx §3.7). One modal dialog that lists
 // directory names, walks into them, and commits the folder it is standing in.
 // Validating that folder is what grants access to it.
-
-/** The worktrees of one project, probed on demand (§ the allowed-root flow). */
-export function FolderList({
-  choice,
-  home,
-}: {
-  choice: FolderChoice;
-  home?: string;
-}) {
-  if (choice.worktrees.length === 0) {
-    return <p role="status">No working folders available</p>;
-  }
-  return (
-    <ul>
-      {choice.worktrees.map((tree) => (
-        <li>
-          <span
-            {...(tree.path === choice.current
-              ? { "aria-current": "true" }
-              : {})}
-          >
-            {`${tree.path.split("/").filter(Boolean).at(-1) ?? tree.path}${
-              tree.branch === null ? "" : ` · ${tree.branch}`
-            }`}
-          </span>
-          <p>{shortPath(tree.path, home)}</p>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 const PANEL = "#directory-picker-panel";
 

@@ -210,9 +210,9 @@ history or commands.
 
 These are known gaps, not work authorized by the documentation migration:
 
-- Git worktree discovery in the picker UI. The fresh-discovery route exists, but
-  the picker lists folders from known sessions. Use Custom path… for a worktree
-  that has no session yet; see [Worktrees](worktrees.md).
+- Git worktree discovery in the picker UI. The picker lists folders from known
+  sessions only; use Custom path… for a worktree that has no session yet. See
+  [Worktrees](worktrees.md).
 - ANSI rendering in ordinary tool cards. Output is currently preformatted text.
 - Read-only historical branch selection. Current rail navigation changes the
   active leaf and offers an editable prompt.

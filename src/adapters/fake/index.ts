@@ -23,7 +23,7 @@ import {
 } from "@core/packages";
 import type { SkillInfo } from "@core/skills";
 import { encodeSkillPrompt } from "@core/skill-prompt";
-import type { ProjectInfo, WorktreeInfo } from "@core/workspaces";
+import type { ProjectInfo } from "@core/workspaces";
 import type {
   AgentRuntime,
   DirectoryBrowser,
@@ -939,8 +939,6 @@ export function createFakeWorld(
     files?: string[];
     tmpdir?: string;
     models?: ModelOption[];
-    /** Sibling worktrees the picker offers for a folder. */
-    worktrees?: (cwd: string) => WorktreeInfo[];
     /** Which repository a folder belongs to: how sessions group by project. */
     projects?: (cwd: string) => ProjectInfo;
     /** Folders whose project resources are gated behind trust. */
@@ -1287,14 +1285,6 @@ export function createFakeWorld(
       resolve: (cwd) =>
         Promise.resolve(options.projects?.(cwd) ?? fakeProject(cwd)),
       available: (cwd) => Promise.resolve(!missing.has(cwd)),
-      worktrees: (cwd) =>
-        Promise.resolve({
-          project: options.projects?.(cwd) ?? fakeProject(cwd),
-          isGit: true,
-          worktrees: options.worktrees?.(cwd) ?? [
-            { path: cwd, branch: "main" },
-          ],
-        }),
     },
     browser: createDirectoryBrowser(),
     trust: {

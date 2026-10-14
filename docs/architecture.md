@@ -830,16 +830,16 @@ composition root and the only importer of Pi adapters.
   a folder before asking for it. pi-web keeps the last custom path in
   `localStorage`; here the cookie is the memory and `web-pi:last-cwd` only
   pre-fills the browse box.
-- **Worktree discovery is a rule plus a map.** `src/core/workspaces.ts` holds
+- **Repository grouping is a rule plus a map.** `src/core/workspaces.ts` holds
   the identity rules (bare repositories, linked worktrees, subdirectories keep
-  their own identity) and the parse of `git worktree list --porcelain -z`; the
-  adapter runs git, caches for 60 s and answers an expired entry as it stands
-  while refreshing it behind the reply (a sidebar render resolves every folder
-  at once, and a branch switch may show up one render late), checks availability
-  _before_ the cache so a deleted folder can never be masked, and writes
-  `<agentDir>/web-pi/worktree-projects.json` atomically at mode 0600 and only
-  when a mapping actually changed. Git forgets a worktree the moment it is
-  deleted; that map is what keeps its sessions grouped under the repository.
+  their own identity); the adapter runs git, caches for 60 s and answers an
+  expired entry as it stands while refreshing it behind the reply (a sidebar
+  render resolves every folder at once, and a branch switch may show up one
+  render late), checks availability _before_ the cache so a deleted folder can
+  never be masked, and writes `<agentDir>/web-pi/worktree-projects.json`
+  atomically at mode 0600 and only when a mapping actually changed. Git forgets
+  a worktree the moment it is deleted; that map is what keeps its sessions
+  grouped under the repository.
 - **A missing working folder is read-only, not an error.** The session still
   reads, exports, shows statistics and stops; sending, branching, forking,
   cloning, compacting, rewinding, switching model and activating all disappear,

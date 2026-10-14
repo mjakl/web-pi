@@ -94,6 +94,13 @@ shell-output capture also needs a permitted `pi-bash-*.log` path and a persisted
 shell entry that references it. Directory-name browsing in the folder picker is
 separate from file-content authorization.
 
+`@` path completion is a deliberate exception: it lists names, never contents,
+without `authorize`. It reads the directory a path-like query names (`@./`,
+`@../`, `@~/`, `@/`) and keeps the entries whose paths lie lexically inside the
+session's or picked folder. Symlinks are not resolved, so a symlink inside the
+folder lists the names in the directory it points to, even outside every allowed
+root. Opening any of those files still goes through `authorize`.
+
 ## Workspaces and configuration
 
 [Worktrees](worktrees.md) owns folder selection, grouping, and missing-folder

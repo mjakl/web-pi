@@ -165,8 +165,11 @@ accounting. Shell commands run with a sanitised environment; read
 
 Every file request goes through `authorize` in `src/core/workspace/deps.ts`; add
 a root through the allowed-root flow there, never a check in a route handler.
-Read `docs/behavior.md` before changing file behavior and `docs/worktrees.md`
-before changing folder selection or worktree discovery.
+The one stated exception is `@` path completion: it lists names, never contents,
+from the directory a query names, filtered lexically to the folder. Read
+`docs/behavior.md` before changing file behavior (its "Files and Git" section
+describes that exception) and `docs/worktrees.md` before changing folder
+selection or worktree discovery.
 
 ## Validation
 

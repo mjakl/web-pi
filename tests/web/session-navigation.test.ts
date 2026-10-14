@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,14 +12,6 @@ import { createFakeWorld } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser, type Transport } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-const directories: string[] = [];
-afterEach(async () => {
-  for (const browser of browsers.splice(0)) await browser.close();
-  for (const directory of directories.splice(0))
-    await rm(directory, { recursive: true, force: true });
-});
 
 async function fixture(wrap: (transport: Transport) => Transport = (t) => t) {
   const world = createFakeWorld({
@@ -63,7 +55,6 @@ async function fixture(wrap: (transport: Transport) => Transport = (t) => t) {
       },
     },
   );
-  browsers.push(browser);
   browser.window.happyDOM.settings.navigation.disableMainFrameNavigation = true;
   return {
     ...browser,
@@ -668,7 +659,8 @@ it("restores folder-scoped new drafts and refreshes sidebar context on native Ba
 
 it("uses the existing directory menu and custom-folder picker before creating a session", async () => {
   const unknown = await mkdtemp(join(tmpdir(), "web-pi-new-directory-"));
-  directories.push(unknown);
+  // Registered before the page, so the page closes before the folder goes.
+  onTestFinished(() => rm(unknown, { recursive: true, force: true }));
   const b = await fixture();
   const other = b.world.store.get("s3");
   if (!other) throw new Error("missing fixture");

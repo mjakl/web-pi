@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import type {
   HTMLButtonElement,
   HTMLElement,
@@ -8,11 +8,6 @@ import { createFakeWorld } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  for (const browser of browsers.splice(0)) await browser.close();
-});
 
 async function fixture() {
   const world = createFakeWorld({
@@ -42,7 +37,6 @@ async function fixture() {
     await (await app.request("/sessions/first")).text(),
     (request) => app.request(request),
   );
-  browsers.push(browser);
   await expect
     .poll(() =>
       browser.requests.some(

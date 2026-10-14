@@ -8,18 +8,14 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
+import { parseHtml } from "#/web/helpers";
 
-async function renderedHtml(html: string): Promise<string> {
-  const window = new Window();
-  try {
-    window.document.body.innerHTML = html;
-    for (const template of window.document.querySelectorAll("template")) {
-      template.remove();
-    }
-    return window.document.body.innerHTML;
-  } finally {
-    await window.happyDOM.close();
+function renderedHtml(html: string): string {
+  const document = parseHtml(html);
+  for (const template of document.querySelectorAll("template")) {
+    template.remove();
   }
+  return document.body.innerHTML;
 }
 
 function testApp(options: Parameters<typeof createFakeWorld>[0] = {}) {
@@ -271,7 +267,7 @@ describe("web app", () => {
     const clear =
       '<hx-partial hx-target="#turn" hx-swap="innerMorph"></hx-partial>';
     // Rejoin multiline HTML before parsing; recovery templates are inert.
-    const rendered = await renderedHtml(received.replaceAll(/^data: /gm, ""));
+    const rendered = renderedHtml(received.replaceAll(/^data: /gm, ""));
     expect(rendered).toContain(clear);
     expect(rendered.indexOf(clear)).toBeLessThan(
       rendered.indexOf("event: settled\n"),
@@ -1548,9 +1544,7 @@ describe("conversation rail, shelf, and written files", () => {
     }
     // The page is asked for while the stream is still open: web-pi lets go of
     // a live session once its last reader does.
-    const page = await renderedHtml(
-      await (await app.request("/sessions/s1")).text(),
-    );
+    const page = renderedHtml(await (await app.request("/sessions/s1")).text());
     await reader.cancel();
     const surface = page.indexOf('class="composer-surface"');
     // The composer's own "more" popover carries a second copy for phones, so
@@ -1970,17 +1964,8 @@ describe("phase 8 fixes", () => {
         }
         return html;
       };
-      async function compactButton(html: string) {
-        const window = new Window();
-        try {
-          window.document.body.innerHTML = html;
-          return (
-            window.document.querySelector("#context-compact")?.outerHTML ?? ""
-          );
-        } finally {
-          await window.happyDOM.close();
-        }
-      }
+      const compactButton = (html: string) =>
+        parseHtml(html).querySelector("#context-compact")?.outerHTML ?? "";
       try {
         await readUntil('id="context-compact"');
         const form = new FormData();
@@ -1992,14 +1977,14 @@ describe("phase 8 fixes", () => {
           { method: "POST", ...(outcome === "failure" ? { body: form } : {}) },
         );
         expect(response.status).toBe(204);
-        const running = await compactButton(
+        const running = compactButton(
           await readUntil('data-compacting="true"'),
         );
         expect(running).toContain('hx-swap-oob="true"');
         expect(running).toContain("disabled");
         expect(running).toContain('aria-busy="true"');
         expect(running).toContain('aria-label="Compacting context…"');
-        const revisited = await compactButton(
+        const revisited = compactButton(
           await (await app.request("/sessions/s1")).text(),
         );
         expect(revisited).toContain("disabled");
@@ -2009,7 +1994,7 @@ describe("phase 8 fixes", () => {
             ? 'aria-label="Compact context"'
             : "Compaction failed:",
         );
-        const restored = await compactButton(settled);
+        const restored = compactButton(settled);
         expect(restored).toContain('aria-label="Compact context"');
         expect(restored).not.toContain("disabled");
         expect(restored).not.toContain('aria-busy="true"');

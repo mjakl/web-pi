@@ -7,23 +7,11 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-const stopRuntimes: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  try {
-    await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-  } finally {
-    await Promise.all(stopRuntimes.splice(0).map((stop) => stop()));
-  }
-});
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing saved-session fixture element");
-  return value;
-}
 function result(
   id: string,
   parentId: string,
@@ -79,8 +67,9 @@ function fixture(child: boolean, entries: SessionEntry[]) {
   const open = vi.spyOn(world.runtime, "open");
   const models = vi.spyOn(world.models, "list");
   const workspace = createWorkspace(world);
+  // Registered before any page, so pages close before the runtime stops.
   if (!child)
-    stopRuntimes.push(async () => {
+    onTestFinished(async () => {
       await world.runtime.get(id)?.stop();
     });
   const app = createWebApp({
@@ -218,7 +207,6 @@ it.each([false, true])(
       (request) => f.app.request(request),
       { clock: true },
     );
-    browsers.push(browser);
     const { document, window, requests } = browser;
     const owner = required(document.querySelector("main[data-saved-session]"));
     expect(owner.hasAttribute("hx-sse:connect")).toBe(false);
@@ -349,7 +337,6 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
     (request) => f.app.request(request),
     { clock: true },
   );
-  browsers.push(browser);
   browser.window.eval(
     'window.savedTransfers = []; document.addEventListener("web-pi:saved", event => window.savedTransfers.push(JSON.parse(event.detail.data)))',
   );
@@ -450,7 +437,6 @@ it("resets a saved window absent from the owned branch without losing pending no
     (request) => f.app.request(request),
     { clock: true },
   );
-  browsers.push(browser);
   const oldLog = required(browser.document.querySelector("#log"));
   expect(browser.document.querySelector("#entry-old-answer")).not.toBeNull();
   expect(browser.document.querySelector("#entry-active-answer")).toBeNull();
@@ -486,7 +472,6 @@ it("returns to saved observation when ownership ends before the stream connects"
     },
     { clock: true },
   );
-  browsers.push(browser);
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
   await expect.poll(() => stoppedBeforeConnect, { timeout: 4000 }).toBe(true);
@@ -640,7 +625,6 @@ it.each(["initial", "reconnect"])(
           : transport.request(request),
       { clock: true },
     );
-    browsers.push(browser);
     const { document, window } = browser;
     const sentinel = required(document.querySelector(".load-earlier"));
     await window.eval(
@@ -825,7 +809,6 @@ it("observes an empty saved session and keeps its last good content when the fil
     },
     { clock: true },
   );
-  browsers.push(browser);
   const { document } = browser;
   expect(
     document.querySelector("main")?.getAttribute("data-saved-content-leaf"),

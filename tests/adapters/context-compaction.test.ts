@@ -3,22 +3,17 @@ import { formatContextUsage } from "@core/context-usage";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser } from "#/web/htmx4-browser";
-import { afterEach, expect, it } from "vitest";
-import { createHarness, type Harness, next, reply } from "./pi-harness.ts";
-
-let h: Harness | undefined;
-let browser: Awaited<ReturnType<typeof htmxBrowser>> | undefined;
-afterEach(async () => {
-  await browser?.close();
-  await h?.dispose();
-});
+import { expect, it, onTestFinished } from "vitest";
+import { createHarness, next, reply } from "./pi-harness.ts";
 
 it("replaces pre-compaction usage with the rebuilt context estimate, including after reopening", async () => {
-  h = await createHarness({
+  const h = await createHarness({
     settings: {
       compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 20 },
     },
   });
+  // Registered before the page, so the page closes before the harness goes.
+  onTestFinished(() => h.dispose());
   const workspace = createWorkspace({
     ...createFakeWorld(),
     runtime: h.runtime,
@@ -44,13 +39,13 @@ it("replaces pre-compaction usage with the rebuilt context estimate, including a
   });
   const page = async () =>
     (await app.request(`/sessions/${session.id}`)).text();
-  browser = await htmxBrowser(await page(), (request) =>
+  const browser = await htmxBrowser(await page(), (request) =>
     new URL(request.url).pathname === "/events"
       ? new Response("")
       : app.request(request),
   );
   const readout = () =>
-    browser?.document.querySelector("#context-readout")?.textContent;
+    browser.document.querySelector("#context-readout")?.textContent;
   expect(readout()).toContain("3k / 4k (65%)");
   h.script(reply("Summary of earlier work"));
   await session.compact();

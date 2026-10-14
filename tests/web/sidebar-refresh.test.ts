@@ -2,12 +2,7 @@ import { createFakeWorld, type FakeStoredSession } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { controlledStream, htmxBrowser } from "#/web/htmx4-browser";
-import { afterEach, expect, it } from "vitest";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  for (const browser of browsers.splice(0)) await browser.close();
-});
+import { expect, it } from "vitest";
 
 function session(id: string): FakeStoredSession {
   return {
@@ -51,7 +46,6 @@ it("discovers stored external sessions on initial connection and real SSE reconn
       return app.request(request);
     },
   );
-  browsers.push(b);
   const owner = b.document.querySelector("#sidebar-events");
   const nav = b.document.querySelector("#session-nav");
   const main = b.document.querySelector("main");
@@ -96,7 +90,6 @@ it("serializes manual refresh with an in-flight automatic request and retains li
     },
     { clock: true },
   );
-  browsers.push(b);
   await b.advanceTime(100);
   expect(scans).toBe(1);
   b.window.eval(
@@ -144,7 +137,6 @@ it("coalesces automatic triggers into a running manual refresh instead of queuei
     },
     { clock: true },
   );
-  browsers.push(b);
   await b.advanceTime(200);
   const rowsRequests = () =>
     b.requests.filter((r) => new URL(r.url).pathname === "/sidebar/rows")

@@ -8,8 +8,8 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { Status } from "@web/views/Status";
 import { html } from "@web/routes/shared";
-import { Window } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseHtml } from "#/web/helpers";
 
 const testing = { id: "/fake/skills/testing/SKILL.md", name: "testing" };
 const other = { id: "/fake/skills/other/SKILL.md", name: "other" };
@@ -19,15 +19,7 @@ const expanded = encodeSkillPrompt(
   [testing, other],
   "SECRET INSTRUCTIONS",
 );
-const windows: Window[] = [];
-function documentOf(html: string) {
-  const window = new Window();
-  windows.push(window);
-  window.document.body.innerHTML = html;
-  return window.document;
-}
-afterEach(async () => {
-  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
+afterEach(() => {
   vi.restoreAllMocks();
 });
 function fixture(userText = expanded) {
@@ -78,7 +70,7 @@ describe("skill selection HTTP and display boundary", () => {
     "lists discovered manual skills at %s without starting a runtime",
     async (url) => {
       const { app, world } = fixture();
-      const document = documentOf(await (await app.request(url)).text());
+      const document = parseHtml(await (await app.request(url)).text());
       const option = document.querySelector("[data-skill-id]");
       expect(option?.getAttribute("data-skill-id")).toBe(testing.id);
       expect(option?.textContent).toContain("Manual");
@@ -166,7 +158,7 @@ describe("skill selection HTTP and display boundary", () => {
     async (prefix, suffix) => {
       const { app } = fixture(`${prefix}${expanded}${suffix}`);
       const readable = `${prefix}${original}${suffix}`;
-      const document = documentOf(
+      const document = parseHtml(
         await (await app.request("/sessions/s1")).text(),
       );
       const message = document.querySelector("#entry-u1");
@@ -200,7 +192,7 @@ describe("skill selection HTTP and display boundary", () => {
         method: "POST",
         body,
       });
-      const document = documentOf(await response.text());
+      const document = parseHtml(await response.text());
       const area = document.querySelector("#composer-text");
       expect(area?.textContent).toBe(original);
       expect(
@@ -249,7 +241,7 @@ describe("skill selection HTTP and display boundary", () => {
             ) as string,
           },
         });
-      const document = documentOf(await response.text());
+      const document = parseHtml(await response.text());
       expect(document.querySelector("#composer-text")?.textContent).toBe(
         `${original}\n\n/skill:other later`,
       );
@@ -288,7 +280,7 @@ describe("skill selection HTTP and display boundary", () => {
     const view = await workspace.viewSession("s1");
     if (!view?.status) throw new Error("Missing live fixture");
     view.status.queue = queue;
-    const preview = documentOf(await html(<Status view={view} />));
+    const preview = parseHtml(await html(<Status view={view} />));
     expect(preview.body.textContent).toContain(
       `Context note.\n${original}\nHook suffix`,
     );
@@ -304,7 +296,7 @@ describe("skill selection HTTP and display boundary", () => {
     const draft = new FormData();
     draft.set("text", "typed meanwhile");
     draft.set("skills", JSON.stringify([other, mine]));
-    const document = documentOf(
+    const document = parseHtml(
       await (
         await app.request("/sessions/s1/queue/recall", {
           method: "POST",

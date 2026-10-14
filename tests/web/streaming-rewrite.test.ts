@@ -1,18 +1,10 @@
 import type { HTMLButtonElement } from "happy-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 import { rewritableSession } from "#/web/fixtures/rewritable-session";
 import { streamingFixture } from "#/web/fixtures/streaming";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
-function required<T>(value: T | undefined | null): T {
-  if (value == null) throw new Error("Missing fixture value");
-  return value;
-}
 
 it.each([false, true])(
   "replaces a rewritten canonical branch (disconnected: %s) and then resumes append recovery",
@@ -26,7 +18,6 @@ it.each([false, true])(
           ? new Response("")
           : transport.request(request),
     );
-    browsers.push(browser);
     const { document, window } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
     const owner = required(document.querySelector("main"));
@@ -108,7 +99,6 @@ it.each(["u31", "u1"])(
           ? new Response("")
           : transport.request(request),
     );
-    browsers.push(browser);
     const { document, window } = browser;
     await expect.poll(() => transport.connections.length).toBe(1);
     // A response body exists before async inspection checks finish. This case
@@ -205,7 +195,6 @@ it("restores the rewound prompt when SSE replaces history before the action resp
       return f.app.request(request);
     },
   );
-  browsers.push(browser);
   const { document, window } = browser;
   window.eval("window.confirm = () => true");
   const oldLog = required(document.querySelector("#log"));
@@ -259,7 +248,6 @@ it("aborts the old owner's pending history request and rejects its late content 
       return response;
     },
   );
-  browsers.push(browser);
   const { document, window } = browser;
   const oldLog = required(document.querySelector("#log"));
   const earlier = required(
@@ -297,7 +285,6 @@ it("reports an unrelated projection failure instead of resetting history or anno
         ? new Response("")
         : f.app.request(request),
   );
-  browsers.push(browser);
   const { document } = browser;
   await expect.poll(() => f.subscribers).toBe(1);
   const log = document.querySelector("#log");

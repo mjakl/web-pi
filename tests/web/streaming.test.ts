@@ -4,19 +4,12 @@ import type {
   HTMLElement,
   HTMLTextAreaElement,
 } from "happy-dom";
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { streamingFixture } from "#/web/fixtures/streaming";
 import { disconnectable } from "#/web/fixtures/disconnect";
 
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing fixture element");
-  return value;
-}
 function toggleDetails(card: HTMLDetailsElement) {
   card.open = !card.open;
   const view = required(card.ownerDocument.defaultView);
@@ -78,15 +71,13 @@ async function open(
   markup?: string,
   transport = (request: Request) => f.app.request(request),
 ) {
-  const browser = await htmxBrowser(
+  return htmxBrowser(
     markup ?? (await (await f.app.request(`/sessions/${f.id}`)).text()),
     (request) =>
       new URL(request.url).pathname === "/events"
         ? new Response("")
         : transport(request),
   );
-  browsers.push(browser);
-  return browser;
 }
 
 it.each(["decoration", "models"] as const)(

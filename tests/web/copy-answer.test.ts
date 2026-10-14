@@ -5,18 +5,13 @@ import {
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   copyAnswerEntry,
   RAW_ANSWER,
   RAW_BLOCKS,
 } from "#/web/fixtures/copy-answer";
 import { htmxBrowser } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
 
 function fixture(paged = false) {
   const entries = [userEntry("user", null, "question"), copyAnswerEntry()];
@@ -96,7 +91,6 @@ async function open(paged = false, hold = false) {
       return response;
     },
   );
-  browsers.push(browser);
   const write = vi
     .spyOn(browser.window.navigator.clipboard, "writeText")
     .mockResolvedValue(undefined);
@@ -226,7 +220,6 @@ describe("authoritative /copy through real routes and the shipped client", () =>
           return response;
         },
       );
-      browsers.push(browser);
       const write = vi
         .spyOn(browser.window.navigator.clipboard, "writeText")
         .mockImplementation(() =>

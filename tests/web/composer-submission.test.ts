@@ -6,19 +6,11 @@ import type {
   HTMLInputElement,
   HTMLSelectElement,
 } from "happy-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing expected test value");
-  return value;
-}
-
 type Browser = Awaited<ReturnType<typeof htmxBrowser>>;
-const browsers: Browser[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function fixture() {
@@ -71,14 +63,12 @@ async function openComposer(
   const html = await (
     await app.request(fresh ? "/new" : "/sessions/s1")
   ).text();
-  const browser = await htmxBrowser(html, async (request) => {
+  return htmxBrowser(html, async (request) => {
     const response = await app.request(request);
     if (loseResponse && request.method === "POST")
       throw new Error("Connection lost after dispatch");
     return response;
   });
-  browsers.push(browser);
-  return browser;
 }
 
 const area = (browser: Browser) =>

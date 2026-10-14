@@ -1,14 +1,10 @@
 import { createFakeWorld, type FakeStoredSession } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
-import { afterEach, describe, expect, it } from "vitest";
-import { Window, type HTMLDetailsElement, type HTMLElement } from "happy-dom";
+import { describe, expect, it } from "vitest";
+import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
+import { parseHtml } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  for (const browser of browsers.splice(0)) await browser.close();
-});
 
 function session(id: string, parent?: string, age = 0): FakeStoredSession {
   return {
@@ -55,7 +51,6 @@ async function browse(active = "other", sessions?: FakeStoredSession[]) {
     await (await f.app.request(`/sessions/${active}`)).text(),
     (request) => f.app.request(request),
   );
-  browsers.push(browser);
   const initialRow = browser.document.querySelector(".session-row");
   await expect
     .poll(() => browser.document.querySelector(".session-row") !== initialRow)
@@ -64,9 +59,7 @@ async function browse(active = "other", sessions?: FakeStoredSession[]) {
 }
 
 function ids(markup: string): string[] {
-  const window = new Window();
-  window.document.body.innerHTML = markup;
-  return [...window.document.querySelectorAll(".session-row")].map(
+  return [...parseHtml(markup).querySelectorAll(".session-row")].map(
     (row) => row.getAttribute("data-session-id") ?? "",
   );
 }
@@ -301,7 +294,6 @@ describe("sidebar tree with native HTMX", () => {
         return f.app.request(request);
       },
     );
-    browsers.push(browser);
     const b = { ...f, ...browser };
     try {
       const initialRow = b.document.querySelector("#row-pinned");

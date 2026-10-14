@@ -9,8 +9,8 @@ import {
   ToolBody,
   TurnFragment,
 } from "@web/views/Items";
-import { Window } from "happy-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { parseHtml } from "#/web/helpers";
 import {
   answerItem,
   fixtureCalls,
@@ -65,16 +65,7 @@ const runningSubagentCall: ToolCallView = {
 
 const html = (node: unknown) => String(node);
 
-const windows: Window[] = [];
-function rendered(node: unknown) {
-  const window = new Window();
-  windows.push(window);
-  window.document.body.innerHTML = html(node);
-  return window.document;
-}
-afterEach(async () => {
-  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
-});
+const rendered = (node: unknown) => parseHtml(html(node));
 
 describe("transcript items", () => {
   it.each([

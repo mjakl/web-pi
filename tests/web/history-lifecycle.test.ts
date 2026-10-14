@@ -11,23 +11,11 @@ import type {
   HTMLFormElement,
   HTMLInputElement,
 } from "happy-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing fixture value");
-  return value;
-}
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-const worlds: ReturnType<typeof createFakeWorld>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-  for (const world of worlds.splice(0)) {
-    for (const session of world.runtime.live()) {
-      await session.abort();
-      await session.stop();
-    }
-  }
+afterEach(() => {
   vi.restoreAllMocks();
 });
 
@@ -69,6 +57,13 @@ async function fixture(text: string) {
       },
     ],
   });
+  // Registered before the page, so the page closes before its sessions stop.
+  onTestFinished(async () => {
+    for (const session of world.runtime.live()) {
+      await session.abort();
+      await session.stop();
+    }
+  });
   const app = createWebApp({
     workspace: createWorkspace(world),
     defaultCwd: "/repo",
@@ -85,8 +80,6 @@ async function fixture(text: string) {
     },
   );
   browser.window.eval("window.confirm = () => true");
-  browsers.push(browser);
-  worlds.push(world);
   return { browser, world, streams, image };
 }
 

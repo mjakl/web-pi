@@ -1,5 +1,5 @@
 import { AT_RESULT_LIMIT, type FileEntry } from "@core/composer";
-import { type FileKind, fileKind, languageOf } from "@core/file-types";
+import { fileKind, languageOf } from "@core/file-types";
 import { directoryWithin, FileAccessError, samePath } from "@core/path-access";
 import type { DirEntry, GitChangeFile, GitStatus } from "@core/ports";
 import type { Shared } from "./deps.ts";
@@ -148,33 +148,26 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       return view;
     },
 
-    /** Size, language, and kind alone: what a media viewer re-reads. */
-    async fileMeta(
+    /**
+     * Raw bytes for an image, an audio file, a PDF, or a download: the size
+     * a Range header is checked against, and the bytes, opened only when a
+     * response is actually sent, since each stream holds a file descriptor.
+     */
+    async fileBytes(
       sessionId: string | undefined,
       path: string,
-    ): Promise<{ size: number; language: string; kind: FileKind }> {
+    ): Promise<{
+      size: number;
+      open(range?: { start: number; end: number }): ReadableStream<Uint8Array>;
+    }> {
       const info = await authorize(path, { sessionId });
       if (info === undefined || !info.isFile) {
         throw new FileAccessError("Not a file", 400);
       }
       return {
         size: info.size,
-        language: languageOf(path),
-        kind: fileKind(path),
+        open: (range) => deps.files.stream(path, range),
       };
-    },
-
-    /** Raw bytes for an image, an audio file, a PDF, or a download. */
-    async fileBytes(
-      sessionId: string | undefined,
-      path: string,
-      range?: { start: number; end: number },
-    ): Promise<{ size: number; stream: ReadableStream<Uint8Array> }> {
-      const info = await authorize(path, { sessionId });
-      if (info === undefined || !info.isFile) {
-        throw new FileAccessError("Not a file", 400);
-      }
-      return { size: info.size, stream: deps.files.stream(path, range) };
     },
 
     /** Tells the viewer when the file changed under it. */

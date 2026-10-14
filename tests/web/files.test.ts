@@ -30,6 +30,7 @@ let outside = "";
 let pickable = "";
 let app: ReturnType<typeof createWebApp>;
 let streams = 0;
+let statted: string[] = [];
 
 function git(...args: string[]): void {
   execFileSync("git", args, { cwd: repo, stdio: "ignore" });
@@ -115,6 +116,12 @@ beforeAll(async () => {
   world.files.stream = (path, range) => {
     streams += 1;
     return opened(path, range);
+  };
+  // `authorize` stats the path it checks once per call.
+  const stat = world.files.stat.bind(world.files);
+  world.files.stat = (path) => {
+    statted.push(path);
+    return stat(path);
   };
   app = createWebApp({
     workspace: createWorkspace(world),
@@ -534,8 +541,9 @@ describe("raw bytes", () => {
     expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG.subarray(0, 4));
   });
 
-  it("opens one stream per request, whatever the range", async () => {
+  it("authorizes once and opens one stream per request, whatever the range", async () => {
     streams = 0;
+    statted = [];
     await (await app.request(url())).arrayBuffer();
     expect(streams).toBe(1);
     await (
@@ -545,6 +553,8 @@ describe("raw bytes", () => {
     // An unsatisfiable range answers from the size alone.
     await app.request(url(), { headers: { Range: "bytes=99-1" } });
     expect(streams).toBe(2);
+    const logo = join(repo, "logo.png");
+    expect(statted.filter((path) => path === logo)).toHaveLength(3);
   });
 
   it("streams with range headers and the right type", async () => {
@@ -595,17 +605,7 @@ describe("raw bytes", () => {
   });
 });
 
-describe("meta and containment", () => {
-  it("reports size, language, and kind", async () => {
-    const res = await app.request(
-      `/files/meta?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
-    );
-    const meta = (await res.json()) as Record<string, unknown>;
-    expect(meta["language"]).toBe("markdown");
-    expect(meta["kind"]).toBe("text");
-    expect(typeof meta["size"]).toBe("number");
-  });
-
+describe("containment", () => {
   it("maps a relative path to 400, a missing file to 404, and an outsider to 403", async () => {
     expect((await app.request("/files/view?session=s1&path=src")).status).toBe(
       400,

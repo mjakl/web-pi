@@ -161,23 +161,6 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  app.get("/files/meta", async (c) => {
-    const sessionId = sessionParameter(c);
-    try {
-      const meta = await deps.workspace.fileMeta(
-        sessionId,
-        c.req.query("path") ?? "",
-      );
-      c.header("Cache-Control", "no-store");
-      return c.json(meta);
-    } catch (error) {
-      if (error instanceof FileAccessError) {
-        return c.json({ error: error.message }, error.status);
-      }
-      return c.json({ error: "Cannot read that file" }, 500);
-    }
-  });
-
   const RANGE = /^bytes=(\d*)-(\d*)$/;
 
   app.get("/files/raw", async (c) => {
@@ -186,10 +169,8 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     const download = c.req.query("download") === "1";
     try {
       const header = c.req.header("Range");
-      // One call only: every `fileBytes` opens a stream, and a second one
-      // would leak the file descriptor of the first.
-      const meta = await deps.workspace.fileMeta(sessionId, path);
-      const { size } = meta;
+      const file = await deps.workspace.fileBytes(sessionId, path);
+      const { size } = file;
       const mime = download ? "application/octet-stream" : mimeOf(path);
       const headers: Record<string, string> = {
         "Content-Type": mime,
@@ -204,8 +185,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
           "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
       }
       if (header === undefined) {
-        const { stream } = await deps.workspace.fileBytes(sessionId, path);
-        return c.body(stream, 200, {
+        return c.body(file.open(), 200, {
           ...headers,
           "Content-Length": String(size),
         });
@@ -237,11 +217,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
       }
       end = Math.min(end, size - 1);
       if (start > end || start >= size) return unsatisfiable();
-      const { stream } = await deps.workspace.fileBytes(sessionId, path, {
-        start,
-        end,
-      });
-      return c.body(stream, 206, {
+      return c.body(file.open({ start, end }), 206, {
         ...headers,
         "Content-Range": `bytes ${String(start)}-${String(end)}/${String(size)}`,
         "Content-Length": String(end - start + 1),

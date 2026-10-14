@@ -138,10 +138,10 @@ changes follow the established Settings patterns, not a blanket redesign.
 - Runtime depth, gutter widths, measured bounds, rail positions, keyboard
   viewport values and arbitrary ANSI colors may use narrow inline values or
   custom properties. Keep their surrounding static styling in CSS.
-- `base.css`, `globals.css` and `web-pi.css` own reset, tokens, fonts and global
-  browser/HTMX concerns. `settings.css` owns Settings/config components;
-  `areas/shell.css` owns shell and shared dialog actions; the sidebar, composer
-  (including extension shelf), files and transcript each own their area file.
+- `base.css` and `globals.css` own reset, tokens, fonts and global browser
+  concerns. `settings.css` owns Settings/config components; `areas/shell.css`
+  owns shell and shared dialog actions; the sidebar, composer (including
+  extension shelf), files and transcript each own their area file.
   `code-theme.css` owns the syntax highlighting palette that transcript code
   blocks and the file viewer share. Move component rules to their owner rather
   than adding fallback layers. Keep the explicit cascade in `index.css`.

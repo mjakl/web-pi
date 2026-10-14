@@ -14,17 +14,6 @@ import { Partial } from "./Partial.tsx";
 import { Rail } from "./Rail.tsx";
 import { JumpToLatestIcon } from "./icons.tsx";
 
-/** The stored name, else the opening request, else the id. */
-function pageTitle(view: SessionView): string {
-  const name = view.summary.name?.trim();
-  if (name) return name;
-  const first = [...view.items, ...view.turn].find(
-    (item) => item.kind === "user",
-  );
-  const opening = first?.text.replaceAll(/\s+/g, " ").trim().slice(0, 60);
-  return opening === undefined || opening === "" ? view.summary.id : opening;
-}
-
 /**
  * What every transcript fragment of this view may do: a delegated session is
  * inspection only, and another branch or a missing folder makes it read-only.
@@ -102,9 +91,6 @@ export function Transcript({ view }: { view: SessionView }) {
       <div id="log" class="chat-scroll">
         <div class="chat-scroll-content">
           <div class="chat-transcript">
-            <span hidden data-page-title>
-              {pageTitle(view)}
-            </span>
             {view.otherBranch && !inspectionOnly ? (
               <div class="branch-sync-notice" role="status">
                 <span>Viewing another branch of this session, read only.</span>

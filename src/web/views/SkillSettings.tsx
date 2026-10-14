@@ -62,9 +62,9 @@ function SkillList({
             <button
               type="button"
               class="config-sidebar-item"
-              {...(add !== true && skill.filePath === selected
-                ? { "aria-current": "page" }
-                : {})}
+              aria-current={
+                add !== true && skill.filePath === selected ? "page" : undefined
+              }
               hx-get={detailHref(view.cwd, skill.filePath)}
             >
               <span class="config-sidebar-text is-grow">{skill.name}</span>
@@ -349,13 +349,7 @@ export function SkillsSection({
     <ConfigSplitView
       what="skills"
       trusted={view.projectResourcesLoaded}
-      list={
-        <SkillList
-          view={view}
-          {...(skill === undefined ? {} : { selected: skill.filePath })}
-          {...(add === true ? { add: true } : {})}
-        />
-      }
+      list={<SkillList view={view} selected={skill?.filePath} add={add} />}
       add={{
         label: "Add skill",
         href: `/settings/skills/detail?cwd=${encodeURIComponent(view.cwd)}&add=1`,
@@ -363,18 +357,15 @@ export function SkillsSection({
       }}
       detail={
         add === true ? (
-          <AddSkillPanel
-            view={view}
-            {...(home === undefined ? {} : { home })}
-          />
+          <AddSkillPanel view={view} home={home} />
         ) : (
           <div class="config-detail-stack is-fill">
             <SkillDetail
               cwd={view.cwd}
-              {...(skill ? { skill } : {})}
-              {...(update === undefined ? {} : { update })}
-              {...(message === undefined ? {} : { message })}
-              {...(home === undefined ? {} : { home })}
+              skill={skill}
+              update={update}
+              message={message}
+              home={home}
             />
           </div>
         )

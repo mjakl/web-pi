@@ -83,7 +83,7 @@ function SectionNav({ active, cwd }: { active: SettingsSection; cwd: string }) {
               href={sectionHref(section.key, cwd)}
               class="settings-section-tab"
               title={section.label}
-              {...(section.key === active ? { "aria-current": "page" } : {})}
+              aria-current={section.key === active ? "page" : undefined}
             >
               <SettingsSectionIcon section={section.key} />
               <span>{section.label}</span>

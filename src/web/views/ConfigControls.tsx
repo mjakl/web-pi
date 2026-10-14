@@ -105,12 +105,11 @@ export function ScopePicker({
         global
       </label>
       <label
-        {...(trusted
-          ? {}
-          : {
-              title:
-                "Project installs are unavailable while project resources are not loaded.",
-            })}
+        title={
+          trusted
+            ? undefined
+            : "Project installs are unavailable while project resources are not loaded."
+        }
       >
         <input
           type="radio"
@@ -177,7 +176,7 @@ export function ConfigSplitView({
               <button
                 type="button"
                 class="config-list-action-button"
-                {...(add.open ? { "aria-current": "page" } : {})}
+                aria-current={add.open ? "page" : undefined}
                 hx-get={add.href}
               >
                 <AddConfigIcon />

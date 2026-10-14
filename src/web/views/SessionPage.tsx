@@ -189,17 +189,14 @@ function TopBar({
           </div>
         )}
         {sessionId === undefined || inspectionOnly ? null : (
-          <SessionStatsButton
-            {...(usage === undefined ? {} : { usage })}
-            {...(tokens === undefined ? {} : { tokens })}
-          />
+          <SessionStatsButton usage={usage} tokens={tokens} />
         )}
         {sessionId === undefined || inspectionOnly ? null : (
           <>
             <CompactButton
               sessionId={sessionId}
-              {...(usage === undefined ? {} : { usage })}
-              {...(compactOff === true ? { disabled: true } : {})}
+              usage={usage}
+              disabled={compactOff}
               compacting={compacting ?? false}
             />
             <button
@@ -321,10 +318,7 @@ function SessionStatsButton({
           {formatCompactCount(tokens.cacheRead)}
         </span>
       ) : null}
-      <ContextReadout
-        {...(usage === undefined ? {} : { usage })}
-        {...(tokens === undefined ? {} : { tokens })}
-      />
+      <ContextReadout usage={usage} tokens={tokens} />
     </button>
   );
 }
@@ -374,13 +368,13 @@ export function Shell({
       class="shell-session-region"
     >
       <TopBar
-        {...(activeId === undefined ? {} : { sessionId: activeId })}
-        {...(usage === undefined ? {} : { usage })}
-        {...(tokens === undefined ? {} : { tokens })}
-        {...(cwd === undefined ? {} : { cwd })}
-        {...(trust === undefined ? {} : { trust })}
-        {...(panels === undefined ? {} : { panels })}
-        {...(compactOff === true ? { compactOff } : {})}
+        sessionId={activeId}
+        usage={usage}
+        tokens={tokens}
+        cwd={cwd}
+        trust={trust}
+        panels={panels}
+        compactOff={compactOff}
         compacting={compacting ?? false}
         inspectionOnly={inspectionOnly}
       />
@@ -427,13 +421,7 @@ export function Shell({
         id="session-sidebar"
         class="sidebar-container sidebar-open sidebar-mobile-pending"
       >
-        {sidebar && (
-          <Sidebar
-            view={sidebar}
-            {...(activeId === undefined ? {} : { activeId })}
-            {...(cwd === undefined ? {} : { cwd })}
-          />
-        )}
+        {sidebar && <Sidebar view={sidebar} activeId={activeId} cwd={cwd} />}
       </div>
       <div
         class="panel-resize-handle sidebar-resize-handle"
@@ -518,7 +506,7 @@ export function NewSessionPage({
       cwd={view.cwd}
       cwdAvailable={view.available}
       trust={view.trust}
-      {...(overlay === undefined ? {} : { overlay })}
+      overlay={overlay}
     >
       <section class="chat-window is-empty" aria-label="Messages">
         <DropZone />
@@ -535,10 +523,7 @@ export function NewSessionPage({
                     <span class="new-session-directory-label">
                       Working directory
                     </span>
-                    <ProjectSelect
-                      cwd={view.cwd}
-                      {...(home === undefined ? {} : { home })}
-                    />
+                    <ProjectSelect cwd={view.cwd} home={home} />
                   </div>
                 </header>
               </div>
@@ -595,18 +580,18 @@ export function SessionPage({
       cwd={summary.cwd}
       usage={view.usage}
       tokens={view.tokens}
-      {...(view.status === null
-        ? {}
-        : {
-            panels: {
+      panels={
+        view.status === null
+          ? undefined
+          : {
               system: view.status.hasSystemPrompt,
               tools: view.status.hasActiveTools,
-            },
-          })}
-      {...(compactDisabled(view) ? { compactOff: true } : {})}
+            }
+      }
+      compactOff={compactDisabled(view)}
       compacting={view.status?.compacting ?? false}
-      {...(trust === undefined || inspectionOnly ? {} : { trust })}
-      {...(overlay === undefined ? {} : { overlay })}
+      trust={inspectionOnly ? undefined : trust}
+      overlay={overlay}
     >
       <section class="chat-window" aria-label="Messages">
         {!inspectionOnly && <DropZone />}

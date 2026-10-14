@@ -51,7 +51,7 @@ function Stroked({
       stroke="currentColor"
       stroke-width={String(width)}
       stroke-linecap={cap}
-      {...(join === undefined ? {} : { "stroke-linejoin": join })}
+      stroke-linejoin={join}
       class="pi-icon"
       aria-hidden="true"
     >

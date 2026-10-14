@@ -70,10 +70,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     if (displayedCwd(c) === cwd) return null;
     return (
       <Partial target="#explorer-section" swap="outerHTML">
-        <ExplorerSection
-          cwd={cwd}
-          {...(activeId === undefined ? {} : { sessionId: activeId })}
-        />
+        <ExplorerSection cwd={cwd} sessionId={activeId} />
       </Partial>
     );
   }
@@ -87,11 +84,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     // are no session either.
     deleteCookie(c, SESSION_COOKIE, { path: "/" });
     return c.render(
-      <NewSessionPage
-        sidebar={sidebar}
-        view={view}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-      />,
+      <NewSessionPage sidebar={sidebar} view={view} home={deps.home} />,
     );
   });
 
@@ -112,7 +105,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         fragment={fragment}
         view={view}
         draft={c.req.query("text")}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        home={deps.home}
       />
     );
     return fragment
@@ -219,7 +212,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
             <ModelSettings
               cwd={cwd}
               view={view}
-              {...(options.sessionId ? { sessionId: options.sessionId } : {})}
+              sessionId={options.sessionId}
             />
           ),
           failed,
@@ -227,13 +220,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     return deps.workspace
       .plugins(cwd)
       .then(
-        (view) => (
-          <PluginsSection
-            cwd={cwd}
-            view={view}
-            {...(deps.home === undefined ? {} : { home: deps.home })}
-          />
-        ),
+        (view) => <PluginsSection cwd={cwd} view={view} home={deps.home} />,
         failed,
       );
   }
@@ -289,7 +276,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         <ModelSettings
           cwd={cwd}
           view={await deps.workspace.modelSettings(cwd, sessionId)}
-          {...(sessionId ? { sessionId } : {})}
+          sessionId={sessionId}
           message={message}
           failed={failed}
         />,
@@ -349,7 +336,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       <NewSessionPage
         sidebar={sidebar}
         view={await deps.workspace.newSession(cwd)}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        home={deps.home}
         overlay={overlay}
       />,
     );
@@ -391,13 +378,11 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
             ? {}
             : { updates: options.updates }),
         }}
-        {...(options.selected === undefined
-          ? {}
-          : { selected: options.selected })}
-        {...(options.add === true ? { add: true } : {})}
-        {...(options.update === undefined ? {} : { update: options.update })}
-        {...(options.message === undefined ? {} : { message: options.message })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        selected={options.selected}
+        add={options.add}
+        update={options.update}
+        message={options.message}
+        home={deps.home}
       />
     );
   }
@@ -541,7 +526,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
               ? "No session of this folder is running."
               : `Reloaded ${String(reloaded)} session${reloaded === 1 ? "" : "s"}.`
           }
-          {...(deps.home === undefined ? {} : { home: deps.home })}
+          home={deps.home}
         />,
       );
     });
@@ -557,9 +542,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         <PluginsSection
           cwd={cwd}
           view={view}
-          {...(selected === undefined ? {} : { selected })}
-          {...(add ? { add: true } : {})}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
+          selected={selected}
+          add={add}
+          home={deps.home}
         />,
       );
     });
@@ -599,8 +584,8 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         cwd={cwd}
         view={view}
         message={message}
-        {...(selected === "" ? {} : { selected })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        selected={selected || undefined}
+        home={deps.home}
       />,
     );
   });
@@ -618,11 +603,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           return undefined;
         });
       return c.html(
-        <ToolsPanel
-          sessionId={id}
-          {...(tools === undefined ? {} : { tools })}
-          {...(tool === undefined ? {} : { selected: tool })}
-        />,
+        <ToolsPanel sessionId={id} tools={tools} selected={tool} />,
       );
     });
   });
@@ -636,9 +617,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           if (error instanceof InspectionOnlySession) throw error;
           return undefined;
         });
-      return c.html(
-        <SystemPromptPanel {...(prompt === undefined ? {} : { prompt })} />,
-      );
+      return c.html(<SystemPromptPanel prompt={prompt} />);
     });
   });
 

@@ -74,13 +74,7 @@ export function createWebApp(deps: WebDeps) {
       : await deps.workspace
           .trustStatus(view.summary.cwd)
           .catch(() => undefined);
-    return (
-      <SessionPage
-        {...props}
-        view={view}
-        {...(trust === undefined ? {} : { trust })}
-      />
-    );
+    return <SessionPage {...props} view={view} trust={trust} />;
   };
 
   /** The whole session page, swapped into <body> after a history change. */
@@ -110,12 +104,7 @@ export function createWebApp(deps: WebDeps) {
     if (!found) return c.notFound();
     // The open session's row keeps its selected background through a swap.
     const activeId = currentSessionId(c);
-    return c.html(
-      <SessionRow
-        {...found}
-        {...(activeId === undefined ? {} : { activeId })}
-      />,
-    );
+    return c.html(<SessionRow {...found} activeId={activeId} />);
   }
 
   /** Reports the failure as a toast instead of breaking the page. */

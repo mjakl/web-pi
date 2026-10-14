@@ -342,11 +342,13 @@ export function PluginsSection({
                   <button
                     type="button"
                     class="config-sidebar-item"
-                    {...(add !== true &&
-                    info !== undefined &&
-                    pluginKey(entry) === pluginKey(info)
-                      ? { "aria-current": "page" }
-                      : {})}
+                    aria-current={
+                      add !== true &&
+                      info !== undefined &&
+                      pluginKey(entry) === pluginKey(info)
+                        ? "page"
+                        : undefined
+                    }
                     hx-get={`/settings/plugins?cwd=${encodeURIComponent(cwd)}&selected=${encodeURIComponent(pluginKey(entry))}`}
                   >
                     <span
@@ -376,18 +378,9 @@ export function PluginsSection({
       }}
       detail={
         add === true || view.packages.length === 0 ? (
-          <AddPluginPanel
-            view={view}
-            cwd={cwd}
-            {...(home === undefined ? {} : { home })}
-          />
+          <AddPluginPanel view={view} cwd={cwd} home={home} />
         ) : (
-          <PluginDetail
-            cwd={cwd}
-            {...(info ? { info } : {})}
-            {...(message === undefined ? {} : { message })}
-            {...(home === undefined ? {} : { home })}
-          />
+          <PluginDetail cwd={cwd} info={info} message={message} home={home} />
         )
       }
       status={

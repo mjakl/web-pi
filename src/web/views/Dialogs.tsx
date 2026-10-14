@@ -75,7 +75,7 @@ export function TrustBadge({
     <button
       type="button"
       data-trust-warning
-      {...(banner === true ? { "data-mobile-trust-banner": "true" } : {})}
+      data-mobile-trust-banner={banner === true ? "true" : undefined}
       class={`project-trust-badge${banner === true ? " is-banner" : ""}`}
       title="Restricted mode"
       aria-label="Restricted mode"

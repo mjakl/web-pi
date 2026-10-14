@@ -101,7 +101,7 @@ function RowActions({
         title="Insert path into chat"
         aria-label="Insert path into chat"
         data-mention={relative}
-        {...(isDir ? { "data-mention-dir": "1" } : {})}
+        data-mention-dir={isDir ? "1" : undefined}
       >
         <MentionIcon size={11} />
         mention
@@ -202,20 +202,14 @@ function TreeNode({
           </span>
         ) : null}
         <RowActions
-          {...(context.sessionId === undefined
-            ? {}
-            : { sessionId: context.sessionId })}
+          sessionId={context.sessionId}
           cwd={context.cwd}
           path={path}
           isDir={isDir}
         />
       </div>
       {isDir ? (
-        <div
-          role="group"
-          data-children
-          {...(open === true ? {} : { hidden: true })}
-        >
+        <div role="group" data-children hidden={open !== true}>
           {nodes === undefined ? null : (
             <SearchNodes context={context} nodes={nodes} depth={depth + 1} />
           )}
@@ -887,9 +881,11 @@ export function Viewer({
                   type="button"
                   class="file-viewer-mode-button"
                   aria-pressed={option === mode ? "true" : "false"}
-                  {...(option === "diff"
-                    ? { title: "Compare working tree with HEAD" }
-                    : {})}
+                  title={
+                    option === "diff"
+                      ? "Compare working tree with HEAD"
+                      : undefined
+                  }
                   hx-get={url(option)}
                   hx-target="#file-view"
                   hx-swap="innerHTML"

@@ -19,6 +19,7 @@ import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createPiSkills } from "@adapters/pi/skills";
 import { createWebPushNotifier } from "@adapters/pi/web-push";
 import { createWebSettingsStore } from "@adapters/fs/web-settings";
+import type { AgentRuntime, PushNotifier } from "@core/ports";
 import { createWorkspace, type Workspace } from "@core/workspace";
 import { tmpdir } from "node:os";
 import type { Config } from "./config.ts";
@@ -198,10 +199,23 @@ function demoScript(cwd: string, prompt: string): ScriptedStep[] {
   ];
 }
 
+/**
+ * Shutdown stops every live session the way Stop does: running tools and
+ * shell commands are aborted with their process trees, and extensions get
+ * `session_shutdown` to close what they opened.
+ */
+export async function disposeWorld(world: {
+  runtime: AgentRuntime;
+  push: PushNotifier;
+}): Promise<void> {
+  world.push.dispose();
+  await Promise.allSettled(world.runtime.live().map((live) => live.stop()));
+}
+
 // The only place that knows both the core and the Pi adapters.
 export function createDeps(config: Config): {
   workspace: Workspace;
-  dispose: () => void;
+  dispose: () => Promise<void>;
 } {
   if (config.runtime === "fake") {
     const world = createFakeWorld({
@@ -221,9 +235,7 @@ export function createDeps(config: Config): {
     // explorer is only worth looking at against an actual checkout, and the
     // fake index only knows two invented paths.
     return {
-      dispose: () => {
-        world.push.dispose();
-      },
+      dispose: () => disposeWorld(world),
       workspace: createWorkspace({
         ...world,
         files: createFileTree(),
@@ -243,9 +255,7 @@ export function createDeps(config: Config): {
     gracePeriodMs: config.notificationGracePeriodMs,
   });
   return {
-    dispose: () => {
-      push.dispose();
-    },
+    dispose: () => disposeWorld({ runtime, push }),
     workspace: createWorkspace({
       sessions: catalog,
       runtime,

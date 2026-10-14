@@ -33,7 +33,8 @@ const server = serve(
 );
 
 function shutdown(code: number): void {
-  dispose();
+  // Live sessions stop until the forced exit below.
+  void dispose();
   server.close();
   process.exitCode = code;
   setTimeout(() => process.exit(code), 2000).unref();

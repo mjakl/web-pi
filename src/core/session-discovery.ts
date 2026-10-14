@@ -1,8 +1,12 @@
 import {
   SESSION_TREE_PAGE_SIZE,
   compareSessionTreeScores,
+  delegationInTime,
+  mergeSessionTreeScore,
   sessionTree,
   type SessionTree,
+  type SessionTreeNode,
+  type SessionTreeScore,
 } from "@core/session-tree";
 import type { SessionSummary } from "@core/sessions";
 
@@ -17,6 +21,75 @@ export type SessionDiscoveryOptions = {
 export type SessionDiscovery = {
   summaries: SessionSummary[];
 };
+
+/** A tree discovery grows in place between rebuilds. */
+type GrowingTree = {
+  roots: SessionTreeNode[];
+  byId: Map<string, SessionTreeNode>;
+  scores: Map<string, SessionTreeScore>;
+};
+
+/** Puts a root where the tree's own sort would. */
+function insertRoot(tree: GrowingTree, node: SessionTreeNode): void {
+  const score = tree.scores.get(node.summary.id);
+  if (!score) throw new Error("Missing discovery root score");
+  let low = 0,
+    high = tree.roots.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const other = tree.roots[mid];
+    const otherScore = other && tree.scores.get(other.summary.id);
+    if (!other || !otherScore) throw new Error("Missing discovery root score");
+    if (
+      compareSessionTreeScores(
+        score,
+        node.summary.id,
+        otherScore,
+        other.summary.id,
+      ) < 0
+    )
+      high = mid;
+    else low = mid + 1;
+  }
+  tree.roots.splice(low, 0, node);
+}
+
+/**
+ * Adds a session no node in the tree names as its parent, as sessionTree
+ * would place it: under its parent when that edge is valid, which raises the
+ * scores up to the root and moves only that root, or else as a new root.
+ * Children stay in insertion order, because discovery reads only the roots.
+ */
+function place(tree: GrowingTree, summary: SessionSummary): void {
+  const single = sessionTree([summary]);
+  const node = single.roots[0],
+    score = single.scores.get(summary.id);
+  if (!node || !score) throw new Error("Missing discovery node");
+  const parentId = summary.delegation?.parentSessionId;
+  const parent = parentId === undefined ? undefined : tree.byId.get(parentId);
+  tree.byId.set(summary.id, node);
+  tree.scores.set(summary.id, score);
+  if (!parent || !delegationInTime(summary, parent.summary)) {
+    insertRoot(tree, node);
+    return;
+  }
+  node.parentId = parent.summary.id;
+  parent.children.push(node);
+  let root = parent;
+  for (;;) {
+    const rootScore = tree.scores.get(root.summary.id);
+    if (!rootScore) throw new Error("Missing discovery score");
+    mergeSessionTreeScore(rootScore, score);
+    const up =
+      root.parentId === undefined ? undefined : tree.byId.get(root.parentId);
+    if (!up) break;
+    root = up;
+  }
+  const at = tree.roots.indexOf(root);
+  if (at < 0) throw new Error("Missing discovery root");
+  tree.roots.splice(at, 1);
+  insertRoot(tree, root);
+}
 
 /** Lower times must dominate upper times, with the tree's actual ID tie break. */
 function outranks(time: string, id: string, upper: string, otherId: string) {
@@ -187,42 +260,16 @@ export async function discoverSessionRoots(
     if (certified(tree, bound, k)) return { summaries };
     const before = summaries.length;
     await resolve(next?.id);
-    const added = summaries.slice(before);
-    if (added.some((summary) => summary.delegation !== undefined)) {
+    // The header and the ancestors it pulled in, child first. With unique IDs
+    // and ancestor closure, no session found earlier names one of them as its
+    // parent, so placing them ancestor first never rebuilds the growing tree,
+    // unless the chain's last ancestor points back into it: a cycle.
+    const added = summaries.slice(before).reverse();
+    const top = added[0]?.delegation?.parentSessionId;
+    if (top !== undefined && added.some((summary) => summary.id === top)) {
       tree = rebuild();
       continue;
     }
-    // With unique IDs and ancestor closure, an edge-free new node cannot
-    // acquire previously discovered children. Insert independent roots without
-    // rebuilding the entire growing tree on an ambiguous all-archive scan.
-    for (const summary of added) {
-      const single = sessionTree([summary]);
-      const node = single.roots[0],
-        score = single.scores.get(summary.id);
-      if (!node || !score)
-        throw new Error("Missing independent discovery root");
-      let low = 0,
-        high = tree.roots.length;
-      while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const other = tree.roots[mid];
-        const otherScore = other && tree.scores.get(other.summary.id);
-        if (!other || !otherScore)
-          throw new Error("Missing discovery root score");
-        if (
-          compareSessionTreeScores(
-            score,
-            summary.id,
-            otherScore,
-            other.summary.id,
-          ) < 0
-        )
-          high = mid;
-        else low = mid + 1;
-      }
-      tree.roots.splice(low, 0, node);
-      tree.byId.set(summary.id, node);
-      tree.scores.set(summary.id, score);
-    }
+    for (const summary of added) place(tree, summary);
   }
 }

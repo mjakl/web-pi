@@ -1,6 +1,6 @@
+import type { WebSettings } from "@core/web-settings";
+import type { StaticAssets } from "@web/assets";
 import { ICONS } from "@web/pwa";
-import type { AppEnvironment } from "@web/hono";
-import type { Context } from "hono";
 import { raw } from "hono/html";
 import type { PropsWithChildren } from "hono/jsx";
 
@@ -21,15 +21,12 @@ export const HTMX_CONFIG = {
 // The shared preference is rendered before paint; auto resolves on this device.
 const THEME_SCRIPT = `var t=document.documentElement.dataset.theme;if(t==="dark"||(t==="auto"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark");`;
 
-export function HtmlLayout(
-  { children }: PropsWithChildren,
-  context: Context<AppEnvironment>,
-) {
-  if (context.req.header("HX-Request") === "true") {
-    return <>{children}</>;
-  }
-  const assets = context.get("assets");
-  const settings = context.get("workspace").webSettings();
+/** The document around a full page load; htmx requests get the fragment. */
+export function HtmlLayout({
+  assets,
+  settings,
+  children,
+}: PropsWithChildren<{ assets: StaticAssets; settings: WebSettings }>) {
   return (
     // `translate=no` on both elements: a page translation would rewrite the
     // transcript under the reader.

@@ -1,40 +1,12 @@
 import { TrustDialogShieldIcon, TrustShieldIcon } from "./icons.tsx";
 import { ConfigButton } from "./ConfigControls.tsx";
 
-// The dialogs the shell owns: the modal shell every one of them is built from,
-// the host they are swapped into, and the trust flow. The workspace picker
-// lives with the sidebar (Workspace.tsx) and reuses `Dialog` from here.
+// The dialogs the shell owns: the host they are swapped into and the trust
+// flow. The workspace picker's dialog is its own (Workspace.tsx).
 
 /** Everything modal renders here; the client turns it into a real modal. */
 export function DialogHost() {
   return <div id="dialogs" />;
-}
-
-export function Dialog({
-  id,
-  title,
-  children,
-}: {
-  id: string;
-  title: string;
-  children?: unknown;
-}) {
-  return (
-    <dialog id={id} data-modal open>
-      <div>
-        <div>
-          <h2>{title}</h2>
-          <form method="dialog">
-            <button aria-label="Close">✕</button>
-          </form>
-        </div>
-        {children}
-      </div>
-      <form method="dialog">
-        <button aria-label="Close">close</button>
-      </form>
-    </dialog>
-  );
 }
 
 /**

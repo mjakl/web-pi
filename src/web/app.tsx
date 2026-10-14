@@ -2,7 +2,6 @@ import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
-import { honoFactory } from "@web/hono";
 import { HtmlLayout } from "@web/HtmlLayout";
 import { composerRoutes } from "@web/routes/composer";
 import { filesRoutes } from "@web/routes/files";
@@ -23,7 +22,7 @@ import { transcriptRoutes } from "@web/routes/transcript";
 import { SessionPage } from "@web/views/SessionPage";
 import { SessionRow } from "@web/views/Sidebar";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Context } from "hono";
+import { type Context, Hono } from "hono";
 import { jsxRenderer } from "hono/jsx-renderer";
 import { getCookie, setCookie } from "hono/cookie";
 
@@ -35,7 +34,7 @@ export type { WebDeps };
  * modules can be worked on at once without touching each other.
  */
 export function createWebApp(deps: WebDeps) {
-  const app = honoFactory.createApp();
+  const app = new Hono({ strict: false });
   const renderIntervalMs = deps.renderIntervalMs ?? 100;
   const assets = staticAssets(deps.staticRoot);
 
@@ -140,11 +139,6 @@ export function createWebApp(deps: WebDeps) {
     }
   }
 
-  app.use("*", (c, next) => {
-    c.set("workspace", deps.workspace);
-    c.set("assets", assets);
-    return next();
-  });
   // Built assets carry their content hash in ?v=, so the browser may keep
   // them for good; the rest (fonts, icons, versioned vendor files) for a day.
   app.use("/static/*", async (c, next) => {
@@ -165,7 +159,18 @@ export function createWebApp(deps: WebDeps) {
       rewriteRequestPath: (p) => p.replace(/^\/static/, ""),
     }),
   );
-  app.use("*", jsxRenderer(HtmlLayout));
+  app.use(
+    "*",
+    jsxRenderer(({ children }, c) =>
+      c.req.header("HX-Request") === "true" ? (
+        <>{children}</>
+      ) : (
+        <HtmlLayout assets={assets} settings={deps.workspace.webSettings()}>
+          {children}
+        </HtmlLayout>
+      ),
+    ),
+  );
 
   const context: RouteContext = {
     deps,

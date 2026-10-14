@@ -106,9 +106,7 @@ function RowMenu({ summary, metadata }: Row) {
       >
         Rename
       </button>
-      {metadata !== undefined && metadata.starCount > 0
-        ? item("Clear all stars", "stars/clear")
-        : null}
+      {metadata.starCount > 0 ? item("Clear all stars", "stars/clear") : null}
       {item("Delete", "delete", true)}
     </div>
   );
@@ -129,7 +127,7 @@ export function RenameRow({ summary, metadata }: Row) {
     >
       <input
         name="name"
-        value={metadata?.name ?? summary.name ?? ""}
+        value={metadata.name ?? summary.name ?? ""}
         aria-label={`Rename session ${title}`}
         autofocus
         autocomplete="off"
@@ -160,7 +158,6 @@ export function SessionRow({
       id={`row-${id}`}
       class={`session-row${selected ? " is-selected" : ""}${summary.live === true ? " is-live" : ""}${inspectionOnly ? " is-inspection" : ""}`}
       data-session-id={id}
-      data-title={title.toLowerCase()}
       {...(oob === true ? { "hx-swap-oob": "true" } : {})}
     >
       <a href={`/sessions/${id}`} class="session-row-link">
@@ -188,7 +185,7 @@ export function SessionRow({
             </span>
           )}
         </div>
-        <div title={title} data-session-title class="session-row-title">
+        <div title={title} class="session-row-title">
           <span class="session-title-text">{title}</span>
         </div>
         <div class="session-row-meta">
@@ -340,12 +337,10 @@ export function SessionRows({
 export function SessionList({
   view,
   activeId,
-  oob,
   partial,
 }: {
   view: SidebarView;
   activeId?: string;
-  oob?: boolean;
   partial?: boolean;
 }) {
   const body = (
@@ -362,12 +357,7 @@ export function SessionList({
   return partial === true ? (
     <Partial target="#session-list">{body}</Partial>
   ) : (
-    <div
-      id="session-list"
-      class="session-list"
-      hx-sync="#sidebar:drop"
-      {...(oob === true ? { "hx-swap-oob": "innerHTML" } : {})}
-    >
+    <div id="session-list" class="session-list" hx-sync="#sidebar:drop">
       {body}
     </div>
   );

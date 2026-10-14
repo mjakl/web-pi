@@ -28,15 +28,10 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, sidebarOf, remember, currentCwd, newCwd, row, guard } = ctx;
 
   app.get("/sidebar", async (c) => {
-    // Existing folder-selection URLs still open that folder's blank composer.
-    // A project key alone is no longer a filter or a directory selection.
+    // Bookmarked folder-selection URLs still open that folder's blank
+    // composer. A project key alone is no longer a filter or a selection.
     const cwd = c.req.query("cwd");
-    if (cwd) {
-      const path = `/new?cwd=${encodeURIComponent(cwd)}`;
-      if (c.req.header("HX-Request") !== "true") return c.redirect(path);
-      sessionLocation(c, path);
-      return c.body(null, 200);
-    }
+    if (cwd) return c.redirect(`/new?cwd=${encodeURIComponent(cwd)}`);
     const activeId = currentSessionId(c);
     const view = await deps.workspace.sidebar(
       activeId === undefined ? {} : { selectedId: activeId },

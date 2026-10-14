@@ -32,10 +32,6 @@ export function soundEnabled(): boolean {
  * pi-web draws a preference toggle as `button[role=switch]`, not a checkbox,
  * so its state is an attribute rather than `checked`.
  */
-export function switchOn(element: Element): boolean {
-  return element.getAttribute("aria-checked") === "true";
-}
-
 export function setSwitch(element: Element, on: boolean): void {
   element.setAttribute("aria-checked", String(on));
 }

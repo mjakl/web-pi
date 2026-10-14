@@ -391,7 +391,9 @@ describe("web app", () => {
       const body = await response.text();
       expect(body).not.toContain('id="row-s1"');
       expect(body).toContain("A legitimate first prompt");
-      expect(body).toContain('data-title="empty-sessio"');
+      expect(body).toContain(
+        '<span class="session-title-text">empty-sessio</span>',
+      );
       expect(body).toContain("0 msgs");
       expect(body).not.toContain('aria-label="Loading..."');
     }
@@ -1314,21 +1316,13 @@ describe("the sidebar", () => {
     expect(menu).toContain("Custom path…");
   });
 
-  it("redirects existing folder-selection URLs to the new-session composer", async () => {
+  it("redirects bookmarked folder-selection URLs to the new-session composer", async () => {
     const { app } = sidebarApp();
-    const url = "/sidebar?project=%2Frepo%2Fone&cwd=%2Frepo%2Fone.wt";
-    const res = await app.request(url);
+    const res = await app.request(
+      "/sidebar?project=%2Frepo%2Fone&cwd=%2Frepo%2Fone.wt",
+    );
     expect(res.headers.get("location")).toBe("/new?cwd=%2Frepo%2Fone.wt");
-    const fragment = await app.request(url, {
-      headers: { "HX-Request": "true" },
-    });
-    expect(
-      JSON.parse(fragment.headers.get("HX-Location") ?? "{}"),
-    ).toMatchObject({
-      path: "/new?cwd=%2Frepo%2Fone.wt",
-      target: "#session-region",
-    });
-    expect(fragment.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
   });
 });
 

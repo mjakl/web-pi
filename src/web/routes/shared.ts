@@ -11,11 +11,10 @@ import { isSessionId } from "@core/sessions";
 import type { SessionView, SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
 import type { SessionPage } from "@web/views/SessionPage";
-import type { honoFactory } from "@web/hono";
-import type { Context } from "hono";
+import type { Context, Hono } from "hono";
 import { getCookie } from "hono/cookie";
 
-export type WebApp = ReturnType<typeof honoFactory.createApp>;
+export type WebApp = Hono;
 
 export type WebDeps = {
   workspace: Workspace;
@@ -67,11 +66,6 @@ export function html(node: {
 }): Promise<string> {
   return Promise.resolve(node.toString());
 }
-
-export const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 /** The working folder the picker last committed: where `/new` starts. */
 export const CWD_COOKIE = "web-pi-cwd";

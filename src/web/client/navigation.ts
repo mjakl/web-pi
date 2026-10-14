@@ -147,8 +147,6 @@ export function setUpNavigation(): void {
     if (
       sessionTarget(ctx) ||
       createsSession ||
-      (url.pathname === "/sidebar" &&
-        (url.searchParams.has("cwd") || url.searchParams.has("project"))) ||
       url.pathname === "/workspaces/validate" ||
       url.pathname ===
         `/sessions/${document.querySelector<HTMLElement>("main[data-session-id]")?.dataset["sessionId"] ?? ""}/delete` ||

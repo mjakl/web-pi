@@ -221,7 +221,7 @@ describe("session input autofocus", () => {
       target: byId("elsewhere"),
       sourceElement: byId("elsewhere"),
       request: {
-        action: "/sidebar?cwd=/other",
+        action: "/workspaces/validate",
         signal: new AbortController().signal,
         headers: {},
       },

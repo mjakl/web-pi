@@ -183,34 +183,6 @@ export function LoadEarlier({
   );
 }
 
-/** A page of older messages, with the sentinel for the page before it. */
-export function EarlierPage({
-  items,
-  actions,
-  hasMore,
-  oldestId,
-  leaf,
-}: {
-  items: TranscriptItem[];
-  actions: ItemActions;
-  hasMore: boolean;
-  oldestId?: string;
-  leaf?: string;
-}) {
-  return (
-    <>
-      {hasMore && oldestId !== undefined ? (
-        <LoadEarlier
-          sessionId={actions.sessionId}
-          before={oldestId}
-          {...(leaf === undefined ? {} : { leaf })}
-        />
-      ) : null}
-      <Items items={items} actions={actions} />
-    </>
-  );
-}
-
 /**
  * The leading items of a running turn that will not change again, which a
  * session stream sends only once: everything before the first item still in

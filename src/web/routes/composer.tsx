@@ -27,18 +27,18 @@ import {
   customSignature,
   dialogSignature,
 } from "@web/views/Extensions";
-import {
-  type ItemActions,
-  Items,
-  TurnFragment,
-  finishedItems,
-} from "@web/views/Items";
+import { Items, TurnFragment, finishedItems } from "@web/views/Items";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
-import { Status, turnBusy } from "@web/views/Status";
+import { Status } from "@web/views/Status";
 import { SkillsMenu } from "@web/views/Skills";
-import { LiveRecovery, SavedMessages, Transcript } from "@web/views/Transcript";
+import {
+  LiveRecovery,
+  SavedMessages,
+  Transcript,
+  itemActions,
+} from "@web/views/Transcript";
 import { type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
@@ -526,12 +526,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         }
         if (aborted) return;
         if (!view) return;
-        const actions: ItemActions = {
-          sessionId: id,
-          cwd: view.summary.cwd,
-          starred: view.starred,
-          ...(turnBusy(view.status) ? { busy: true } : {}),
-        };
+        const actions = itemActions(view);
         const pick = modelPick(view);
         const modelChanged = changed(
           "model",

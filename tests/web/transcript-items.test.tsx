@@ -1,7 +1,6 @@
 import type { LiveStatus } from "@core/ports";
 import type { AssistantItem, ToolCallView } from "@core/transcript";
 import {
-  EarlierPage,
   Item,
   type ItemActions,
   Items,
@@ -718,7 +717,7 @@ describe("transcript items", () => {
     },
   );
 
-  it.each(["history", "earlier", "finished", "running", "read-only", "busy"])(
+  it.each(["history", "finished", "running", "read-only", "busy"])(
     "offers actions only on user-facing assistant content in %s rendering",
     (mode) => {
       const items = [
@@ -753,9 +752,7 @@ describe("transcript items", () => {
         busy: mode === "busy",
       };
       const rendered = html(
-        mode === "earlier" ? (
-          <EarlierPage items={items} actions={context} hasMore={false} />
-        ) : mode === "finished" || mode === "running" ? (
+        mode === "finished" || mode === "running" ? (
           <TurnFragment
             items={items}
             actions={context}

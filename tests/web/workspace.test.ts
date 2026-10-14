@@ -5,10 +5,12 @@ import {
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseHtml, required } from "#/web/helpers";
 
 // The picker, trust, read-only mode and the settings pages, against the fake
 // world. Folders that have to exist are real temporary ones; nothing here
@@ -57,6 +59,30 @@ function testApp(options: Parameters<typeof createFakeWorld>[0] = {}) {
   });
   return { app, world };
 }
+
+/** A conversation of `turns` questions and answers, longer than a page. */
+function conversation(turns: number): SessionEntry[] {
+  const entries: SessionEntry[] = [];
+  for (let turn = 0; turn < turns; turn += 1) {
+    const user = userEntry(
+      `u${String(turn)}`,
+      entries.at(-1)?.id ?? null,
+      `question ${String(turn)}`,
+    );
+    entries.push(
+      user,
+      assistantEntry(
+        `a${String(turn)}`,
+        user.id,
+        `answer ${String(turn)}`,
+        100,
+      ),
+    );
+  }
+  return entries;
+}
+
+const historyControl = /hx-post="\/sessions\/s1\/(rewind|navigate|fork)"/;
 
 const form = (fields: Record<string, string>) => {
   const body = new FormData();
@@ -331,6 +357,50 @@ describe("missing-folder read-only mode", () => {
     expect(page).toContain('<span class="extension-status-text">on</span>');
     expect(page).toContain("data-context-readout");
     expect(page).toMatch(/id="context-compact"[^>]*disabled/);
+  });
+
+  it.each([
+    ["a writable session", false, "", true],
+    ["a session whose folder is gone", true, "", false],
+    ["another branch", false, "?leaf=a30", false],
+  ])(
+    "offers history controls on older pages of %s only while it is writable",
+    async (_case, missing, query, controls) => {
+      const { app, world } = testApp(missing ? { missingFolders: [repo] } : {});
+      required(world.store.get("s1")).entries = conversation(40);
+      const page = parseHtml(
+        await (await app.request(`/sessions/s1${query}`)).text(),
+      );
+      const earlier = await app.request(
+        required(page.querySelector(".load-earlier")?.getAttribute("hx-get")),
+      );
+      const html = await earlier.text();
+      expect(html).toContain("question 0");
+      expect(historyControl.test(html)).toBe(controls);
+    },
+  );
+
+  it("keeps history controls out of messages the stream appends", async () => {
+    const { app, world } = testApp({ missingFolders: [repo] });
+    const live = await world.runtime.open({ sessionId: "s1" });
+    const reader = required(
+      (await app.request("/sessions/s1/events?after=a1")).body?.getReader(),
+    );
+    await live.prompt("go");
+    const decoder = new TextDecoder();
+    let received = "";
+    try {
+      while (!received.includes("event: settled")) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        received += decoder.decode(chunk.value, { stream: true });
+      }
+    } finally {
+      await reader.cancel();
+    }
+    expect(received).toContain('hx-target="#messages" hx-swap="beforeend"');
+    expect(received).toContain("You said: go");
+    expect(received).not.toMatch(historyControl);
   });
 
   it("still lets a reader stop the session and read its statistics", async () => {

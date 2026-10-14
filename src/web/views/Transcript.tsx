@@ -25,7 +25,11 @@ function pageTitle(view: SessionView): string {
   return opening === undefined || opening === "" ? view.summary.id : opening;
 }
 
-function itemActions(view: SessionView): ItemActions {
+/**
+ * What every transcript fragment of this view may do: a delegated session is
+ * inspection only, and another branch or a missing folder makes it read-only.
+ */
+export function itemActions(view: SessionView): ItemActions {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
   return {
@@ -40,7 +44,10 @@ function itemActions(view: SessionView): ItemActions {
   };
 }
 
-/** The full loaded saved window, shared with observation and ownership handoff. */
+/**
+ * A window of settled history under the sentinel for the page before it: the
+ * page itself, each earlier page, saved observation and ownership handoff.
+ */
 export function SavedMessages({ view }: { view: SessionView }) {
   const leaf = view.savedObservation?.leaf ?? view.leaf;
   return (

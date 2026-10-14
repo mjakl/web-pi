@@ -1,16 +1,15 @@
 // Transcript pages and fragments: paging, entry sub-resources, stars,
 // branching, and the export. The transcript area owns this module.
 
-import { isSessionId, isSubagentSession } from "@core/sessions";
+import { isSessionId } from "@core/sessions";
 import { recoverSkillPrompt } from "@core/skill-prompt";
 import { InspectionOnlySession } from "@core/workspace";
 import { renderMarkdown } from "@web/markdown";
-import { EarlierPage, StarButton, ToolBody } from "@web/views/Items";
+import { StarButton, ToolBody } from "@web/views/Items";
 import { SessionRow } from "@web/views/Sidebar";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
-import { SavedMessages } from "@web/views/Transcript";
-import { turnBusy } from "@web/views/Status";
+import { SavedMessages, itemActions } from "@web/views/Transcript";
 import type { Context } from "hono";
 import { raw } from "hono/html";
 import {
@@ -126,24 +125,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
       return c.text("Unknown entry for this branch", 400);
     }
     if (!view) return c.notFound();
-    return c.html(
-      <EarlierPage
-        items={view.items}
-        actions={{
-          sessionId: id,
-          cwd: view.summary.cwd,
-          starred: view.starred,
-          ...(isSubagentSession(view.summary) ? { inspectionOnly: true } : {}),
-          ...(view.otherBranch || isSubagentSession(view.summary)
-            ? { readOnly: true }
-            : {}),
-          ...(turnBusy(view.status) ? { busy: true } : {}),
-        }}
-        hasMore={view.hasMore}
-        {...(view.oldestId === undefined ? {} : { oldestId: view.oldestId })}
-        {...(view.leaf === undefined ? {} : { leaf: view.leaf })}
-      />,
-    );
+    return c.html(<SavedMessages view={view} />);
   });
 
   /** One thinking block, for the ones a long page left out. */
@@ -203,14 +185,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
       if (!view) return c.notFound();
       return c.html(
         <>
-          <StarButton
-            entryId={targetId}
-            actions={{
-              sessionId: id,
-              cwd: view.summary.cwd,
-              starred: view.starred,
-            }}
-          />
+          <StarButton entryId={targetId} actions={itemActions(view)} />
           {found ? (
             <SessionRow {...found} activeId={currentSessionId(c) ?? ""} oob />
           ) : null}

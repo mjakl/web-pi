@@ -20,8 +20,6 @@ export function ModelSettings({
     <form
       class="settings-general settings-models"
       hx-post="/settings/models"
-      hx-target="#settings-body"
-      hx-swap="innerHTML"
       hx-disabled-elt="find button"
     >
       <input type="hidden" name="cwd" value={cwd} />

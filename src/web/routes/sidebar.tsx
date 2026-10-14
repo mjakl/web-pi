@@ -5,12 +5,15 @@ import { type RuntimeEvent } from "@core/ports";
 import { isSessionId } from "@core/sessions";
 import {
   SessionNav,
-  ProjectPicker,
   RenameRow,
   SessionList,
   SessionRows,
 } from "@web/views/Sidebar";
-import { BrowsePane, DirectoryPicker } from "@web/views/Workspace";
+import {
+  BrowsePane,
+  DirectoryPicker,
+  ProjectPicker,
+} from "@web/views/Workspace";
 import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,

@@ -23,7 +23,8 @@ import {
   WrenchIcon,
 } from "./icons.tsx";
 import { Transcript } from "./Transcript.tsx";
-import { Sidebar, ProjectSelect } from "./Sidebar.tsx";
+import { Sidebar } from "./Sidebar.tsx";
+import { ProjectSelect } from "./Workspace.tsx";
 import {
   compactDisabled,
   CompactButton,

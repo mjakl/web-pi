@@ -14,20 +14,24 @@ import { escapeHtml, rawFileUrl, renderMarkdown } from "@web/markdown";
 import { highlightLines } from "@web/syntax";
 import { FrontmatterCard } from "@web/views/Items";
 import {
+  ChangedFilesIcon,
   DirectoryLoadingIcon,
   DownloadIcon,
   FileIcon,
   FolderIcon,
   MentionIcon,
+  RefreshIcon,
+  SearchIcon,
   SmallChevronIcon,
   WrapLinesIcon,
 } from "@web/views/icons";
 import { raw } from "hono/html";
 
-// The explorer tree, the working tree's changes, and one viewer per open tab,
-// with presentation owned by areas/files.css.
-// Everything here is server-rendered; the browser only keeps which tabs are
-// open and how each is scrolled.
+// The explorer, from its header in the sidebar down to the tree, the working
+// tree's changes, and one viewer per open tab, with presentation owned by
+// areas/files.css; the header sits in the sidebar and areas/sidebar.css styles
+// it. Everything here is server-rendered; the browser only keeps which tabs
+// are open and how each is scrolled.
 
 /** Paths are joined POSIX-style; the policy compares them segment by segment. */
 function childPath(directory: string, name: string): string {
@@ -310,6 +314,109 @@ function ChangeRow({
  * (FileExplorer.tsx `error`): the reason, in the danger colour. A session
  * whose working folder is gone is the usual one.
  */
+/** The explorer's tree is fetched separately into #file-explorer. */
+export function ExplorerSection({
+  sessionId,
+  cwd,
+}: {
+  /** Absent before a session is open: the folder alone roots the tree. */
+  sessionId?: string;
+  cwd: string;
+}) {
+  const scope =
+    sessionId === undefined
+      ? `cwd=${encodeURIComponent(cwd)}`
+      : `session=${encodeURIComponent(sessionId)}`;
+  const explorerUrl = `/files/explorer?${scope}`;
+  // The section's flex, the toggle's min-height and the chevron's rotation
+  // are pi-web's per-state inline values; areas/sidebar.css writes them from
+  // aria-expanded, which client/sidebar.ts flips and remembers.
+  return (
+    <div id="explorer-section" class="sidebar-explorer">
+      <div class="sidebar-explorer-header">
+        <button
+          type="button"
+          id="explorer-toggle"
+          aria-expanded="true"
+          aria-controls="explorer-body"
+          class="sidebar-explorer-toggle"
+        >
+          <span data-explorer-chevron class="sidebar-explorer-chevron">
+            <SmallChevronIcon />
+          </span>
+          Explorer
+        </button>
+        {/* Swaps the changes list in for the tree; the files area fills it in
+            and hides this button while nothing is changed. */}
+        <button
+          type="button"
+          class="sidebar-toolbar-button"
+          id="explorer-changes-toggle"
+          aria-pressed="false"
+          title="Changed files"
+          aria-label="Changed files"
+          hidden
+        >
+          <ChangedFilesIcon />
+        </button>
+        <button
+          type="button"
+          class="sidebar-toolbar-button"
+          id="explorer-search-toggle"
+          aria-pressed="false"
+          title="Search files"
+          aria-label="Search files"
+        >
+          <SearchIcon />
+        </button>
+        <button
+          type="button"
+          class="sidebar-toolbar-button is-refresh"
+          title="Refresh explorer"
+          aria-label="Refresh explorer"
+          hx-get={explorerUrl}
+          hx-target="#file-explorer"
+          hx-swap="innerHTML"
+        >
+          <RefreshIcon size={13} width={2} />
+        </button>
+      </div>
+      <div id="explorer-body" class="sidebar-explorer-body">
+        {/* pi-web keeps the field out of the tree until the magnifier in the
+            header opens it (FileExplorer.tsx, `fileSearchOpen`). */}
+        <div id="file-search-field" class="sidebar-file-search" hidden>
+          <div class="sidebar-file-search-field">
+            <span class="sidebar-file-search-icon">
+              <SearchIcon size={12} />
+            </span>
+            <input
+              id="file-search"
+              type="search"
+              name="q"
+              placeholder="Search files…"
+              aria-label="Search files"
+              autocomplete="off"
+              class="sidebar-file-search-input"
+              hx-get={`/files/search?${scope}`}
+              hx-trigger="input changed delay:150ms, search"
+              hx-target="#file-tree"
+              hx-swap="outerHTML"
+            />
+          </div>
+        </div>
+        <div
+          id="file-explorer"
+          class="explorer"
+          data-cwd={cwd}
+          hx-get={explorerUrl}
+          hx-trigger="revealed, settled from:body"
+          hx-swap="innerHTML"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ExplorerError({ message }: { message: string }) {
   // The 2px/4px box is the tree's own; pi-web keeps it around every state of
   // the explorer body, so the text lands where the first row would.

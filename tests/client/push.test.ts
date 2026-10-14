@@ -1,4 +1,5 @@
-import { SettingsBody } from "@web/views/Settings";
+import { DEFAULT_WEB_SETTINGS } from "@core/web-settings";
+import { GeneralSettings } from "@web/views/Settings";
 import { describe, expect, it, vi } from "vitest";
 import {
   byId,
@@ -62,7 +63,7 @@ async function load(
         ? json({ subscribed: enrolled })
         : json({ ok: true }),
   );
-  mount(SettingsBody({ section: "general", cwd: "/repo" }));
+  mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
   document.body.dataset["swSrc"] = "/sw.js";
   const { setUpPush } = await import("@web/client/push");
   setUpPush();
@@ -135,7 +136,7 @@ describe("manual browser push enrollment", () => {
     click(toggle());
     await flush();
     reg.pushManager.getSubscription.mockResolvedValue(reg.subscription);
-    mount(SettingsBody({ section: "general", cwd: "/repo" }));
+    mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
     document.body.dispatchEvent(
       new Event("htmx:after:process", { bubbles: true }),
     );

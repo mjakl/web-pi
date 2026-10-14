@@ -14,7 +14,7 @@ import { type PackageScope, isPackageAction } from "@core/packages";
 import { isSessionId } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { Partial } from "@web/views/Partial";
-import { ExplorerSection } from "@web/views/Sidebar";
+import { ExplorerSection } from "@web/views/Files";
 import {
   type SkillScope,
   type SkillUpdate,
@@ -24,14 +24,14 @@ import { OFFLINE_URL, manifest, offlinePage, serviceWorker } from "@web/pwa";
 import { SystemPromptPanel, ToolsPanel } from "@web/views/Panels";
 import { NewSessionPage } from "@web/views/SessionPage";
 import {
-  PluginsSection,
+  GeneralSettings,
   SettingsDialog,
-  SkillSearchResults,
-  SkillsSection,
-  type SkillsView,
+  type SettingsSection,
   resolveSection,
 } from "@web/views/Settings";
 import { ModelSettings } from "@web/views/ModelSettings";
+import { PluginsSection } from "@web/views/PluginSettings";
+import { SkillSearchResults, SkillsSection } from "@web/views/SkillSettings";
 import { StatsPanel } from "@web/views/Stats";
 import { TrustDialog } from "@web/views/Dialogs";
 import { type Context } from "hono";
@@ -213,40 +213,53 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   // --- Settings ------------------------------------------------------------
 
-  /** Skills and plugins need a folder; general does not. */
-  async function settingsView(
-    section: "general" | "models" | "skills" | "plugins",
+  /**
+   * One section of the settings page. Skills and plugins need a folder;
+   * general does not. A section that cannot load says so: falling back to
+   * general would quietly show the wrong page under the right tab.
+   */
+  async function settingsBody(
+    section: SettingsSection,
     cwd: string,
-    options: {
-      updates?: SkillsView["updates"];
-      selected?: string;
-      sessionId?: string;
-    } = {},
+    options: { selected?: string; sessionId?: string },
   ) {
+    const failed = (error: unknown) => (
+      <div role="alert" class="config-empty-state">
+        {errorText(error)}
+      </div>
+    );
+    if (section === "general")
+      return <GeneralSettings settings={deps.workspace.webSettings()} />;
+    if (section === "skills")
+      return skillsSection(
+        cwd,
+        options.selected === undefined ? {} : { selected: options.selected },
+      ).catch(failed);
     if (section === "models")
-      return {
-        models: await deps.workspace.modelSettings(cwd, options.sessionId),
-        ...(options.sessionId ? { modelSessionId: options.sessionId } : {}),
-      };
-    if (section === "skills") {
-      const listed = await deps.workspace.skills(cwd);
-      return {
-        skills: {
-          cwd,
-          ...listed,
-          ...(options.updates === undefined
-            ? {}
-            : { updates: options.updates }),
-          ...(options.selected === undefined
-            ? {}
-            : { selected: options.selected }),
-        } satisfies SkillsView,
-      };
-    }
-    if (section === "plugins") {
-      return { plugins: await deps.workspace.plugins(cwd) };
-    }
-    return {};
+      return deps.workspace
+        .modelSettings(cwd, options.sessionId)
+        .then(
+          (view) => (
+            <ModelSettings
+              cwd={cwd}
+              view={view}
+              {...(options.sessionId ? { sessionId: options.sessionId } : {})}
+            />
+          ),
+          failed,
+        );
+    return deps.workspace
+      .plugins(cwd)
+      .then(
+        (view) => (
+          <PluginsSection
+            cwd={cwd}
+            view={view}
+            {...(deps.home === undefined ? {} : { home: deps.home })}
+          />
+        ),
+        failed,
+      );
   }
 
   app.get("/settings/web", (c) => {
@@ -330,24 +343,21 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         usable !== "",
       );
       remember(c, SETTINGS_COOKIE, section);
-      // A section that cannot load says so; falling back to general would
-      // quietly show the wrong page under the right tab.
       const remembered = rememberedSkill(c, usable);
-      const sections = await settingsView(section, usable, {
+      const body = await settingsBody(section, usable, {
         ...(id ? { sessionId: id } : {}),
         ...(remembered === undefined ? {} : { selected: remembered }),
-      }).catch((error: unknown) => ({ error: errorText(error) }));
+      });
       return {
         cwd,
         overlay: (
           <SettingsDialog
             section={section}
             cwd={usable}
-            settings={deps.workspace.webSettings()}
             back={id === undefined ? "/" : `/sessions/${id}`}
-            {...(deps.home === undefined ? {} : { home: deps.home })}
-            {...sections}
-          />
+          >
+            {body}
+          </SettingsDialog>
         ),
       };
     };
@@ -381,9 +391,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   }
 
   /**
-   * The whole Skills section, around the skill this click selected. pi-web
-   * paints the selected row and its badges from the same state as the detail
-   * pane, so the swap has to carry both.
+   * The whole Skills section, for the page and for every swap inside it,
+   * around the skill selected. pi-web paints the selected row and its badges
+   * from the same state as the detail pane, so a swap has to carry both.
    */
   async function skillsSection(
     cwd: string,

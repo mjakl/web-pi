@@ -2,7 +2,7 @@ import {
   DEFAULT_SYSTEM_PROMPT_ADDITION,
   DEFAULT_WEB_SETTINGS,
 } from "@core/web-settings";
-import { SettingsBody } from "@web/views/Settings";
+import { GeneralSettings } from "@web/views/Settings";
 import { describe, expect, it, vi } from "vitest";
 import {
   byId,
@@ -17,7 +17,7 @@ import {
 } from "./helpers.ts";
 
 async function load() {
-  mount(SettingsBody({ section: "general", cwd: "/repo" }));
+  mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
   const preferences = await import("@web/client/preferences");
   preferences.setUpPreferences();
   return preferences;
@@ -181,7 +181,7 @@ describe("shared preferences", () => {
     );
     const { soundEnabled } = await load();
     click(byId("sound-toggle"));
-    mount(SettingsBody({ section: "general", cwd: "/repo" }));
+    mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
     htmxEvent(document.body, "htmx:after:process");
     expect((byId("sound-toggle") as HTMLButtonElement).disabled).toBe(true);
     saved.resolve(json({ ...DEFAULT_WEB_SETTINGS, sound: false }));
@@ -196,7 +196,7 @@ describe("shared preferences", () => {
     );
     await load();
     const old = byId("sound-toggle");
-    mount(SettingsBody({ section: "general", cwd: "/repo" }));
+    mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
     htmxEvent(document.body, "htmx:after:process");
     htmxEvent(document.body, "htmx:after:process");
     click(old);

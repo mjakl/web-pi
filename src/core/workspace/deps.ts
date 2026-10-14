@@ -201,7 +201,61 @@ export function createShared(deps: WorkspaceDeps) {
         leafId: snapshot.branch.at(-1)?.id ?? null,
       };
     }
-    return deps.sessions.read(id);
+    return (await savedRead(id))?.read;
+  }
+
+  // A page's images, thinking blocks, tool bodies and shell captures each
+  // need a stopped session's entries. The last read of each session is kept,
+  // and every use first asks the catalog's stat-based readSaved whether the
+  // file still matches it; uses of one session queue behind each other, so
+  // requests that arrive together share one parse. Bound: the kept reads
+  // come from at most 32 MiB of session files, about as much heap once
+  // parsed and twice that with the JSON a reference check keeps; a larger
+  // file is not kept.
+  const SAVED_READ_BYTES = 32 * 1024 * 1024;
+  type SavedRead = { read: SessionRead; json?: string };
+  type Kept = { read: Promise<SavedRead | undefined>; bytes?: number };
+  const savedReads = new Map<string, Kept>();
+
+  async function savedRead(id: string): Promise<SavedRead | undefined> {
+    const previous = savedReads.get(id)?.read.catch(() => undefined);
+    const kept: Kept = {
+      read: (async () => {
+        const last = await previous;
+        // Only strict, stable reads come back "changed": a file that changed
+        // while it was read, or does not parse strictly, is "unavailable".
+        const check = await deps.sessions.readSaved(id, last?.read.revision);
+        if (check.kind === "unchanged") return last;
+        return check.kind === "changed" ? { read: check.snapshot } : undefined;
+      })(),
+    };
+    savedReads.delete(id);
+    savedReads.set(id, kept);
+    let saved: SavedRead | undefined;
+    try {
+      saved = await kept.read;
+    } finally {
+      if (savedReads.get(id) === kept) {
+        if (saved) fit(kept, saved.read.summary.fileSize);
+        else savedReads.delete(id);
+      }
+    }
+    if (saved) return saved;
+    const tolerant = await deps.sessions.read(id);
+    return tolerant && { read: tolerant };
+  }
+
+  /** Drops the oldest settled reads until the kept files fit the bound. */
+  function fit(kept: Kept, bytes: number): void {
+    kept.bytes = bytes;
+    let total = 0;
+    for (const other of savedReads.values()) total += other.bytes ?? 0;
+    for (const [id, other] of savedReads) {
+      if (total <= SAVED_READ_BYTES) return;
+      if (other.bytes === undefined) continue;
+      savedReads.delete(id);
+      total -= other.bytes;
+    }
   }
 
   async function cwdOf(sessionId: string | undefined): Promise<string> {
@@ -251,10 +305,14 @@ export function createShared(deps: WorkspaceDeps) {
   }
 
   async function sessionReferences(id: string, path: string): Promise<boolean> {
-    const stored = await entriesOf(id);
-    return stored
-      ? referencesPath(JSON.stringify(stored.entries), path)
-      : false;
+    const live = await ownedRuntime(id);
+    if (live) {
+      return referencesPath(JSON.stringify(live.snapshot().entries), path);
+    }
+    const saved = await savedRead(id);
+    if (!saved) return false;
+    saved.json ??= JSON.stringify(saved.read.entries);
+    return referencesPath(saved.json, path);
   }
 
   /**

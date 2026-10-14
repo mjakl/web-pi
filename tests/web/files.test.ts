@@ -307,6 +307,7 @@ describe("stored-session file requests", () => {
     async (route, suffix, expected) => {
       const folder = vi.spyOn(catalog, "folder");
       const read = vi.spyOn(catalog, "read");
+      const readSaved = vi.spyOn(catalog, "readSaved");
       const open = vi.spyOn(SessionManager, "open");
       try {
         const path =
@@ -321,6 +322,7 @@ describe("stored-session file requests", () => {
         expect(await response.text()).toContain(expected);
         expect(folder).toHaveBeenCalledTimes(1);
         expect(read).not.toHaveBeenCalled();
+        expect(readSaved).not.toHaveBeenCalled();
         expect(open).not.toHaveBeenCalled();
       } finally {
         vi.restoreAllMocks();
@@ -353,7 +355,12 @@ describe("stored-session file requests", () => {
   });
 
   it("still reads the transcript for an outside file, but never grants directory listings or symlink escapes", async () => {
+    // A stopped session's transcript is parsed once and then checked against
+    // the file's stat, so both ways of reading it count.
     const read = vi.spyOn(catalog, "read");
+    const readSaved = vi.spyOn(catalog, "readSaved");
+    const transcriptReads = () =>
+      read.mock.calls.length + readSaved.mock.calls.length;
     try {
       const request = (route: string, path: string) =>
         storedApp.request(
@@ -362,15 +369,16 @@ describe("stored-session file requests", () => {
       const referenced = await request("view", join(outside, "secret.txt"));
       expect(referenced.status).toBe(200);
       expect(await referenced.text()).toContain("not yours");
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(transcriptReads()).toBe(1);
       read.mockClear();
+      readSaved.mockClear();
       expect((await request("tree", outside)).status).toBe(403);
       expect((await request("tree", join(repo, "escape"))).status).toBe(403);
-      expect(read).not.toHaveBeenCalled();
+      expect(transcriptReads()).toBe(0);
       expect((await request("view", join(outside, "secret2.txt"))).status).toBe(
         403,
       );
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(transcriptReads()).toBe(1);
     } finally {
       vi.restoreAllMocks();
     }

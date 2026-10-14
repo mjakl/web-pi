@@ -300,6 +300,37 @@ describe("workspace over the fake runtime", () => {
     });
   });
 
+  it("keeps stopped sessions' reads within their bound, oldest out first", async () => {
+    const large = (id: string) => ({
+      summary: {
+        id,
+        cwd: "/repo",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        modifiedAt: "2026-09-01T00:00:00.000Z",
+        fileSize: 20 * 1024 * 1024,
+      },
+      entries: [
+        userEntry(`${id}-u`, null, "question"),
+        assistantEntry(`${id}-a`, `${id}-u`, "answer", 100),
+      ],
+    });
+    const world = createFakeWorld({ sessions: [large("a"), large("b")] });
+    const workspace = createWorkspace(world);
+    const readSaved = vi.spyOn(world.sessions, "readSaved");
+    // A kept read is checked against its revision; a new one has none.
+    const kept = async (id: string) => {
+      readSaved.mockClear();
+      expect(await workspace.lastAssistantText(id)).toBe("answer");
+      return readSaved.mock.calls[0]?.[1] !== undefined;
+    };
+    expect(await kept("a")).toBe(false);
+    expect(await kept("a")).toBe(true);
+    // Two 20 MiB files do not fit the 32 MiB bound: the older read goes.
+    expect(await kept("b")).toBe(false);
+    expect(await kept("b")).toBe(true);
+    expect(await kept("a")).toBe(false);
+  });
+
   it("puts the post-compaction estimate on the compaction card", async () => {
     const world = createFakeWorld({
       delayMs: 2,

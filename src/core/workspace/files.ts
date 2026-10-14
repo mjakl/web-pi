@@ -7,32 +7,12 @@ import { type FileKind, fileKind, languageOf } from "@core/file-types";
 import { directoryWithin, FileAccessError, samePath } from "@core/path-access";
 import type { DirEntry, GitChangeFile, GitStatus } from "@core/ports";
 import type { Shared } from "./deps.ts";
-import { type FileScope, type FileView, ForbiddenPath } from "./views.ts";
+import type { FileScope, FileView } from "./views.ts";
 
 // The file panel and the `@` menu: listings, the viewer, Git changes, and
 // completion. Every path goes through `authorize` before it is touched.
 
 export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
-  /**
-   * The folder a completion request may list. Defaults to the session's own,
-   * and anything else goes through the same containment policy as the file
-   * panel, so there is one answer to "may this be listed".
-   */
-  async function authorizedCwd(
-    id: string,
-    directory: string | undefined,
-  ): Promise<string> {
-    const cwd = await cwdOf(id);
-    if (cwd === "") throw new ForbiddenPath("Unknown session");
-    if (directory === undefined || directory === "") return cwd;
-    await authorize(directory, {
-      sessionId: id,
-      sessionCwd: cwd,
-      listing: true,
-    });
-    return directory;
-  }
-
   /**
    * The folder a files request is rooted in. A session names its own; without
    * one the folder comes from the page, so it goes through the same
@@ -42,6 +22,13 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
     if (scope.sessionId !== undefined) return cwdOf(scope.sessionId);
     const cwd = scope.cwd ?? "";
     if (cwd !== "") await authorize(cwd, { listing: true });
+    return cwd;
+  }
+
+  /** The folder the `@` menu completes from; there is nothing to list without one. */
+  async function completionCwd(scope: FileScope): Promise<string> {
+    const cwd = await resolveScopeCwd(scope);
+    if (cwd === "") throw new FileAccessError("No folder to list", 404);
     return cwd;
   }
 
@@ -67,15 +54,14 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
   }
 
   return {
-    /** The `@` index for a folder inside the session's own working folder. */
+    /** The `@` index the browser filters, or the matches of a query. */
     async fileIndex(
-      id: string,
-      directory: string | undefined,
+      scope: FileScope,
       query: string,
     ): Promise<
       { files: string[]; truncated: boolean } | { matches: FileEntry[] }
     > {
-      const cwd = await authorizedCwd(id, directory);
+      const cwd = await completionCwd(scope);
       const index = await deps.files.index(cwd);
       if (query === "") return index;
       return {
@@ -85,11 +71,10 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
 
     /** Immediate children for a path-like `@` query, containment enforced. */
     async fileCompletion(
-      id: string,
+      scope: FileScope,
       query: string,
-      directory: string | undefined,
     ): Promise<FileEntry[]> {
-      const cwd = await authorizedCwd(id, directory);
+      const cwd = await completionCwd(scope);
       const children = await deps.files.children(query, cwd);
       return children.filter((entry) => directoryWithin(cwd, entry.path));
     },
@@ -228,28 +213,6 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       const index = await deps.files.index(cwd);
       const entries = index.files.map((path) => ({ path, isDir: false }));
       return { cwd, status, matches: filterFileEntries(entries, query, limit) };
-    },
-
-    /** `@` completion before a session exists, containment enforced. */
-    async folderFiles(
-      cwd: string,
-      query: string,
-      path: boolean,
-    ): Promise<
-      { files: string[]; truncated: boolean } | { matches: FileEntry[] }
-    > {
-      await authorize(cwd, { listing: true });
-      if (path) {
-        const children = await deps.files.children(query, cwd);
-        return {
-          matches: children.filter((entry) => directoryWithin(cwd, entry.path)),
-        };
-      }
-      const index = await deps.files.index(cwd);
-      if (query === "") return index;
-      return {
-        matches: filterFileEntries(buildEntriesFromFiles(index.files), query),
-      };
     },
   };
 }

@@ -7,6 +7,7 @@ import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
 import { isSessionId } from "@core/sessions";
 import {
+  type FileScope,
   ForbiddenPath,
   InspectionOnlySession,
   type SessionView,
@@ -273,45 +274,45 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     );
   });
 
-  /** The two JSON endpoints of this phase: a menu cannot be a round trip. */
-  app.get("/sessions/:id/file-index", async (c) => {
-    const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    return files(c, () =>
-      deps.workspace.fileIndex(
-        id,
-        c.req.query("cwd"),
-        (c.req.query("q") ?? "").slice(0, 500),
-      ),
-    );
-  });
-
-  app.get("/sessions/:id/file-completion", async (c) => {
-    const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    return files(c, async () => ({
-      matches: await deps.workspace.fileCompletion(
-        id,
-        (c.req.query("q") ?? "").slice(0, 500),
-        c.req.query("cwd"),
-      ),
-    }));
-  });
-
-  async function files(
+  /**
+   * The `@` menu's JSON: the index or matches (`file-index`) and a path-like
+   * query's children (`file-completion`), for a session's folder or for a
+   * validated folder before any session exists. A menu cannot be a round trip.
+   */
+  async function fileMenu(
     c: Context,
-    action: () => Promise<unknown>,
+    scope: FileScope,
+    path: boolean,
   ): Promise<Response> {
+    const query = (c.req.query("q") ?? "").slice(0, 500);
+    c.header("Cache-Control", "no-store");
     try {
-      c.header("Cache-Control", "no-store");
-      return c.json(await action());
+      return c.json(
+        path
+          ? { matches: await deps.workspace.fileCompletion(scope, query) }
+          : await deps.workspace.fileIndex(scope, query),
+      );
     } catch (error) {
-      if (error instanceof ForbiddenPath) return c.json({ error: "" }, 403);
       if (error instanceof FileAccessError) {
-        return c.json({ error: "" }, error.status);
+        return c.json({ error: error.message }, error.status);
       }
       return c.json({ error: "Cannot list that directory" }, 404);
     }
+  }
+
+  for (const [name, path] of [
+    ["file-index", false],
+    ["file-completion", true],
+  ] as const) {
+    app.get(`/sessions/:id/${name}`, (c) => {
+      const id = c.req.param("id");
+      return isSessionId(id)
+        ? fileMenu(c, { sessionId: id }, path)
+        : c.notFound();
+    });
+    app.get(`/workspaces/${name}`, (c) =>
+      fileMenu(c, { cwd: c.req.query("cwd") ?? "" }, path),
+    );
   }
 
   app.get("/sessions/:id/bash-output", async (c) => {
@@ -444,23 +445,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       return c.html(<SkillsMenu commands={commands} />);
     });
   });
-
-  for (const [path, isPath] of [
-    ["file-index", false],
-    ["file-completion", true],
-  ] as const) {
-    app.get(`/workspaces/${path}`, async (c) => {
-      const cwd = c.req.query("cwd") ?? "";
-      try {
-        return c.json(
-          await deps.workspace.folderFiles(cwd, c.req.query("q") ?? "", isPath),
-        );
-      } catch (error) {
-        const status = error instanceof FileAccessError ? error.status : 400;
-        return c.json({ error: errorText(error) }, status);
-      }
-    });
-  }
 
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");

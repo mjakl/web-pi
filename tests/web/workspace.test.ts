@@ -209,6 +209,51 @@ describe("the new-session page", () => {
   });
 });
 
+describe("@ completion", () => {
+  // The session answers about its own folder whatever the query string
+  // names; the folder variant answers about the one it names.
+  const urls = {
+    session: (endpoint: string, query: string) =>
+      `/sessions/s1/${endpoint}?cwd=%2Fetc&q=${encodeURIComponent(query)}`,
+    folder: (endpoint: string, query: string) =>
+      `/workspaces/${endpoint}?cwd=${encodeURIComponent(repo)}&q=${encodeURIComponent(query)}`,
+  };
+
+  it.each(["session", "folder"] as const)(
+    "answers for a %s with the same folder, headers and query cap",
+    async (scope) => {
+      const { app, world } = testApp({ files: ["src/main.ts"] });
+      const index = vi.spyOn(world.files, "index");
+      const children = vi.spyOn(world.files, "children");
+      const listed = await app.request(urls[scope]("file-index", ""));
+      expect(listed.headers.get("cache-control")).toBe("no-store");
+      expect(await listed.json()).toEqual({
+        files: ["src/main.ts"],
+        truncated: false,
+      });
+      expect(index).toHaveBeenCalledWith(repo);
+      const long = `./${"s".repeat(600)}`;
+      const completed = await app.request(urls[scope]("file-completion", long));
+      expect(completed.status).toBe(200);
+      expect(completed.headers.get("cache-control")).toBe("no-store");
+      expect(children).toHaveBeenCalledWith(long.slice(0, 500), repo);
+    },
+  );
+
+  it("answers what it cannot list with the file panel's statuses", async () => {
+    const { app } = testApp();
+    const unknown = await app.request("/sessions/nobody/file-completion?q=");
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get("cache-control")).toBe("no-store");
+    expect((await app.request("/workspaces/file-index?q=")).status).toBe(404);
+    const outside = await app.request(
+      `/workspaces/file-completion?cwd=${encodeURIComponent(root)}&q=.%2F`,
+    );
+    expect(outside.status).toBe(403);
+    expect(await outside.json()).toEqual({ error: "Access denied" });
+  });
+});
+
 describe("missing-folder read-only mode", () => {
   it("shows the notice and drops the composer, explorer and branch actions", async () => {
     const { app } = testApp({ missingFolders: [repo] });

@@ -736,22 +736,13 @@ describe("web app", () => {
     );
   });
 
-  it("serves the file index only inside the session's own folder", async () => {
+  it("serves the file index of the session's own folder", async () => {
     const { app } = testApp({ files: ["src/main.ts"] });
     const index = await app.request("/sessions/s1/file-index");
     expect(await index.json()).toEqual({
       files: ["src/main.ts"],
       truncated: false,
     });
-
-    // A folder inside the session's own is allowed but still has to exist,
-    // and one outside every root is refused before any file system call.
-    const missing = await app.request(
-      "/sessions/s1/file-index?cwd=%2Frepo%2Fone%2Fsrc&q=main",
-    );
-    expect(missing.status).toBe(404);
-    const outside = await app.request("/sessions/s1/file-index?cwd=%2Fetc");
-    expect(outside.status).toBe(403);
   });
 
   it("keeps path completion inside the session folder", async () => {

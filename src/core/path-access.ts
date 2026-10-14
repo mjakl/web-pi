@@ -161,10 +161,9 @@ export function isBashOutputPath(tmpdir: string, path: string): boolean {
   return directoryWithin(tmpdir, path) && BASH_OUTPUT_NAME.test(name);
 }
 
-// A path token ends where these characters stop. A trailing `:12` or `:12:3`
-// is a line reference, not part of the name.
+// A path token ends where these characters stop. `:` is not one of them, so a
+// path followed by a `:12` or `:12:3` line reference is still a whole token.
 const PATH_CHARACTER = /[A-Za-z0-9_.~%-]/;
-const LINE_SUFFIX = /^:\d+(?::\d+)?/;
 
 function mentions(text: string, needle: string): boolean {
   if (needle === "") return false;
@@ -183,7 +182,6 @@ function mentions(text: string, needle: string): boolean {
       if (after.startsWith("/") || after.startsWith("\\")) continue;
       return true;
     }
-    if (LINE_SUFFIX.test(after)) return true;
   }
 }
 

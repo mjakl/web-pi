@@ -225,7 +225,7 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
       <ToolBody
         call={call}
         actions={{ sessionId: id, cwd: cwd ?? "", starred: new Set() }}
-        {...(c.req.query("full") === "1" ? { full: true } : {})}
+        full={c.req.query("full") === "1"}
       />,
     );
   });

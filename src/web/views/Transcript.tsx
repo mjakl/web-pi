@@ -45,7 +45,7 @@ export function SavedMessages({ view }: { view: SessionView }) {
         <LoadEarlier
           sessionId={view.summary.id}
           before={view.oldestId}
-          {...(leaf === undefined ? {} : { leaf })}
+          leaf={leaf}
         />
       ) : null}
       <Items items={view.items} actions={itemActions(view)} />

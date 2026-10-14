@@ -302,7 +302,7 @@ export function HistoryActionButtons({
           title={branchTitle}
           hx-post={post("navigate")}
           {...swap}
-          {...(actions.busy === true ? { disabled: true } : {})}
+          disabled={actions.busy === true}
         >
           <ForkIcon />
           Branch

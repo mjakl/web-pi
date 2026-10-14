@@ -36,7 +36,7 @@ export function Item({
           item={item}
           actions={actions}
           starrable={starrable ?? false}
-          {...(written === undefined ? {} : { written })}
+          written={written}
         />
       );
     case "compaction":

@@ -239,11 +239,7 @@ export function SubagentContent({
         </div>
       ) : null}
       {single ? (
-        <SubagentBody
-          call={single}
-          {...(runs?.[0] ? { run: runs[0] } : {})}
-          actions={actions}
-        />
+        <SubagentBody call={single} run={runs?.[0]} actions={actions} />
       ) : (
         calls.map((item, index) => (
           <SubagentDisclosure
@@ -257,11 +253,7 @@ export function SubagentContent({
               </span>
             }
           >
-            <SubagentBody
-              call={item}
-              {...(runs?.[index] ? { run: runs[index] } : {})}
-              actions={actions}
-            />
+            <SubagentBody call={item} run={runs?.[index]} actions={actions} />
           </SubagentDisclosure>
         ))
       )}

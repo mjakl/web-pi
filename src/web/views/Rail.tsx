@@ -112,9 +112,7 @@ function Node({
         type="button"
         tabindex={-1}
         class={mark.kind === "star" ? "minimap-star" : "minimap-message"}
-        {...(mark.preview === undefined
-          ? {}
-          : { "data-preview": mark.preview })}
+        data-preview={mark.preview}
         aria-label={
           mark.kind === "star"
             ? "Jump to starred answer"
@@ -214,7 +212,7 @@ export function Rail({ view, oob }: { view: SessionView; oob?: boolean }) {
       data-branched={branched ? "true" : "false"}
       data-strip-width={String(WIDTH)}
       data-graph-width={String(lanes * LANE + WIDTH)}
-      {...(oob ? { "hx-swap-oob": "true" } : {})}
+      hx-swap-oob={oob ? "true" : undefined}
     >
       {/* pi-web chains the anchors into a parent/child path even with no
           fork in the session, so a linear rail carries the spine too. */}

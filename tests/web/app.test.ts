@@ -492,6 +492,14 @@ describe("web app", () => {
     expect(other).not.toContain('id="composer"');
     // pi-web has no branch menu in the header: branches are rail marks.
     expect(other).toContain('data-branched="true"');
+    const continueFrom = (html: string) =>
+      parseHtml(html)
+        .querySelector(".branch-sync-notice button")
+        ?.getAttribute("hx-vals");
+    expect(continueFrom(other)).toBe(JSON.stringify({ entryId: "u2" }));
+    // An entry with later replies is a place to continue from too.
+    const earlier = await (await app.request("/sessions/s1?leaf=u1")).text();
+    expect(continueFrom(earlier)).toBe(JSON.stringify({ entryId: "u1" }));
 
     const form = new FormData();
     form.set("entryId", "u2");

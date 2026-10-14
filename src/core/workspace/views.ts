@@ -3,7 +3,7 @@ import type { ContextUsage } from "@core/context-usage";
 import type { FileKind } from "@core/file-types";
 import type { GitFileStatus } from "@core/git-status";
 import type { LiveStatus, ModelOption, ThinkingLevel } from "@core/ports";
-import type { BranchLeaf, SessionStats } from "@core/session-entries";
+import type { SessionStats } from "@core/session-entries";
 import type { SessionSummary, SessionRowMetadata } from "@core/sessions";
 import type { TranscriptItem } from "@core/transcript";
 import type { ProjectInfo, WorktreeInfo } from "@core/workspaces";
@@ -88,8 +88,6 @@ export type SessionView = {
   modelWarnings: string[];
   /** Entry ids of starred answers. */
   starred: Set<string>;
-  /** Tips of every branch in the session; one entry when nothing branched. */
-  leaves: BranchLeaf[];
   /** True while viewing a branch other than the session's own leaf. */
   otherBranch: boolean;
   /** Marks for the conversation rail: prompts, stars, and compactions. */

@@ -340,7 +340,7 @@ disclosures and lazy-body limits. The running turn renders flat and everything
 else renders grouped.
 
 `src/core/session-entries.ts` derives everything a session's raw entries imply:
-starred answers, statistics and active time, the tip of every branch, and the
+starred answers, statistics and active time, the path to a branch tip, and the
 sidebar row summary. The catalog hands the core entries; no rule reads a file.
 
 ### Context usage

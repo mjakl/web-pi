@@ -1,6 +1,5 @@
 import { assistantEntry, userEntry } from "@adapters/fake/index";
 import {
-  branchLeaves,
   editableUserMessage,
   lastAssistantText,
   readStars,
@@ -204,28 +203,6 @@ describe("session statistics", () => {
     });
     expect(stats.tokens.total).toBe(400);
     expect(stats.cacheHitRate).toBeNull();
-  });
-});
-
-describe("branch leaves", () => {
-  it("lists one tip per branch, labelled by its last request", () => {
-    const entries = [
-      userEntry("u1", null, "start"),
-      assistantEntry("a1", "u1", "one", 100),
-      userEntry("u2", "a1", "left"),
-      userEntry("u3", "a1", "right"),
-    ];
-    const leaves = branchLeaves(entries, "u3");
-    expect(leaves.map((leaf) => leaf.label)).toEqual(["right", "left"]);
-    expect(leaves.map((leaf) => leaf.current)).toEqual([true, false]);
-  });
-
-  it("has a single leaf while nothing has branched", () => {
-    const entries = [
-      userEntry("u1", null, "start"),
-      assistantEntry("a1", "u1", "one", 100),
-    ];
-    expect(branchLeaves(entries, "a1")).toHaveLength(1);
   });
 });
 

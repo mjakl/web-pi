@@ -4,8 +4,8 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionRowMetadata } from "./sessions.ts";
 
 // Everything the UI derives from a session's raw entries: stars, statistics,
-// the branch leaves of the entry tree, and the sidebar row summary. Pure
-// functions over what the SessionCatalog read; no file or SDK access.
+// the path to a branch tip, and the sidebar row summary. Pure functions over
+// what the SessionCatalog read; no file or SDK access.
 
 /** Custom-entry type for web-pi's stars. */
 export const STAR_TYPE = "web-pi:star";
@@ -175,15 +175,6 @@ export function branchTo(
   return path.reverse();
 }
 
-export type BranchLeaf = {
-  /** Entry to view or navigate to; the tip of this branch. */
-  id: string;
-  /** Last user message on the path, as a label. */
-  label: string;
-  timestamp: string;
-  current: boolean;
-};
-
 /** Pi's /copy selection rule, retaining source whitespace rather than trimming it. */
 export function lastAssistantText(
   branch: readonly SessionEntry[],
@@ -248,53 +239,6 @@ export function userMessageText(entry: SessionEntry): string | undefined {
           .map((part) => part.text)
           .join(" ");
   return displaySkillPrompt(text).text.replaceAll(/\s+/g, " ").trim();
-}
-
-/**
- * One entry per branch tip. A session with no branching has a single leaf, so
- * the switcher only appears once the user actually forked the conversation.
- */
-export function branchLeaves(
-  entries: readonly SessionEntry[],
-  currentLeafId: string | null,
-): BranchLeaf[] {
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const parents = new Set(
-    entries.map((entry) => entry.parentId).filter((id) => id !== null),
-  );
-  const onCurrentPath = new Set<string>();
-  for (
-    let entry = currentLeafId === null ? undefined : byId.get(currentLeafId);
-    entry;
-    entry = entry.parentId === null ? undefined : byId.get(entry.parentId)
-  ) {
-    onCurrentPath.add(entry.id);
-  }
-
-  const leaves: BranchLeaf[] = [];
-  for (const entry of entries) {
-    if (parents.has(entry.id)) continue;
-    let label = "";
-    for (
-      let step: SessionEntry | undefined = entry;
-      step && !label;
-      step = step.parentId === null ? undefined : byId.get(step.parentId)
-    ) {
-      label = userMessageText(step) ?? "";
-    }
-    leaves.push({
-      id: entry.id,
-      label: label.slice(0, 60) || entry.id.slice(0, 8),
-      timestamp: entry.timestamp,
-      current: onCurrentPath.has(entry.id),
-    });
-  }
-  // The branch being viewed first, then the most recently touched.
-  return leaves.sort(
-    (a, b) =>
-      Number(b.current) - Number(a.current) ||
-      b.timestamp.localeCompare(a.timestamp),
-  );
 }
 
 /**

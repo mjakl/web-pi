@@ -9,7 +9,6 @@ import type {
   SessionRead,
 } from "@core/ports";
 import {
-  branchLeaves,
   branchTo,
   lastAssistantText,
   readStars,
@@ -131,7 +130,6 @@ export function sessionUseCases({
       models: models.models,
       modelWarnings: models.warnings,
       starred,
-      leaves: branchLeaves(snapshot.entries, leafId),
       otherBranch:
         options.leaf !== undefined && options.leaf !== (leafId ?? undefined),
       rail: conversationRail(snapshot.entries, leafId, starred),
@@ -231,7 +229,6 @@ export function sessionUseCases({
         : {}),
       modelWarnings: listing.warnings,
       starred,
-      leaves: branchLeaves(stored.entries, leafId),
       otherBranch: options.leaf !== undefined && options.leaf !== stored.leafId,
       rail: conversationRail(stored.entries, leafId, starred),
       branched: hasBranches(stored.entries),

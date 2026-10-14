@@ -89,7 +89,6 @@ export function LiveRecovery({ view }: { view: SessionView }) {
 export function Transcript({ view }: { view: SessionView }) {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
-  const leafId = view.leaves.find((leaf) => leaf.current)?.id;
   const actions = itemActions(view);
   return (
     <div class="chat-body">
@@ -106,7 +105,7 @@ export function Transcript({ view }: { view: SessionView }) {
                   type="button"
                   class="history-action"
                   hx-post={`/sessions/${summary.id}/navigate`}
-                  hx-vals={JSON.stringify({ entryId: leafId })}
+                  hx-vals={JSON.stringify({ entryId: view.leaf })}
                   hx-target="body"
                   hx-swap="innerHTML"
                 >

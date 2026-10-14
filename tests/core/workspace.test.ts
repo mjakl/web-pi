@@ -334,3 +334,69 @@ describe("workspace over the fake runtime", () => {
     expect(card).toMatchObject({ tokensBefore: 40_000, tokensAfter: 1_234 });
   });
 });
+
+// Every web test runs against the fake world, so where it differs from the
+// Pi adapter the suite cannot see it. These are the rules it once had wrong.
+describe("the fake runtime, as Pi does it", () => {
+  it("keeps a star of a kept answer through a rewind, ending at Pi's marker", async () => {
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: "/repo",
+            createdAt: "2026-09-01T00:00:00Z",
+            modifiedAt: "2026-09-01T00:00:00Z",
+            fileSize: 4,
+          },
+          entries: [
+            userEntry("u1", null, "first"),
+            assistantEntry("a1", "u1", "first answer", 100),
+            userEntry("u2", "a1", "edit this"),
+            assistantEntry("a2", "u2", "second answer", 100),
+          ],
+        },
+      ],
+    });
+    const workspace = createWorkspace(world);
+    await workspace.setStar("s1", "a1", true);
+    await workspace.rewind("s1", "u2");
+    const view = await workspace.viewSession("s1");
+    expect(view?.items.map((item) => item.entryId)).toEqual(["u1", "a1"]);
+    expect(view?.starred).toEqual(new Set(["a1"]));
+    expect(world.store.get("s1")?.entries.at(-1)).toMatchObject({
+      type: "custom",
+      customType: "web-pi-rewind",
+    });
+  });
+
+  it("announces a shell command and writes the session it ran in", async () => {
+    const world = createFakeWorld({ delayMs: 2 });
+    const workspace = createWorkspace(world);
+    const id = await workspace.createSession("/repo");
+    const events: string[] = [];
+    const finished = new Promise<void>((resolve) => {
+      workspace.subscribeSessions((event) => {
+        events.push(event.type);
+        if (event.type === "finished") resolve();
+      });
+    });
+    expect(world.store.has(id)).toBe(false);
+    await workspace.runBash(id, "ls", false);
+    await finished;
+    expect(events).toEqual(["started", "finished"]);
+    expect(world.store.has(id)).toBe(true);
+  });
+
+  it("writes a new session with its first question, long before the answer", async () => {
+    const world = createFakeWorld({ delayMs: 1_000 });
+    const workspace = createWorkspace(world);
+    const id = await workspace.createSession("/repo");
+    expect(world.store.has(id)).toBe(false);
+    await workspace.send(id, "hi");
+    expect(
+      world.store.get(id)?.entries.map((entry) => entry.type === "message"),
+    ).toEqual([true]);
+    await workspace.stop(id);
+  });
+});

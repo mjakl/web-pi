@@ -24,7 +24,7 @@ import { startupWrites, type StartupChoice } from "@core/models";
 import { createCompletionTracker } from "@core/turn-completion";
 import { toolParameters } from "@core/tools";
 import { toolProgress } from "@core/transcript";
-import { STAR_TYPE } from "@core/session-entries";
+import { isBusy, STAR_TYPE, starTarget } from "@core/session-entries";
 import { selectedSkillPrompt } from "./selected-skills.ts";
 import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -561,12 +561,9 @@ class PiLiveSession implements LiveSession {
 
   setStar(targetId: string, starred: boolean): string {
     const manager = this.inner.sessionManager;
-    const target = manager.getEntry(
-      resolveSnapshotEntryId(manager.getEntries(), targetId),
+    const target = starTarget(
+      manager.getEntry(resolveSnapshotEntryId(manager.getEntries(), targetId)),
     );
-    if (target?.type !== "message" || target.message.role !== "assistant") {
-      throw new Error("Star target must be an assistant answer");
-    }
     manager.appendCustomEntry(STAR_TYPE, { targetId: target.id, starred });
     this.emit({ type: "activity" });
     return target.id;
@@ -769,11 +766,10 @@ class PiLiveSession implements LiveSession {
   }
 
   get busy(): boolean {
-    return (
-      this.bash !== undefined ||
-      this.inner.isStreaming ||
-      this.inner.isBashRunning
-    );
+    return isBusy({
+      running: this.inner.isStreaming,
+      bashRunning: this.bash !== undefined || this.inner.isBashRunning,
+    });
   }
 
   subscribe(listener: (event: LiveEvent) => void): () => void {

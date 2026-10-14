@@ -6,9 +6,10 @@ import {
   type SessionDelegation,
 } from "@core/session-delegation";
 import {
+  forkPoint,
   rowMetadataFold,
   STAR_TYPE,
-  editableUserMessage,
+  starTarget,
 } from "@core/session-entries";
 import {
   isSessionId,
@@ -600,30 +601,16 @@ export function createPiSessionCatalog(options: {
 
     async setStar(id, targetId, starred) {
       const { manager, selectedId } = await openSelection(id, targetId);
-      const target = manager.getEntry(selectedId ?? targetId);
-      if (target?.type !== "message" || target.message.role !== "assistant") {
-        throw new Error("Star target must be an assistant answer");
-      }
+      const target = starTarget(manager.getEntry(selectedId ?? targetId));
       manager.appendCustomEntry(STAR_TYPE, { targetId: target.id, starred });
       return target.id;
     },
 
     async fork(id, entryId) {
       const { manager, selectedId } = await openSelection(id, entryId);
-      const entry = manager.getEntry(selectedId ?? entryId);
-      if (!entry) throw new Error("Select an existing conversation message");
-      const draft = editableUserMessage(entry) ?? { text: "", images: [] };
-      // Editing a user message reopens the history *before* it; anything else
-      // is copied up to and including itself. The role decides, not the text:
-      // a question that is only images is still a question.
-      const isUserMessage =
-        entry.type === "message" && entry.message.role === "user";
-      const leafId = isUserMessage ? entry.parentId : entry.id;
-      if (leafId === null) {
-        throw new Error(
-          "Nothing precedes the first message; use New for an empty session.",
-        );
-      }
+      const { leafId, draft } = forkPoint(
+        manager.getEntry(selectedId ?? entryId),
+      );
       const forked = branchToNewFile(manager, leafId);
       paths.set(forked.id, forked.file);
       return { id: forked.id, ...draft };

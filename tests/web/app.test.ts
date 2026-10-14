@@ -473,8 +473,14 @@ describe("web app", () => {
       expect(html.match(/id="recalled-images"/g)).toHaveLength(1);
       const destination = res.headers.get("hx-push-url") ?? "";
       if (action === "fork") expect(stored.entries).toEqual(original);
+      // A rewind keeps the history before the message and ends it with
+      // Pi's marker leaf.
       else
-        expect(stored.entries.map((entry) => entry.id)).toEqual(["u1", "a1"]);
+        expect(
+          stored.entries.map((entry) =>
+            entry.type === "custom" ? entry.customType : entry.id,
+          ),
+        ).toEqual(["u1", "a1", "web-pi-rewind"]);
       const reloaded = await (await app.request(destination)).text();
       expect(reloaded).not.toContain("data-image=");
     },
@@ -843,15 +849,16 @@ describe("web app", () => {
   });
 
   it("lists a session Pi has not written to disk yet", async () => {
-    // Pi writes a new session's file with its first assistant message, so
-    // between the start and the first answer the runtime alone knows it.
-    const { app, world } = testApp({ delayMs: 200, reply: () => "done" });
+    // Pi writes a new session's file with its first user or assistant
+    // message, so a session opened with a command such as /name exists in
+    // the runtime alone.
+    const { app, world } = testApp();
     const res = await app.request("/events?project=%2Frepo%2Fone");
     const reader = res.body?.getReader();
     if (!reader) throw new Error("no body");
     const form = new FormData();
     form.set("cwd", "/repo/one");
-    form.set("text", "go");
+    form.set("text", "/name Draft");
     const started = await app.request("/sessions", {
       method: "POST",
       body: form,
@@ -877,18 +884,18 @@ describe("web app", () => {
     );
     expect(list).toContain('id="row-new-1"');
     const hydrated = await (await app.request("/sessions/new-1/row")).text();
-    expect(hydrated).toContain('data-status="Agent running…"');
+    expect(hydrated).toContain('data-status="Session active"');
     expect(list).toContain("Stored one");
     expect(list).toContain("2 msgs");
     expect(list).not.toContain('hx-trigger="intersect once"');
     expect(list).not.toContain('hx-get="/sessions/new-1/row"');
     expect(list).not.toContain('aria-label="Loading..."');
-    // The page the browser is sent to, rendered while the turn still runs,
-    // shows the same row selected.
+    // The page the browser is sent to shows the same row selected.
     const page = await (await app.request("/sessions/new-1")).text();
     const row = page.slice(page.indexOf('id="row-new-1"'));
     expect(row).toContain("session-row is-selected");
-    expect(row).toContain('data-status="Agent running…"');
+    expect(row).toContain('data-status="Session active"');
+    expect(world.store.has("new-1")).toBe(false);
   });
 
   it("streams activity from every directory even with old project queries and cookies", async () => {

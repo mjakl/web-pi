@@ -1,11 +1,14 @@
 import { assistantEntry, userEntry } from "@adapters/fake/index";
 import {
   editableUserMessage,
+  forkPoint,
   lastAssistantText,
   readStars,
+  rewindSelection,
   rowMetadata,
   sessionStats,
   STAR_TYPE,
+  starTarget,
 } from "@core/session-entries";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -178,6 +181,89 @@ describe("stars", () => {
       star("s4", "s3", "u1", true),
     ];
     expect(readStars(entries)).toEqual(new Set(["a2"]));
+  });
+});
+
+describe("the rules both session writers apply", () => {
+  const imageOnly: SessionEntry = {
+    type: "message",
+    id: "u2",
+    parentId: "a1",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: [{ type: "image", data: "AAAA", mimeType: "image/png" }],
+      timestamp: 1,
+    },
+  };
+  const entries: SessionEntry[] = [
+    userEntry("u1", null, "first"),
+    assistantEntry("a1", "u1", "one", 100),
+    imageOnly,
+    assistantEntry("a2", "u2", "two", 200),
+  ];
+
+  it("lets a star mark an assistant answer and nothing else", () => {
+    expect(starTarget(entries[1])).toBe(entries[1]);
+    for (const entry of [entries[0], undefined]) {
+      expect(() => starTarget(entry)).toThrow(
+        "Star target must be an assistant answer",
+      );
+    }
+  });
+
+  it("forks before a question and through anything else", () => {
+    // An image-only question is still a question.
+    expect(forkPoint(imageOnly)).toEqual({
+      leafId: "a1",
+      draft: { text: "", images: [{ data: "AAAA", mimeType: "image/png" }] },
+    });
+    expect(forkPoint(entries[3])).toEqual({
+      leafId: "a2",
+      draft: { text: "", images: [] },
+    });
+    expect(() => forkPoint(entries[0])).toThrow("Nothing precedes");
+    expect(() => forkPoint(undefined)).toThrow(
+      "Select an existing conversation message",
+    );
+  });
+
+  it("rewinds to a question, keeping later preferences and stars of kept answers", () => {
+    const later = [
+      ...entries,
+      star("s1", "a2", "a1", true),
+      star("s2", "s1", "a2", true),
+      {
+        type: "session_info",
+        id: "n1",
+        parentId: "s2",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        name: "Named later",
+      } as SessionEntry,
+      star("s3", "n1", "a1", false),
+    ];
+    const { kept, tail, removed } = rewindSelection(later, "u2", "marker");
+    expect(kept).toBe(2);
+    expect(removed).toEqual(forkPoint(imageOnly).draft);
+    // Re-chained after the cut: the star and unstar of the kept answer and
+    // the name, but not the star of the removed one.
+    expect(tail.map((entry) => [entry.id, entry.parentId])).toEqual([
+      ["s1", "a1"],
+      ["n1", "s1"],
+      ["s3", "n1"],
+      ["marker", "s3"],
+    ]);
+    expect(tail.at(-1)).toMatchObject({
+      type: "custom",
+      customType: "web-pi-rewind",
+    });
+    expect(readStars([...later.slice(0, kept), ...tail])).toEqual(new Set());
+    expect(() => rewindSelection(later, "a1", "marker")).toThrow(
+      "Rewind requires an existing user message",
+    );
+    expect(() => rewindSelection(later, "gone", "marker")).toThrow(
+      "Rewind requires an existing user message",
+    );
   });
 });
 

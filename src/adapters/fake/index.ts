@@ -54,16 +54,21 @@ import type {
   Watcher,
 } from "@core/ports";
 import {
+  branchTo,
+  editableUserMessage,
+  forkPoint,
+  isBusy,
   readStars,
+  rewindSelection,
   rowMetadata,
   STAR_TYPE,
-  editableUserMessage,
+  starTarget,
 } from "@core/session-entries";
 import type { SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 // In-memory implementations of every outbound port. Tests and the
 // `WEB_PI_RUNTIME=fake` demo mode use them; no Pi installation is needed.
@@ -211,16 +216,9 @@ function leafOf(stored: FakeStoredSession): string | null {
   return stored.leafId ?? stored.entries.at(-1)?.id ?? null;
 }
 
-/** Root-first path to `leafId`, the way SessionManager.getBranch walks it. */
-function branchOf(stored: FakeStoredSession, leafId?: string): SessionEntry[] {
-  const byId = new Map(stored.entries.map((entry) => [entry.id, entry]));
-  const path: SessionEntry[] = [];
-  let current = byId.get(leafId ?? leafOf(stored) ?? "");
-  while (current) {
-    path.push(current);
-    current = current.parentId ? byId.get(current.parentId) : undefined;
-  }
-  return path.reverse();
+/** The active branch, root first. */
+function branchOf(stored: FakeStoredSession): SessionEntry[] {
+  return branchTo(stored.entries, leafOf(stored));
 }
 
 function touch(stored: FakeStoredSession): void {
@@ -231,12 +229,11 @@ function touch(stored: FakeStoredSession): void {
   };
 }
 
-/** Stars only ever mark an assistant answer, as in the Pi adapter. */
-function assertAnswer(stored: FakeStoredSession, targetId: string): void {
-  const target = stored.entries.find((entry) => entry.id === targetId);
-  if (target?.type !== "message" || target.message.role !== "assistant") {
-    throw new Error("Star target must be an assistant answer");
-  }
+function entryOf(
+  stored: FakeStoredSession,
+  id: string,
+): SessionEntry | undefined {
+  return stored.entries.find((entry) => entry.id === id);
 }
 
 function starEntry(
@@ -735,7 +732,7 @@ class FakeLiveSession implements LiveSession {
   }
 
   setStar(targetId: string, starred: boolean): string {
-    assertAnswer(this.stored, targetId);
+    starTarget(entryOf(this.stored, targetId));
     this.append(
       starEntry(this.nextId(), leafOf(this.stored), targetId, starred),
     );
@@ -880,7 +877,7 @@ class FakeLiveSession implements LiveSession {
         new Error("Cannot navigate a stopping or stopped session."),
       );
     }
-    const entry = this.stored.entries.find((item) => item.id === targetId);
+    const entry = entryOf(this.stored, targetId);
     if (!entry) throw new Error("Select an existing conversation message");
     this.stored.leafId = targetId;
     this.turnStart = branchOf(this.stored).length;
@@ -1009,7 +1006,7 @@ export function createFakeWorld(
     );
     let wasBusy = false;
     session.subscribe((event) => {
-      const busy = session.snapshot().status.running;
+      const busy = isBusy(session.snapshot().status);
       if (busy && !wasBusy)
         announce({ type: "started", sessionId: stored.summary.id });
       wasBusy = busy;
@@ -1036,7 +1033,7 @@ export function createFakeWorld(
     created += 1;
     const newId = `copy-${String(created)}`;
     const now = new Date().toISOString();
-    const entries = branchOf(stored, leafId);
+    const entries = branchTo(stored.entries, leafId);
     store.set(newId, {
       summary: {
         ...stored.summary,
@@ -1057,7 +1054,7 @@ export function createFakeWorld(
     if (!stored) return undefined;
     return {
       summary: stored.summary,
-      branch: branchOf(stored, leafId),
+      branch: branchTo(stored.entries, leafId ?? leafOf(stored)),
       entries: [...stored.entries],
       leafId: leafOf(stored),
       revision: createHash("sha256")
@@ -1139,7 +1136,7 @@ export function createFakeWorld(
       },
       setStar: (id, targetId, starred) => {
         const stored = need(id);
-        assertAnswer(stored, targetId);
+        starTarget(entryOf(stored, targetId));
         stored.entries.push(
           starEntry(
             `${id}-star${String(stored.entries.length)}`,
@@ -1152,21 +1149,7 @@ export function createFakeWorld(
         return Promise.resolve(targetId);
       },
       fork: (id, entryId) => {
-        const stored = need(id);
-        const entry = stored.entries.find((item) => item.id === entryId);
-        if (!entry) throw new Error("Select an existing conversation message");
-        const draft = editableUserMessage(entry) ?? { text: "", images: [] };
-        // The role decides, as in the Pi adapter: a question that is only
-        // images is still a question, and editing it reopens the history
-        // before it.
-        const isUserMessage =
-          entry.type === "message" && entry.message.role === "user";
-        const leafId = isUserMessage ? entry.parentId : entry.id;
-        if (leafId === null) {
-          throw new Error(
-            "Nothing precedes the first message; use New for an empty session.",
-          );
-        }
+        const { leafId, draft } = forkPoint(entryOf(need(id), entryId));
         return Promise.resolve({ id: copyBranch(id, leafId), ...draft });
       },
       clone: (id, leafId) => {
@@ -1177,16 +1160,16 @@ export function createFakeWorld(
       },
       rewind: (id, entryId) => {
         const stored = need(id);
-        const index = stored.entries.findIndex((item) => item.id === entryId);
-        const target = stored.entries[index];
-        const draft = target && editableUserMessage(target);
-        if (!target || !draft) {
-          throw new Error("Rewind requires an existing user message");
-        }
-        stored.entries = stored.entries.slice(0, index);
-        stored.leafId = target.parentId;
+        const { kept, tail, removed } = rewindSelection(
+          stored.entries,
+          entryId,
+          randomUUID(),
+        );
+        stored.entries = [...stored.entries.slice(0, kept), ...tail];
+        // The marker, as in the file Pi reopens.
+        stored.leafId = tail.at(-1)?.id ?? null;
         touch(stored);
-        return Promise.resolve(draft);
+        return Promise.resolve(removed);
       },
       exportHtml: (id) => {
         const stored = need(id);
@@ -1229,14 +1212,18 @@ export function createFakeWorld(
           leafId: null,
         });
         const session = open(stored);
-        // Pi writes a new session's file with its first assistant message
-        // (SessionManager._persist); until then only the runtime knows it.
+        // Pi writes a new session's file with its first user or assistant
+        // message (SessionManager._persist), and web-pi writes it after a
+        // first shell command; until then only the runtime knows it.
         session.subscribe(() => {
           if (
             !store.has(stored.summary.id) &&
             stored.entries.some(
               (entry) =>
-                entry.type === "message" && entry.message.role === "assistant",
+                entry.type === "message" &&
+                (entry.message.role === "user" ||
+                  entry.message.role === "assistant" ||
+                  entry.message.role === "bashExecution"),
             )
           ) {
             store.set(stored.summary.id, stored);

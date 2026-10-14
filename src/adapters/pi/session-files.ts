@@ -2,11 +2,7 @@ import { writeFileAtomic } from "@adapters/fs/atomic-write";
 import { pathKey } from "@core/path-access";
 import type { EditableMessage } from "@core/ports";
 import { delegationFold } from "@core/session-delegation";
-import {
-  editableUserMessage,
-  readStars,
-  STAR_TYPE,
-} from "@core/session-entries";
+import { readStars, rewindSelection, STAR_TYPE } from "@core/session-entries";
 import {
   type FileEntry,
   type SessionEntry,
@@ -94,16 +90,10 @@ export function removeSessionFile(filePath: string): void {
   unlinkSync(filePath);
 }
 
-const KEPT_AFTER_REWIND = new Set([
-  "session_info",
-  "model_change",
-  "thinking_level_change",
-]);
-
 /**
- * Remove a user message and everything that followed it, keeping only the
- * preferences (name, model, thinking level, stars on kept entries) recorded
- * later. Returns the removed message so the composer can offer it again.
+ * Rewind to a user message (see `rewindSelection`). Lines before it are kept
+ * verbatim; only what follows is rewritten. Returns the removed message so
+ * the composer can offer it again.
  */
 export function rewindSessionFile(
   filePath: string,
@@ -111,47 +101,12 @@ export function rewindSessionFile(
 ): EditableMessage {
   const lines = readFileSync(filePath, "utf8").split("\n").filter(Boolean);
   const parsed = lines.map((line) => JSON.parse(line) as FileEntry);
-  const entries = parsed.slice(1) as SessionEntry[];
-  const index = entries.findIndex((entry) => entry.id === entryId);
-  const target = entries[index];
-  const removed = target && editableUserMessage(target);
-  if (!target || !removed) {
-    throw new Error("Rewind requires an existing user message");
-  }
-  const kept = entries.slice(0, index);
-  const keptIds = new Set(kept.map((entry) => entry.id));
-
-  let parentId = target.parentId;
-  const tail: SessionEntry[] = [];
-  const chain = (entry: SessionEntry) => {
-    tail.push({ ...entry, parentId });
-    parentId = entry.id;
-  };
-  const starTarget = (entry: SessionEntry): string | undefined => {
-    if (entry.type !== "custom" || entry.customType !== STAR_TYPE) return;
-    const targetId = (entry.data as { targetId?: unknown } | undefined)
-      ?.targetId;
-    return typeof targetId === "string" ? targetId : undefined;
-  };
-  for (const entry of entries.slice(index + 1)) {
-    const starred = starTarget(entry);
-    if (KEPT_AFTER_REWIND.has(entry.type)) chain(entry);
-    // Both stars and unstars are kept, or an unstar recorded after the cut
-    // would leave an earlier star line standing.
-    else if (starred !== undefined && keptIds.has(starred)) chain(entry);
-  }
-  // A marker leaf keeps the reopened session pointing before the removed
-  // message without resurrecting anything that came after it.
-  tail.push({
-    type: "custom",
-    customType: "web-pi-rewind",
-    data: {},
-    id: randomUUID(),
-    parentId,
-    timestamp: new Date().toISOString(),
-  });
-
-  rewrite(filePath, `${lines.slice(0, index + 1).join("\n")}\n${jsonl(tail)}`);
+  const { kept, tail, removed } = rewindSelection(
+    parsed.slice(1) as SessionEntry[],
+    entryId,
+    randomUUID(),
+  );
+  rewrite(filePath, `${lines.slice(0, kept + 1).join("\n")}\n${jsonl(tail)}`);
   return removed;
 }
 

@@ -9,7 +9,7 @@ import { StarButton, ToolBody } from "@web/views/Items";
 import { SessionRow } from "@web/views/Sidebar";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
-import { SavedMessages, itemActions } from "@web/views/Transcript";
+import { SavedMessages } from "@web/views/Transcript";
 import type { Context } from "hono";
 import { raw } from "hono/html";
 import {
@@ -178,14 +178,10 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
     const starred = field(form, "starred") === "true";
     return guard(c, async () => {
       const targetId = await deps.workspace.setStar(id, entryId, starred);
-      const [view, found] = await Promise.all([
-        deps.workspace.viewSession(id),
-        deps.workspace.row(id),
-      ]);
-      if (!view) return c.notFound();
+      const found = await deps.workspace.row(id);
       return c.html(
         <>
-          <StarButton entryId={targetId} actions={itemActions(view)} />
+          <StarButton sessionId={id} entryId={targetId} starred={starred} />
           {found ? (
             <SessionRow {...found} activeId={currentSessionId(c) ?? ""} oob />
           ) : null}

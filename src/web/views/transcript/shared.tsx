@@ -285,15 +285,19 @@ export function HistoryActionFrame({
   );
 }
 
+/**
+ * Swaps itself for the toggled button the star route answers with. Only the
+ * caller knows whether the reader may star, so it decides whether to draw it.
+ */
 export function StarButton({
+  sessionId,
   entryId,
-  actions,
+  starred,
 }: {
+  sessionId: string;
   entryId: string;
-  actions: ItemActions;
+  starred: boolean;
 }) {
-  if (actions.inspectionOnly) return null;
-  const starred = actions.starred.has(entryId);
   const label = starred ? "Unstar answer" : "Star answer";
   return (
     <button
@@ -302,7 +306,7 @@ export function StarButton({
       aria-pressed={starred ? "true" : "false"}
       aria-label={label}
       title={label}
-      hx-post={`/sessions/${actions.sessionId}/star`}
+      hx-post={`/sessions/${sessionId}/star`}
       hx-vals={JSON.stringify({ entryId, starred: !starred })}
       hx-target="this"
       hx-swap="outerHTML"

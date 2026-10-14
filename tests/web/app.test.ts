@@ -41,13 +41,14 @@ function testApp(options: Parameters<typeof createFakeWorld>[0] = {}) {
     ],
     ...options,
   });
+  const workspace = createWorkspace(world);
   const app = createWebApp({
-    workspace: createWorkspace(world),
+    workspace,
     staticRoot: "/nonexistent",
     defaultCwd: "/repo",
     renderIntervalMs: 1,
   });
-  return { app, world };
+  return { app, world, workspace };
 }
 
 /** The URL behind a collapsed tool card, as htmx would follow it. */
@@ -414,6 +415,26 @@ describe("web app", () => {
     expect(cleared).not.toContain("1 starred answers");
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain('aria-label="Star answer"');
+  });
+
+  it("answers a star with its button and row, not a rebuilt session view", async () => {
+    const { app, workspace } = testApp();
+    const view = vi.spyOn(workspace, "viewSession");
+    const form = new FormData();
+    form.set("entryId", "a1");
+    form.set("starred", "true");
+    const html = await (
+      await app.request("/sessions/s1/star", { method: "POST", body: form })
+    ).text();
+    const document = parseHtml(html);
+    const button = document.querySelector(".answer-star-toggle");
+    expect(button?.getAttribute("aria-pressed")).toBe("true");
+    expect(JSON.parse(button?.getAttribute("hx-vals") ?? "{}")).toEqual({
+      entryId: "a1",
+      starred: false,
+    });
+    expect(document.querySelector("#row-s1")).not.toBeNull();
+    expect(view).not.toHaveBeenCalled();
   });
 
   it("forks a message into a new session with the text as its draft", async () => {

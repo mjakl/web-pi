@@ -407,7 +407,9 @@ describe("transcript items", () => {
   });
 
   it("keeps stars targeted at the answer and replaces only that button", () => {
-    const document = rendered(<StarButton entryId="a2" actions={actions} />);
+    const document = rendered(
+      <StarButton sessionId="s1" entryId="a2" starred />,
+    );
     const button = document.querySelector("button");
     expect(button?.getAttribute("hx-post")).toBe("/sessions/s1/star");
     expect(JSON.parse(button?.getAttribute("hx-vals") ?? "{}")).toEqual({

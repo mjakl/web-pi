@@ -180,7 +180,11 @@ export function AssistantMessage({
       >
         <div class="assistant-message-header">
           {star && actions ? (
-            <StarButton entryId={item.entryId} actions={actions} />
+            <StarButton
+              sessionId={actions.sessionId}
+              entryId={item.entryId}
+              starred={actions.starred.has(item.entryId)}
+            />
           ) : null}
           <span title={item.model} class="assistant-model-name">
             {item.model}

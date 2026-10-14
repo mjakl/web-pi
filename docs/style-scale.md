@@ -27,6 +27,12 @@
   Media queries keep literal values because CSS custom properties do not work in
   media conditions. Coarse-pointer alternatives use the same query order;
   pointer, standalone, reduced-motion and container conditions stay independent.
+- One query is a deliberate exception: `(max-width: 400px)` in
+  `src/web/styles/areas/composer.css`. At phone widths it hides the reasoning
+  level beside the model name, which the model menu still shows, and narrows the
+  model and Skills buttons, so the model name keeps its room. Moving it to the
+  480px boundary would also hide the level and narrow the buttons from 401 to
+  480px, which is not pixel-neutral, so it stays at 400px.
 
 ## Reproduce the visual comparison
 

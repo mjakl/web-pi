@@ -147,9 +147,12 @@ describe("npx arguments", () => {
   });
 
   it("keeps the tail of a long log and strips its colours", () => {
-    const tail = `${"x".repeat(296)}done`;
-    const long = `[31mhead${tail}[0m`;
-    expect(installMessage(long, 300)).toBe(tail);
+    const tail = `${"x".repeat(295)}done`;
+    const long = `[31mhead x${tail}[0m`;
+    expect(installMessage(long, 300)).toBe(`…${tail}`);
+    expect(installMessage("[32mInstalled[0m 1 skill\n", 300)).toBe(
+      "Installed 1 skill",
+    );
   });
 });
 

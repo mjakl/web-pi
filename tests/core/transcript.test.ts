@@ -3,6 +3,7 @@ import { conversationRail } from "@core/conversation-rail";
 import {
   assistantItem,
   deferThinking,
+  preview,
   projectTranscript,
   toolPreview,
   toolProgress,
@@ -495,11 +496,36 @@ describe("transcript content cursor", () => {
   });
 });
 
+describe("preview", () => {
+  it("collapses whitespace and keeps text that fits whole", () => {
+    expect(preview("  hello   there \n friend ", 100)).toBe(
+      "hello there friend",
+    );
+    expect(preview("y".repeat(100), 100)).toBe("y".repeat(100));
+  });
+
+  it("ends cut text with an ellipsis within the limit", () => {
+    expect(preview("x".repeat(150), 100)).toBe(`${"x".repeat(99)}…`);
+  });
+
+  it("never cuts an emoji in half", () => {
+    const x = (count: number) => "x".repeat(count);
+    expect(preview(`${x(98)}😀 tail`, 100)).toBe(`${x(98)}…`);
+    expect(preview(`${x(97)}😀 tail`, 100)).toBe(`${x(97)}😀…`);
+    expect(preview(`a😀${x(4)}`, -6)).toBe(`…${x(4)}`);
+  });
+
+  it("keeps the end instead for a negative limit", () => {
+    expect(preview(`head  ${"x".repeat(10)}`, -6)).toBe("…xxxxx");
+    expect(preview("short", -6)).toBe("short");
+  });
+});
+
 describe("tool text helpers", () => {
   it("prefers the telling argument and caps the preview", () => {
     expect(toolPreview({ command: "ls  -la\n/tmp" })).toBe("ls -la /tmp");
     expect(toolPreview({ other: { a: 1 } })).toBe('{"a":1}');
-    expect(toolPreview({ query: "y".repeat(200) })).toHaveLength(120);
+    expect(toolPreview({ query: "y".repeat(200) })).toBe(`${"y".repeat(119)}…`);
   });
 
   it("reports the last non-blank line a running tool printed", () => {
@@ -508,6 +534,13 @@ describe("tool text helpers", () => {
     ).toBe("two");
     expect(toolProgress({ content: [] })).toBeUndefined();
     expect(toolProgress("nope")).toBeUndefined();
+  });
+
+  it("keeps the latest end of a long progress line", () => {
+    const line = `start ${"x".repeat(600)} 45%`;
+    const progress = toolProgress({ content: [{ type: "text", text: line }] });
+    expect(progress).toHaveLength(500);
+    expect(progress).toBe(`…${line.slice(-499)}`);
   });
 });
 

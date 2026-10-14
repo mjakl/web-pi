@@ -1,5 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { userMessageText } from "./session-entries.ts";
+import { preview } from "./transcript.ts";
 
 // The conversation rail: one mark per prompt, star, and compaction, laid out
 // as a graph so a branched session shows where it forked. A port of pi-web's
@@ -32,11 +33,8 @@ export type RailMark = {
   row: number;
 };
 
-/** Whitespace collapsed, cut at 100 characters as pi-web's previews are. */
-export function messagePreview(text: string, limit = 100): string {
-  const line = text.replaceAll(/\s+/g, " ").trim();
-  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
-}
+/** pi-web cuts a prompt's hover preview at 100 characters. */
+const PREVIEW_CHARS = 100;
 
 /** True as soon as two entries share a parent: the rail can then expand. */
 export function hasBranches(entries: readonly SessionEntry[]): boolean {
@@ -134,7 +132,7 @@ export function conversationRail(
     if (!kinds.has(entry.id)) continue;
     const text = userMessageText(entry);
     if (text !== undefined && text !== "") {
-      previews.set(entry.id, messagePreview(text));
+      previews.set(entry.id, preview(text, PREVIEW_CHARS));
     }
   }
 

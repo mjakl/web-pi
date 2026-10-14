@@ -1,3 +1,5 @@
+import { preview } from "./transcript.ts";
+
 export type SessionSummary = {
   id: string;
   cwd: string;
@@ -34,6 +36,7 @@ export type SessionSummary = {
 /** What a sidebar row shows once its file has been read. */
 export type SessionRowMetadata = {
   name?: string;
+  /** The first request, cut to what a title shows. */
   firstMessage: string;
   messageCount: number;
   starCount: number;
@@ -97,6 +100,9 @@ export function recentProjects(
   );
 }
 
+/** How much of the first request a row keeps for its title. */
+export const TITLE_CHARS = 300;
+
 /** Row title: the name, else a bounded preview of the first message, else the id. */
 export function sessionTitle(
   summary: SessionSummary,
@@ -104,8 +110,8 @@ export function sessionTitle(
 ): string {
   const name = (metadata?.name ?? summary.name ?? "").trim();
   if (name) return name;
-  const first = (metadata?.firstMessage ?? "").replaceAll(/\s+/g, " ").trim();
-  if (first) return first.slice(0, 300);
+  const first = preview(metadata?.firstMessage ?? "", TITLE_CHARS);
+  if (first) return first;
   return summary.id.slice(0, 12);
 }
 

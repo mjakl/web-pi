@@ -1,8 +1,8 @@
 import type { EditableMessage, LiveStatus } from "./ports.ts";
 import { displaySkillPrompt, recoverSkillPrompt } from "./skill-prompt.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { SessionRowMetadata } from "./sessions.ts";
-import { contentParts } from "./transcript.ts";
+import { type SessionRowMetadata, TITLE_CHARS } from "./sessions.ts";
+import { contentParts, preview } from "./transcript.ts";
 
 // Everything the UI derives from a session's raw entries: stars, statistics,
 // the path to a branch tip, and the sidebar row summary, plus the rules both
@@ -359,7 +359,9 @@ export function rowMetadataFold(): {
       if (entry.type !== "message") return;
       messageCount += 1;
       if (entry.message.role === "assistant") answers.add(entry.id);
-      else if (!firstMessage) firstMessage = userMessageText(entry) ?? "";
+      // Only the title's worth: a cache holds thousands of these rows.
+      else if (!firstMessage)
+        firstMessage = preview(userMessageText(entry) ?? "", TITLE_CHARS);
     },
     finish(file) {
       let starCount = 0;

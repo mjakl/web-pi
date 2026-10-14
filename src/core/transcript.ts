@@ -247,12 +247,26 @@ function imageIndices(content: unknown): number[] {
   return indices;
 }
 
-function collapse(text: string): string {
-  return text.replaceAll(/\s+/g, " ").trim();
+/**
+ * `text` on one line and at most `limit` characters long, with "…" where it
+ * was cut. A negative limit keeps the end instead, as `slice` counts. A cut
+ * never falls inside a surrogate pair, so no emoji turns into U+FFFD.
+ */
+export function preview(text: string, limit: number): string {
+  const line = text.replaceAll(/\s+/g, " ").trim();
+  const size = Math.abs(limit);
+  if (line.length <= size) return line;
+  if (limit < 0) {
+    const start = line.length - size + 1;
+    return `…${line.slice(lowSurrogateAt(line, start) ? start + 1 : start)}`;
+  }
+  const end = size - 1;
+  return `${line.slice(0, lowSurrogateAt(line, end) ? end - 1 : end)}…`;
 }
 
-function clip(text: string, limit: number): string {
-  return text.length > limit ? text.slice(0, limit) : text;
+function lowSurrogateAt(text: string, index: number): boolean {
+  const code = text.charCodeAt(index);
+  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -277,7 +291,7 @@ export function toolPreview(argumentsValue: unknown): string {
       typeof argumentsValue === "string"
         ? argumentsValue
         : (JSON.stringify(argumentsValue) ?? "");
-    return clip(collapse(text), TOOL_PREVIEW_CHARS);
+    return preview(text, TOOL_PREVIEW_CHARS);
   }
   const named = ["command", "path", "file_path", "pattern", "query"].find(
     (key) => argumentsValue[key] !== undefined,
@@ -286,7 +300,7 @@ export function toolPreview(argumentsValue: unknown): string {
   if (key === undefined) return "";
   const value = argumentsValue[key];
   const text = typeof value === "string" ? value : JSON.stringify(value);
-  return clip(collapse(text ?? ""), TOOL_PREVIEW_CHARS);
+  return preview(text ?? "", TOOL_PREVIEW_CHARS);
 }
 
 const TOOL_PROGRESS_CHARS = 500;
@@ -306,10 +320,7 @@ export function toolProgress(partialResult: unknown): string | undefined {
     .findLast((line) => line.trim() !== "")
     ?.trim();
   if (latest === undefined || latest === "") return undefined;
-  const line = collapse(latest);
-  return line.length <= TOOL_PROGRESS_CHARS
-    ? line
-    : `...${line.slice(-(TOOL_PROGRESS_CHARS - 3))}`;
+  return preview(latest, -TOOL_PROGRESS_CHARS);
 }
 
 /** Trailing `<read-files>` / `<modified-files>` sections of a compaction. */
@@ -718,7 +729,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
             entryId: entry.id,
             customType: entry.customType,
             text,
-            preview: clip(collapse(text), NOTE_PREVIEW_CHARS),
+            preview: preview(text, NOTE_PREVIEW_CHARS),
             images: imageIndices(entry.content),
             ...optional(
               "details",

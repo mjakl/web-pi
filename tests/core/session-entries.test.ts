@@ -323,4 +323,13 @@ describe("row metadata", () => {
       fileSize: 12,
     });
   });
+
+  it("keeps only a title's worth of a long first request", () => {
+    const request = `${"x".repeat(298)}😀${"y".repeat(5000)}`;
+    const { firstMessage } = rowMetadata([userEntry("u1", null, request)], {
+      modifiedAt: "2026-01-01",
+      fileSize: 1,
+    });
+    expect(firstMessage).toBe(`${"x".repeat(298)}…`);
+  });
 });

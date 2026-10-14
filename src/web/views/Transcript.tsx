@@ -117,12 +117,13 @@ export function Transcript({ view }: { view: SessionView }) {
               <SavedMessages view={view} />
             </div>
             <div id="turn">
-              <LiveRecovery view={view} />
               <TurnFragment
                 items={view.turn}
                 actions={actions}
                 status={inspectionOnly ? null : view.status}
-              />
+              >
+                <LiveRecovery view={view} />
+              </TurnFragment>
             </div>
           </div>
         </div>

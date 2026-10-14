@@ -238,10 +238,18 @@ The session stream sends unnamed HTML messages containing native HTMX 4
 - `#rail` receives the conversation rail out of band when its marks or branch
   state change, including during a running turn; unchanged rails stay in place;
 - `#turn` receives the current turn (`innerMorph`), keyed by entry and tool-call
-  IDs. Partial assistant messages use their message timestamp until Pi assigns
-  an entry ID. Morphing ignores `open`, so disclosure choices survive changing
-  content. Completed ordinary tools and subagents send body placeholders, not
-  their arguments or results. Opening a card fetches its body through the same
+  IDs, in the first frame of every connection, reconnections included, and
+  whenever the settled cursor moves, the transcript is replaced, or the turn
+  starts or stops running. While it runs, its finished messages (everything
+  before the first one still in flight: the partial message, a running shell
+  command, or a message waiting for tool results) come first and the rest sits
+  in `#turn-live`. Each stream remembers which finished messages it sent, and
+  its other frames morph only `#turn-live` (`outerMorph`), putting newly
+  finished messages before it, so their size does not grow with the run. Partial
+  assistant messages use their message timestamp until Pi assigns an entry ID.
+  Morphing ignores `open`, so disclosure choices survive changing content.
+  Completed ordinary tools and subagents send body placeholders, not their
+  arguments or results. Opening a card fetches its body through the same
   endpoint used by stored turns. `hx-morph-skip` keeps both pending requests and
   loaded bodies in place, including full output, selection and local scroll;
 - `#status` receives model, state, queue, compaction, and the context badge;

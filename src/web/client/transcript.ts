@@ -231,7 +231,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       const appended =
         target instanceof Element &&
         view.contains(target) &&
-        (target.id === "messages" || target.id === "turn");
+        ["messages", "turn", "turn-live"].includes(target.id);
       if (anchor !== null) {
         view.scrollTop = Math.max(0, view.scrollHeight - anchor);
         anchor = null;

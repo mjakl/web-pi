@@ -12,6 +12,8 @@ import { reconnected, requestFinished, required } from "#/web/helpers";
 import {
   open,
   openDetails,
+  rawFrames,
+  renderStart,
   streamingFixture,
   toggleDetails,
 } from "#/web/fixtures/streaming";
@@ -23,21 +25,11 @@ function toolRequests(requests: Request[], callId: string) {
   );
 }
 async function liveFrameBytes(f: Awaited<ReturnType<typeof streamingFixture>>) {
-  const response = await f.app.request(`/sessions/${f.id}/events?after=`);
-  const reader = required(response.body?.getReader());
-  const decoder = new TextDecoder();
-  let received = "";
-  const nextTurn = async () => {
+  const next = await rawFrames(f);
+  const nextRender = async () => {
     for (;;) {
-      while (!received.includes("\n\n")) {
-        const chunk = await reader.read();
-        if (chunk.done) throw new Error("Stream ended before the live frame");
-        received += decoder.decode(chunk.value, { stream: true });
-      }
-      const end = received.indexOf("\n\n") + 2;
-      const frame = received.slice(0, end);
-      received = received.slice(end);
-      if (!frame.includes('hx-target="#turn"')) continue;
+      const frame = await next();
+      if (!renderStart(frame)) continue;
       expect(frame).not.toContain("ordinary-output-body:");
       expect(frame).not.toContain("subagent-run-output:");
       expect(frame).not.toContain("subagent-raw-prompt:");
@@ -46,24 +38,20 @@ async function liveFrameBytes(f: Awaited<ReturnType<typeof streamingFixture>>) {
       return new TextEncoder().encode(frame).byteLength;
     }
   };
-  try {
-    const initial = await nextTurn();
-    f.update(
-      {
-        partial: {
-          ...required(f.snapshot.partial),
-          content: [
-            { type: "thinking", thinking: "partial thinking" },
-            { type: "text", text: "partial answer next" },
-          ],
-        },
+  const initial = await nextRender();
+  f.update(
+    {
+      partial: {
+        ...required(f.snapshot.partial),
+        content: [
+          { type: "thinking", thinking: "partial thinking" },
+          { type: "text", text: "partial answer next" },
+        ],
       },
-      "activity",
-    );
-    return { initial, update: await nextTurn() };
-  } finally {
-    await reader.cancel();
-  }
+    },
+    "activity",
+  );
+  return { initial, update: await nextRender() };
 }
 
 it("omits completed ordinary and subagent bodies until their collapsed cards open", async () => {

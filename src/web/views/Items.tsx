@@ -6,6 +6,7 @@ export { StarButton } from "./transcript/shared.tsx";
 export { ToolBody } from "./transcript/tools.tsx";
 export {
   EarlierPage,
+  finishedItems,
   Item,
   Items,
   LoadEarlier,

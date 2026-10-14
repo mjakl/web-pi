@@ -61,6 +61,14 @@ describe("following the tail", () => {
     expect(view.scrollTop).toBe(2400);
   });
 
+  it("follows a frame that updates only what is still in flight", async () => {
+    const view = await load();
+    byId("turn").innerHTML = '<div id="turn-live"></div>';
+    setGeometry(view, { scrollHeight: 2400 });
+    htmxEvent(byId("turn-live"), "htmx:after:settle");
+    expect(view.scrollTop).toBe(2400);
+  });
+
   it("keeps the reader's place when an older page is prepended", async () => {
     const view = await load('<div class="load-earlier"></div>');
     view.scrollTop = 100;

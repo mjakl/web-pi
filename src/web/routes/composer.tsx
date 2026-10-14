@@ -27,7 +27,12 @@ import {
   customSignature,
   dialogSignature,
 } from "@web/views/Extensions";
-import { type ItemActions, Items, TurnFragment } from "@web/views/Items";
+import {
+  type ItemActions,
+  Items,
+  TurnFragment,
+  finishedItems,
+} from "@web/views/Items";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
@@ -486,6 +491,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       // cannot account for a tool result added to an existing assistant card.
       let savedHandoff = c.req.query("saved") === "1" && !lastEventId;
       const through = c.req.query("through");
+      // Entry ids of the running turn's finished messages this connection has
+      // sent; undefined until a frame sent the whole of a running turn.
+      let delivered: string[] | undefined;
       const render = async (kind: "activity" | "turn_done") => {
         if (aborted) return;
         let view: SessionView | undefined;
@@ -535,13 +543,29 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           JSON.stringify([view.rail, view.branched]),
         );
         const reconciled = cursor !== view.settledCursor;
+        const replaced =
+          resetHandoff || (view.resetTranscript && !savedHandoff);
+        const finished = finishedItems(view.turn, view.status)?.map(
+          (item) => item.entryId,
+        );
+        // While the same run goes on, finished messages already sent stay as
+        // they are, and only #turn-live is morphed. Anything else, including
+        // settlement moving the cursor, morphs the whole turn again.
+        const sent =
+          finished !== undefined &&
+          delivered?.every((entryId, index) => finished[index] === entryId) &&
+          !replaced &&
+          !savedHandoff &&
+          !reconciled
+            ? delivered.length
+            : undefined;
         // One snapshot and one frame: never clear a missed answer without its
         // canonical replacement, or clear a newer turn on a delayed turn_done.
         await stream.writeSSE({
           id: `settled=${encodeURIComponent(view.settledCursor)}`,
           data: await html(
             <>
-              {resetHandoff || (view.resetTranscript && !savedHandoff) ? (
+              {replaced ? (
                 <Partial target=".chat-body" swap="outerHTML">
                   <Transcript view={view} />
                 </Partial>
@@ -556,13 +580,19 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
                       <Items items={view.items} actions={actions} />
                     </Partial>
                   ) : null}
-                  <Partial target="#turn" swap="innerMorph">
-                    <LiveRecovery view={view} />
+                  <Partial
+                    {...(sent === undefined
+                      ? { target: "#turn", swap: "innerMorph" }
+                      : { target: "#turn-live", swap: "outerMorph" })}
+                  >
                     <TurnFragment
                       items={view.turn}
                       actions={actions}
                       status={view.status}
-                    />
+                      from={sent ?? 0}
+                    >
+                      <LiveRecovery view={view} />
+                    </TurnFragment>
                   </Partial>
                 </>
               )}
@@ -578,6 +608,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         const finishHandoff = savedHandoff && !resetHandoff;
         savedHandoff = false;
         cursor = view.settledCursor;
+        delivered = finished;
         // Native SSE awaits the complete HTML frame before semantic events.
         if (reconciled || kind === "turn_done")
           await stream.writeSSE({ event: "settled", data: id });

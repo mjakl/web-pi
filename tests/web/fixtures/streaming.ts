@@ -501,8 +501,12 @@ export async function open(
 export async function rawFrames(
   f: Awaited<ReturnType<typeof streamingFixture>>,
   query = "after=",
+  init?: RequestInit,
 ) {
-  const response = await f.app.request(`/sessions/${f.id}/events?${query}`);
+  const response = await f.app.request(
+    `/sessions/${f.id}/events?${query}`,
+    init,
+  );
   const reader = required(response.body?.getReader());
   onTestFinished(() => reader.cancel());
   const decoder = new TextDecoder();

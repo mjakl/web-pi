@@ -671,6 +671,63 @@ describe("containment", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  it("refuses a missing file behind that symlink, to the viewer and the watch", async () => {
+    // Missing files are proved through their parent, which resolves outside.
+    const path = encodeURIComponent(join(repo, "escape", "missing.txt"));
+    for (const route of ["view", "watch"]) {
+      const res = await app.request(`/files/${route}?session=s1&path=${path}`);
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("answers 400 when asked to list a regular file", async () => {
+    const res = await app.request(
+      `/files/tree?session=s1&depth=1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("@ completion in the checkout", () => {
+  let real: ReturnType<typeof createWebApp>;
+
+  beforeAll(() => {
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: repo,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    real = createWebApp({
+      workspace: createWorkspace({ ...world, files: createFileTree() }),
+      staticRoot: "/nonexistent",
+      defaultCwd: repo,
+    });
+  });
+
+  it.each([
+    ["the session's folder", () => "/sessions/s1/file-completion?q=.%2Fsrc%2F"],
+    [
+      "a folder before any session",
+      () =>
+        `/workspaces/file-completion?cwd=${encodeURIComponent(repo)}&q=.%2Fsrc%2F`,
+    ],
+  ])("completes a path inside %s", async (_scope, url) => {
+    const res = await real.request(url());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      matches: [{ path: join(repo, "src", "main.ts"), isDir: false }],
+    });
+  });
 });
 
 describe("unsupported documents", () => {

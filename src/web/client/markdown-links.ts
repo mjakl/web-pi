@@ -11,10 +11,29 @@ function updateLinks(root: Element): void {
 }
 
 /**
- * Puts a message's remote image in place of the button that names it, which
- * is the first request for it. Morphs leave the loaded image alone: the
- * message it belongs to does not change.
+ * Remote images the reader loaded on this page. A settled run renders its
+ * messages afresh, with their buttons, and these are shown again; a URL the
+ * browser already requested reveals nothing new.
  */
+const loadedImages = new Set<string>();
+
+/**
+ * Puts a remote image in place of the button that names it. Morphs leave the
+ * loaded image alone: the message it belongs to does not change.
+ */
+function showImage(button: HTMLElement, holder: Element): void {
+  const source = button.dataset["remoteImage"] ?? "";
+  const image = document.createElement("img");
+  image.src = source;
+  image.alt = button.dataset["alt"] ?? "";
+  const title = button.dataset["title"];
+  if (title !== undefined) image.title = title;
+  holder.setAttribute("hx-morph-skip", "");
+  button.replaceWith(image);
+  loadedImages.add(source);
+}
+
+/** The reader's click is the first request for a remote image. */
 function loadRemoteImage(event: Event): void {
   const target = event.target;
   const button =
@@ -26,13 +45,18 @@ function loadRemoteImage(event: Event): void {
   // A linked image, such as a badge, puts the button inside the link: the
   // click loads the image and must not follow the link as well.
   event.preventDefault();
-  const image = document.createElement("img");
-  image.src = button.dataset["remoteImage"] ?? "";
-  image.alt = button.dataset["alt"] ?? "";
-  const title = button.dataset["title"];
-  if (title !== undefined) image.title = title;
-  holder.setAttribute("hx-morph-skip", "");
-  button.replaceWith(image);
+  showImage(button, holder);
+}
+
+function restoreLoadedImages(): void {
+  if (loadedImages.size === 0) return;
+  for (const button of document.querySelectorAll<HTMLElement>(
+    "[data-remote-image]",
+  )) {
+    const holder = button.parentElement;
+    if (holder && loadedImages.has(button.dataset["remoteImage"] ?? ""))
+      showImage(button, holder);
+  }
 }
 
 export function setUpMarkdownLinks(): void {
@@ -44,5 +68,6 @@ export function setUpMarkdownLinks(): void {
   document.addEventListener("htmx:after:settle", (event) => {
     if (event.target instanceof Element) updateLinks(event.target);
     for (const element of settledContent(event)) updateLinks(element);
+    restoreLoadedImages();
   });
 }

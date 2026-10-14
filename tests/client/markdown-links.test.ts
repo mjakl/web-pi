@@ -107,6 +107,27 @@ describe("remote Markdown images", () => {
     expect(holder.hasAttribute("hx-morph-skip")).toBe(true);
   });
 
+  it("shows an image the reader loaded again when its message renders anew", () => {
+    const html = renderMarkdown(
+      "![chart](https://img.test/c.png) ![other](https://img.test/o.png)",
+    );
+    mount(`<div id="turn">${html}</div><div id="messages"></div>`);
+    setUpTranscript();
+    query('[data-remote-image="https://img.test/c.png"]').click();
+    // The run settles, and its messages are rendered afresh into history.
+    query("#turn").replaceChildren();
+    query("#messages").innerHTML = html;
+    htmxEvent(query("#messages"), "htmx:after:settle");
+    expect(query("#messages img").getAttribute("src")).toBe(
+      "https://img.test/c.png",
+    );
+    // An image the reader did not load still waits for its own click.
+    expect(document.querySelectorAll("#messages img")).toHaveLength(1);
+    expect(query("#messages [data-remote-image]").dataset["remoteImage"]).toBe(
+      "https://img.test/o.png",
+    );
+  });
+
   it("loads a linked image without following its link", () => {
     mount(
       renderMarkdown(

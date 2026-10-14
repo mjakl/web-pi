@@ -50,6 +50,8 @@ import {
   toastHeader,
 } from "./shared.ts";
 
+type Fragment = Parameters<typeof html>[0];
+
 export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, renderIntervalMs, warnTokens, guard } = ctx;
 
@@ -451,20 +453,27 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     if (!isSessionId(id)) return c.notFound();
     return streamSSE(c, async (stream) => {
       const ended = Promise.withResolvers<undefined>();
-      // The shelf holds open panels, so it is only re-sent when an extension
-      // actually changed a status or a widget.
-      let shelf = "";
-      // Prompts and branch activation can change the rail before settlement.
-      // Keep unchanged marks in place while assistant tokens stream.
-      let rail = "";
-      // The model selector is a whole subtree with an open popover in it, and
-      // a turn renders ten times a second: send it only when the pick moved.
-      let model = "";
-      // Same for the dialog and the custom-UI shell: re-sending either would
-      // wipe what the reader typed, or take focus out of the panel.
-      let dialog = "";
-      let custom = "";
-      let frame = "";
+      const send = async (fragment: Fragment): Promise<void> => {
+        await stream.writeSSE({ data: await html(fragment) });
+      };
+      // What this connection last sent of each fragment that is re-sent only
+      // when it changed. A turn renders ten times a second: the model
+      // selector holds an open popover, the shelf an open panel, and the
+      // dialog and the custom-UI panel what the reader typed and the focus,
+      // and the rail keeps its unchanged marks in place while tokens stream.
+      const signatures = new Map<string, string>();
+      const changed = (name: string, signature: string): boolean => {
+        if ((signatures.get(name) ?? "") === signature) return false;
+        signatures.set(name, signature);
+        return true;
+      };
+      const sendIfChanged = async (
+        name: string,
+        signature: string,
+        fragment: () => Fragment,
+      ): Promise<void> => {
+        if (changed(name, signature)) await send(fragment());
+      };
       const widgetLines = new Map<string, string>();
       // The browser advances Last-Event-ID only through received SSE frames.
       // The page supplies the initial cursor, including for startup retries.
@@ -518,16 +527,15 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           ...(turnBusy(view.status) ? { busy: true } : {}),
         };
         const pick = modelPick(view);
-        const nextModel = JSON.stringify([
-          pick.current,
-          pick.level,
-          pick.levels,
-          pick.models,
-        ]);
-        const modelChanged = nextModel !== model;
-        model = nextModel;
-        const nextRail = JSON.stringify([view.rail, view.branched]);
-        const railChanged = nextRail !== rail;
+        const modelChanged = changed(
+          "model",
+          JSON.stringify([pick.current, pick.level, pick.levels, pick.models]),
+        );
+        // Recorded even when a replaced transcript brings its own rail.
+        const railChanged = changed(
+          "rail",
+          JSON.stringify([view.rail, view.branched]),
+        );
         const reconciled = cursor !== view.settledCursor;
         // One snapshot and one frame: never clear a missed answer without its
         // canonical replacement, or clear a newer turn on a delayed turn_done.
@@ -571,7 +579,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         });
         const finishHandoff = savedHandoff && !resetHandoff;
         savedHandoff = false;
-        rail = nextRail;
         cursor = view.settledCursor;
         // Native SSE awaits the complete HTML frame before semantic events.
         if (reconciled || kind === "turn_done")
@@ -580,77 +587,52 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           enqueue("activity");
           return;
         }
-        const signature = shelfSignature(view.status);
-        if (signature !== shelf) {
-          shelf = signature;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#shelf" swap="outerHTML">
-                <ShelfBody
-                  status={view.status}
-                  updated={changedWidgets(widgetLines, view.status)}
-                />
-              </Partial>,
-            ),
-          });
+        const { status } = view;
+        await sendIfChanged("shelf", shelfSignature(status), () => (
+          <Partial target="#shelf" swap="outerHTML">
+            <ShelfBody
+              status={status}
+              updated={changedWidgets(widgetLines, status)}
+            />
+          </Partial>
+        ));
+        const dialog = status?.dialog ?? null;
+        await sendIfChanged("dialog", dialogSignature(dialog), () => (
+          <Partial target="#extension-dialog">
+            <ExtensionDialogBody sessionId={id} dialog={dialog} />
+          </Partial>
+        ));
+        const panel = status?.custom ?? null;
+        if (changed("custom", panel?.id ?? "")) {
+          // The panel carries its first frame.
+          signatures.set("frame", customSignature(panel));
+          await send(
+            <Partial target="#custom-ui">
+              <CustomPanelBody sessionId={id} frame={panel} />
+            </Partial>,
+          );
         }
-        const nextDialog = dialogSignature(view.status?.dialog ?? null);
-        if (nextDialog !== dialog) {
-          dialog = nextDialog;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#extension-dialog">
-                <ExtensionDialogBody
-                  sessionId={id}
-                  dialog={view.status?.dialog ?? null}
-                />
-              </Partial>,
-            ),
-          });
-        }
-        const panel = view.status?.custom ?? null;
-        if ((panel?.id ?? "") !== custom) {
-          custom = panel?.id ?? "";
-          frame = "";
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#custom-ui">
-                <CustomPanelBody sessionId={id} frame={panel} />
-              </Partial>,
-            ),
-          });
-        }
-        const nextFrame = customSignature(panel);
-        if (nextFrame !== frame) {
-          frame = nextFrame;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#custom-frame">
-                <CustomFrameBody frame={panel} />
-              </Partial>,
-            ),
-          });
-        }
+        await sendIfChanged("frame", customSignature(panel), () => (
+          <Partial target="#custom-frame">
+            <CustomFrameBody frame={panel} />
+          </Partial>
+        ));
         // Text an extension asked to put in the composer, and a title it set.
-        for (const text of view.status?.editorText ?? []) {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#editor-insert">
-                <span data-insert={text} />
-              </Partial>,
-            ),
-          });
+        for (const text of status?.editorText ?? []) {
+          await send(
+            <Partial target="#editor-insert">
+              <span data-insert={text} />
+            </Partial>,
+          );
         }
         // Notices are drained by the snapshot: send them once, as toasts.
-        const notices = view.status?.notices ?? [];
+        const notices = status?.notices ?? [];
         if (notices.length > 0) {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#toasts" swap="beforeend">
-                <Toasts notices={notices} />
-              </Partial>,
-            ),
-          });
+          await send(
+            <Partial target="#toasts" swap="beforeend">
+              <Toasts notices={notices} />
+            </Partial>,
+          );
         }
         if (view.savedObservation)
           await stream.writeSSE({
@@ -664,20 +646,18 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         if (aborted) return;
         aborted = true;
         try {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#toasts" swap="beforeend">
-                <Toasts
-                  notices={[
-                    {
-                      level: "error",
-                      message: `Live updates failed: ${errorText(error)}`,
-                    },
-                  ]}
-                />
-              </Partial>,
-            ),
-          });
+          await send(
+            <Partial target="#toasts" swap="beforeend">
+              <Toasts
+                notices={[
+                  {
+                    level: "error",
+                    message: `Live updates failed: ${errorText(error)}`,
+                  },
+                ]}
+              />
+            </Partial>,
+          );
         } finally {
           ended.resolve(undefined);
           await stream.close();

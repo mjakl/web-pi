@@ -6,6 +6,11 @@ import { createWebApp } from "@web/app";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import { until } from "#/adapters/pi-harness";
+import {
+  rawFrames,
+  renderStart,
+  streamingFixture,
+} from "#/web/fixtures/streaming";
 import { required } from "#/web/helpers";
 
 const ARROW_UP = "\u001B[A";
@@ -228,6 +233,39 @@ describe("extension dialogs", () => {
     // A bare carriage return is what Enter sends; it has to survive the body.
     await input(app, id, "\r");
     expect(status(world)?.custom).toBeNull();
+  });
+
+  it("streams a custom panel with its first frame once, then only the redrawn frame", async () => {
+    const f = await streamingFixture();
+    const show = (lines: string[]) => {
+      f.update({
+        status: { ...f.snapshot.status, custom: { id: "panel", lines } },
+      });
+    };
+    show(["first frame"]);
+    const next = await rawFrames(f);
+    // Starts the next render and returns what the current one wrote after
+    // its first frame.
+    const rest = async () => {
+      f.emit("activity");
+      const frames: string[] = [];
+      for (let frame = await next(); !renderStart(frame); frame = await next())
+        frames.push(frame);
+      return frames;
+    };
+    const custom = (frames: string[]) =>
+      frames.filter((frame) => frame.includes('hx-target="#custom-'));
+    expect(renderStart(await next())).toBe(true);
+    show(["second frame"]);
+    const opened = custom(await rest());
+    expect(opened).toEqual([expect.stringContaining('hx-target="#custom-ui"')]);
+    expect(opened[0]).toContain("first frame");
+    const redrawn = await rest();
+    expect(redrawn).toEqual([
+      expect.stringContaining('hx-target="#custom-frame"'),
+    ]);
+    expect(redrawn[0]).toContain("second frame");
+    expect(await rest()).toEqual([]);
   });
 
   it("refuses input for an unknown session", async () => {

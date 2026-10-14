@@ -8,6 +8,7 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement } from "happy-dom";
+import { onTestFinished } from "vitest";
 import { nextEvent, required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
@@ -425,6 +426,38 @@ export async function open(
     },
   );
   return { ...browser, firstFrame: required(firstFrame) };
+}
+
+/**
+ * One stream connection's frames as the server writes them, without a
+ * browser: each call resolves with the next whole frame. The connection
+ * closes when the test finishes.
+ */
+export async function rawFrames(
+  f: Awaited<ReturnType<typeof streamingFixture>>,
+  query = "after=",
+) {
+  const response = await f.app.request(`/sessions/${f.id}/events?${query}`);
+  const reader = required(response.body?.getReader());
+  onTestFinished(() => reader.cancel());
+  const decoder = new TextDecoder();
+  let received = "";
+  return async (): Promise<string> => {
+    while (!received.includes("\n\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error("The stream ended");
+      received += decoder.decode(chunk.value, { stream: true });
+    }
+    const end = received.indexOf("\n\n") + 2;
+    const frame = received.slice(0, end);
+    received = received.slice(end);
+    return frame;
+  };
+}
+
+/** Every render starts with the frame that carries the settled cursor. */
+export function renderStart(frame: string): boolean {
+  return /^id: settled=/m.test(frame);
 }
 
 export function toggleDetails(card: HTMLDetailsElement) {

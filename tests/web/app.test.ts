@@ -1898,6 +1898,40 @@ describe("transcript rendering", () => {
     const missing = await app.request("/sessions/s1/entries/nope/thinking/0");
     expect(await missing.text()).toContain("unavailable");
   });
+
+  it("serves an image an old pi-web session stored in Anthropic's shape", async () => {
+    const { app, world } = testApp();
+    const question = userEntry("q1", null, "look at this");
+    if (question.type === "message" && question.message.role === "user") {
+      question.message.content = [
+        { type: "text", text: "look at this" },
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAEC/w==" },
+        },
+      ] as never;
+    }
+    world.store.set("s2", {
+      summary: {
+        id: "s2",
+        cwd: "/repo/one",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        modifiedAt: "2026-09-02T00:00:00.000Z",
+        fileSize: 2,
+      },
+      entries: [question],
+    });
+    const page = await (await app.request("/sessions/s2")).text();
+    expect(page).toContain(
+      'data-image-preview="/sessions/s2/entries/q1/image/0"',
+    );
+    const image = await app.request("/sessions/s2/entries/q1/image/0");
+    expect(image.status).toBe(200);
+    expect(image.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(
+      Buffer.from("AAEC/w==", "base64"),
+    );
+  });
 });
 
 describe("phase 8 fixes", () => {

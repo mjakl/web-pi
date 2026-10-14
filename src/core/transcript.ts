@@ -207,9 +207,27 @@ export type Transcript = {
   lastThinking: string | null;
 };
 
+/**
+ * A message's content as parts. Old pi-web sessions stored images in
+ * Anthropic's shape, `{ source: { data, media_type } }`; they read as Pi's
+ * flat image part from here on, so every reader finds the bytes one way.
+ */
 export function contentParts(content: unknown): ContentPart[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  return Array.isArray(content) ? (content as ContentPart[]) : [];
+  return Array.isArray(content) ? (content as unknown[]).map(flatImage) : [];
+}
+
+function flatImage(part: unknown): ContentPart {
+  const source =
+    isRecord(part) && part["type"] === "image" && part["data"] === undefined
+      ? part["source"]
+      : undefined;
+  if (!isRecord(source)) return part as ContentPart;
+  return {
+    type: "image",
+    ...optional("data", stringOf(source["data"])),
+    ...optional("mimeType", stringOf(source["media_type"])),
+  };
 }
 
 function contentText(content: unknown): string {

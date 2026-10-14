@@ -45,6 +45,9 @@ function atTail(view: HTMLElement): boolean {
   return isAtTail(view.scrollTop, view.clientHeight, view.scrollHeight);
 }
 
+/** Each button's pending reset, so a second click restarts it. */
+const copiedResets = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
 /**
  * pi-web swaps the label and the icon for 1.5s and turns the button accent.
  * The message button carries both states in the markup, a code-block button
@@ -57,13 +60,17 @@ async function copyText(button: HTMLElement, text: string): Promise<void> {
     return;
   }
   const label = button.querySelector("[data-copy-idle]") === null;
-  const previous = button.textContent;
   if (label) button.textContent = "Copied";
   button.dataset["copied"] = "1";
-  setTimeout(() => {
-    if (label) button.textContent = previous;
-    delete button.dataset["copied"];
-  }, COPIED_MS);
+  clearTimeout(copiedResets.get(button));
+  copiedResets.set(
+    button,
+    setTimeout(() => {
+      // A fixed label: a second click would read "Copied" back as the idle one.
+      if (label) button.textContent = "Copy";
+      delete button.dataset["copied"];
+    }, COPIED_MS),
+  );
 }
 
 function setUpCopy(): void {

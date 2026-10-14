@@ -189,6 +189,24 @@ describe("copy buttons", () => {
     expect(query("[data-copy]").dataset["copied"]).toBeUndefined();
   });
 
+  it("shows Copied until 1.5s after the last of two quick clicks, then Copy", async () => {
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    await load(
+      '<div><div data-copy-source>the answer</div><button type="button" data-copy>Copy</button></div>',
+    );
+    click(query("[data-copy]"));
+    await flush();
+    vi.advanceTimersByTime(500);
+    click(query("[data-copy]"));
+    await flush();
+    vi.advanceTimersByTime(1000);
+    expect(query("[data-copy]").textContent).toBe("Copied");
+    expect(query("[data-copy]").dataset["copied"]).toBe("1");
+    vi.advanceTimersByTime(500);
+    expect(query("[data-copy]").textContent).toBe("Copy");
+    expect(query("[data-copy]").dataset["copied"]).toBeUndefined();
+  });
+
   it("keeps a two-icon button's markup and does not open the summary it sits in", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     await load(

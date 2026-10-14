@@ -58,7 +58,7 @@ start: build
     WEB_PI_PORT="${WEB_PI_PORT:-30143}" node bin/web-pi.js
 
 # DOCS: Serve fictional screenshot sessions on an ephemeral loopback port
-screenshots: build
+screenshots: build-css build-js
     node --import tsx scripts/screenshot-fixture.ts
 
 # TEST: Real-browser settings layout against the isolated screenshot fixture

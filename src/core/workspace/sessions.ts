@@ -55,6 +55,7 @@ export function sessionUseCases({
   entriesOf,
   heldRuntime,
   modelsFor,
+  refreshRoots,
   requireFolder,
   requireWritableSession,
   ownedRuntime,
@@ -566,6 +567,8 @@ export function sessionUseCases({
     async remove(id: string): Promise<void> {
       await stop(id);
       await deps.sessions.remove(id);
+      // It may have been the only session that made its folder readable.
+      refreshRoots();
     },
 
     async fork(

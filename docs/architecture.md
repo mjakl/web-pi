@@ -478,13 +478,13 @@ folders a reader validated through `POST /workspaces/validate`, kept in memory
 until restart. A path outside them widens the search to every session's folder,
 and then to the repositories those sit in, before it is refused; concurrent
 requests share that list, which is reused for five seconds and rebuilt when
-web-pi creates a session or validates a folder. A file the session's transcript
-names literally (`referencesPath`) may be read, since the agent already showed
-it, but its folder may not be listed: naming a file does not open its folder. A
-shell-output capture also needs a `pi-bash-*.log` name directly in the temporary
-directory and a `bashExecution` entry of that session that names it. Refusals
-carry the status the route sends (400, 403, 404, 413). `@` path completion is
-the one exception; see [Behavior](behavior.md#files-and-git).
+web-pi creates or deletes a session or validates a folder. A file the session's
+transcript names literally (`referencesPath`) may be read, since the agent
+already showed it, but its folder may not be listed: naming a file does not open
+its folder. A shell-output capture also needs a `pi-bash-*.log` name directly in
+the temporary directory and a `bashExecution` entry of that session that names
+it. Refusals carry the status the route sends (400, 403, 404, 413). `@` path
+completion is the one exception; see [Behavior](behavior.md#files-and-git).
 
 The file panel is server-rendered, and the browser keeps only the tabs. Each
 directory is fetched when opened, the change list and tree re-render when a turn

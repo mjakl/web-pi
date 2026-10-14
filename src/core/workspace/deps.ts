@@ -308,9 +308,10 @@ export function createShared(deps: WorkspaceDeps) {
   }
 
   // Concurrent requests share one listing of these, reused for a few
-  // seconds because opening one file sends several requests. Creating a
-  // session or choosing a folder starts a fresh one, so a new project is not
-  // refused in the meantime.
+  // seconds because opening one file sends several requests. Creating or
+  // deleting a session, or choosing a folder, starts a fresh one, so a new
+  // project is not refused and a deleted session's folder not served in the
+  // meantime.
   const everyFolder = sharedFor(FALLBACK_ROOTS_MS, async () => [
     ...new Set((await deps.sessions.list()).map((session) => session.cwd)),
   ]);

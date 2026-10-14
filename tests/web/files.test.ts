@@ -972,6 +972,17 @@ describe("files in other sessions' folders", () => {
     expect(resolve).toHaveBeenCalledWith(folder("wt"));
   });
 
+  it("refuses a deleted session's folder at once", async () => {
+    const { app, view } = otherApp();
+    const one = join(folder("other"), "one.txt");
+    expect(await view(one)).toBe(200);
+    const deleted = await app.request("/sessions/s2/delete", {
+      method: "POST",
+    });
+    expect(deleted.status).toBe(200);
+    expect(await view(one)).toBe(403);
+  });
+
   it("lists the folders again for a new session, a chosen folder, or after a few seconds", async () => {
     const { app, world, list, view } = otherApp();
     const three = join(folder("late"), "three.txt");

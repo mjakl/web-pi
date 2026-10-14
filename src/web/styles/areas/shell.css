@@ -1699,7 +1699,16 @@ a.shell-top-bar-tab:hover {
   flex-shrink: 0;
 }
 
-/* The client keeps expansion state on the folder button. */
-.project-folder-row[aria-expanded="true"] > svg:first-child {
+/* A project with several folders is a <details>; its summary is the row. */
+summary.project-folder-row {
+  list-style: none;
+}
+summary.project-folder-row::-webkit-details-marker {
+  display: none;
+}
+summary.project-folder-row:hover {
+  background: var(--bg-hover);
+}
+[open] > summary.project-folder-row > svg:first-child {
   transform: rotate(90deg);
 }

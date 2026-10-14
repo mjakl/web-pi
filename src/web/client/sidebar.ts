@@ -412,28 +412,6 @@ function setUpProjectFilter(): void {
   });
 }
 
-/**
- * A project with more than one working folder opens and closes in place
- * (§3.3). The folders are already in the page, so this only flips the
- * disclosure; `areas/sidebar.css` turns aria-expanded into the chevron.
- */
-function setUpFolderGroups(): void {
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const row = target.closest<HTMLElement>(
-      ".project-folder-row[aria-expanded]",
-    );
-    if (!row) return;
-    const open = row.getAttribute("aria-expanded") !== "true";
-    row.setAttribute("aria-expanded", open ? "true" : "false");
-    const folders = document.getElementById(
-      row.getAttribute("aria-controls") ?? "",
-    );
-    if (folders) folders.hidden = !open;
-  });
-}
-
 const EXPLORER_OPEN_KEY = "web-pi:file-explorer:open";
 
 /**
@@ -681,7 +659,6 @@ export function setUpSidebar(): void {
   setUpUnread();
   setUpSessionTree();
   setUpProjectFilter();
-  setUpFolderGroups();
   setUpRegion("#explorer-toggle", mountExplorerFold);
   setUpRegion("#sidebar-refresh", mountSidebarRefresh);
   setUpRowMenus();

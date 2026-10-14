@@ -54,10 +54,10 @@ function apply(settings: WebSettings, replacePrompt = false): void {
   confirmed = settings;
   document.documentElement.dataset["theme"] = settings.theme;
   document.documentElement.dataset["sound"] = String(settings.sound);
-  for (const button of document.querySelectorAll<HTMLElement>(
-    "[data-theme-option]",
+  for (const option of document.querySelectorAll<HTMLInputElement>(
+    'input[name="theme"]',
   )) {
-    setSwitch(button, button.dataset["themeOption"] === settings.theme);
+    option.checked = option.value === settings.theme;
   }
   const sound = document.getElementById("sound-toggle");
   if (sound) setSwitch(sound, settings.sound);
@@ -100,11 +100,15 @@ export function setUpPreferences(): void {
       ),
     });
     const status = region.querySelector<HTMLElement>("#web-settings-status");
+    // The theme radios stay enabled while a save runs: disabling the focused
+    // one would drop keyboard focus halfway through an arrow-key move. A
+    // theme picked during another save is dropped, and that save's answer
+    // checks the confirmed theme again.
     const controls = () =>
       document.querySelectorAll<
         HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement
       >(
-        "[data-theme-option], #sound-toggle, #dumb-zone-tokens, #system-prompt-addition, #system-prompt-save, #system-prompt-reset",
+        "#sound-toggle, #dumb-zone-tokens, #system-prompt-addition, #system-prompt-save, #system-prompt-reset",
       );
     for (const control of controls()) control.disabled = saving;
     const save = async (patch: Partial<WebSettings>) => {
@@ -154,7 +158,7 @@ export function setUpPreferences(): void {
         const target =
           event.target instanceof Element
             ? event.target.closest<HTMLElement>(
-                "[data-theme-option], #sound-toggle, #system-prompt-save, #system-prompt-reset",
+                "#sound-toggle, #system-prompt-save, #system-prompt-reset",
               )
             : null;
         if (!target) return;
@@ -169,11 +173,20 @@ export function setUpPreferences(): void {
           void save({ systemPromptAddition: null });
           return;
         }
-        const theme = target.dataset["themeOption"];
+        if (target.id === "sound-toggle") void save({ sound: !soundEnabled() });
+      },
+      { signal },
+    );
+    // The theme radios: a click or an arrow key checks one.
+    region.addEventListener(
+      "change",
+      (event) => {
+        const option = event.target;
+        if (!(option instanceof HTMLInputElement) || option.name !== "theme")
+          return;
+        const theme = option.value;
         if (theme === "light" || theme === "dark" || theme === "auto")
           void save({ theme });
-        else if (target.id === "sound-toggle")
-          void save({ sound: !soundEnabled() });
       },
       { signal },
     );

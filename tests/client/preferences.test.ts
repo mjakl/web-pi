@@ -103,18 +103,35 @@ describe("shared preferences", () => {
     );
   });
 
-  it("saves theme and updates the selection without browser storage", async () => {
-    mockFetch(() => json({ ...DEFAULT_WEB_SETTINGS, theme: "dark" }));
-    await load();
-    const dark = document.querySelector<HTMLElement>(
-      '[data-theme-option="dark"]',
+  it("saves the checked theme and follows the server's answer without browser storage", async () => {
+    const fetch = mockFetch(() =>
+      json({ ...DEFAULT_WEB_SETTINGS, theme: "dark" }),
     );
-    if (!dark) throw new Error("No dark option");
-    click(dark);
+    await load();
+    const dark = field('input[name="theme"][value="dark"]');
+    const light = field('input[name="theme"][value="light"]');
+    // A click or an arrow key in the group checks a radio and says so. The
+    // radios stay enabled, so keyboard focus survives the save.
+    dark.checked = true;
+    dark.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(byId("sound-toggle").hasAttribute("disabled")).toBe(true);
+    expect(dark.disabled).toBe(false);
     await flush();
-    expect(dark.getAttribute("aria-checked")).toBe("true");
+    expect(fetch).toHaveBeenCalledWith(
+      "/settings/web",
+      expect.objectContaining({ body: '{"theme":"dark"}' }),
+    );
+    expect(dark.checked).toBe(true);
+    expect(dark.disabled).toBe(false);
     expect(document.documentElement.dataset["theme"]).toBe("dark");
     expect(localStorage.getItem("web-pi-theme")).toBeNull();
+    // A failed save puts the confirmed choice back.
+    mockFetch(() => text("failed", 500));
+    light.checked = true;
+    light.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    expect(dark.checked).toBe(true);
+    expect(light.checked).toBe(false);
   });
 
   it("rejects invalid thresholds and persists a positive safe integer", async () => {

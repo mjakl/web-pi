@@ -500,18 +500,12 @@ function ProjectFolderGroup({
   home?: string;
 }) {
   const only = project.folders.length === 1 ? project.folders[0] : undefined;
-  const foldersId = `folders-${encodeURIComponent(project.key)}`;
   const chosen = selected ? cwd : undefined;
   return (
     <div class="project-folder-group" data-project-key={project.key}>
       {only === undefined ? (
-        <>
-          <button
-            type="button"
-            class="menu-item project-folder-row"
-            aria-expanded={selected ? "true" : "false"}
-            aria-controls={foldersId}
-          >
+        <details open={selected}>
+          <summary class="menu-item project-folder-row">
             <ChevronRightIcon />
             <FolderLabel
               name={baseName(project.key)}
@@ -519,19 +513,17 @@ function ProjectFolderGroup({
               {...(home === undefined ? {} : { home })}
             />
             <ProjectActivity running={project.running} />
-          </button>
-          <div id={foldersId} hidden={!selected}>
-            {project.folders.map((folder) => (
-              <ProjectFolderRow
-                path={folder.path}
-                name={baseName(folder.path)}
-                current={folder.path === chosen}
-                child
-                {...(home === undefined ? {} : { home })}
-              />
-            ))}
-          </div>
-        </>
+          </summary>
+          {project.folders.map((folder) => (
+            <ProjectFolderRow
+              path={folder.path}
+              name={baseName(folder.path)}
+              current={folder.path === chosen}
+              child
+              {...(home === undefined ? {} : { home })}
+            />
+          ))}
+        </details>
       ) : (
         <ProjectFolderRow
           path={only.path}

@@ -454,22 +454,6 @@ describe("the project menu", () => {
     expect(query('[data-project-key="/home/me/alpha"]').hidden).toBe(false);
     expect(closed).toBe(true);
   });
-
-  it("opens and closes a folder group in place", async () => {
-    page();
-    byId("sidebar-project-menu").innerHTML =
-      '<button type="button" class="project-folder-row" aria-expanded="false" aria-controls="folders-1">alpha</button>' +
-      '<div id="folders-1" hidden></div>';
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    click(query(".project-folder-row"));
-    expect(query(".project-folder-row").getAttribute("aria-expanded")).toBe(
-      "true",
-    );
-    expect(byId("folders-1").hidden).toBe(false);
-    click(query(".project-folder-row"));
-    expect(byId("folders-1").hidden).toBe(true);
-  });
 });
 
 describe("the explorer fold", () => {

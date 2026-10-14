@@ -288,25 +288,6 @@ describe("settings helpers", () => {
     );
   });
 
-  it("switches a scope picker and the install path beside it", async () => {
-    await load(
-      "<form><div><div data-scope-picker>" +
-        '<button type="button" data-scope="global" aria-pressed="true">Global</button>' +
-        '<button type="button" data-scope="project" aria-pressed="false">Project</button></div>' +
-        '<input data-scope-value value="global"></div>' +
-        '<code data-scope-path data-scope-path-global="~/.pi" data-scope-path-project="./.pi">~/.pi</code></form>',
-    );
-    click(query('[data-scope="project"]'));
-    expect(query('[data-scope="project"]').getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-    expect(query('[data-scope="global"]').getAttribute("aria-pressed")).toBe(
-      "false",
-    );
-    expect(field("[data-scope-value]").value).toBe("project");
-    expect(query("[data-scope-path]").textContent).toBe("./.pi");
-  });
-
   it("fills the plugin source from an example", async () => {
     await load(
       '<input id="plugin-source"><button type="button" data-plugin-example="npm:pi-x">x</button>',

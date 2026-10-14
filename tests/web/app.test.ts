@@ -1267,9 +1267,12 @@ describe("the sidebar", () => {
     expect(filter.slice(0, filter.indexOf(">"))).not.toMatch(
       /autofocus|type="search"/,
     );
-    // The project with two folders expands; the others select directly.
+    // The project with two folders opens in place; the others select
+    // directly. The one the page shows starts open.
     const group = menu.slice(menu.indexOf('data-project-key="/repo/one"'));
-    expect(group).toContain('aria-expanded="true"');
+    expect(group).toMatch(
+      /^data-project-key="\/repo\/one"><details open=""><summary class="menu-item project-folder-row">/,
+    );
     expect(group).toContain(">~/one.wt<");
     // Exactly one row carries the tick, on the folder the sidebar is showing.
     expect([...menu.matchAll(/aria-current="true"/g)]).toHaveLength(1);

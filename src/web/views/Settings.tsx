@@ -69,34 +69,41 @@ function sectionHref(section: SettingsSection, cwd: string): string {
 }
 
 /**
- * Global / project scope, as pi-web's segmented control. The chosen scope
- * rides in a hidden field so the surrounding form still posts it; the two
- * buttons are wired up in src/web/client/shell.ts.
+ * Global / project scope, as pi-web's segmented control: two radios the
+ * surrounding form posts. The install path beside it follows the checked one
+ * in settings.css.
  */
 function ScopePicker({ name, trusted }: { name: string; trusted: boolean }) {
   return (
-    <>
-      <input type="hidden" name={name} value="global" data-scope-value />
-      <div class="config-scope-picker" data-scope-picker>
-        <button type="button" aria-pressed="true" data-scope="global">
-          global
-        </button>
-        <button
-          type="button"
-          aria-pressed="false"
-          data-scope="project"
+    <div class="config-scope-picker">
+      <label>
+        <input
+          type="radio"
+          class="sr-only"
+          name={name}
+          value="global"
+          checked
+        />
+        global
+      </label>
+      <label
+        {...(trusted
+          ? {}
+          : {
+              title:
+                "Project installs are unavailable while project resources are not loaded.",
+            })}
+      >
+        <input
+          type="radio"
+          class="sr-only"
+          name={name}
+          value="project"
           disabled={!trusted}
-          {...(trusted
-            ? {}
-            : {
-                title:
-                  "Project installs are unavailable while project resources are not loaded.",
-              })}
-        >
-          project
-        </button>
-      </div>
-    </>
+        />
+        project
+      </label>
+    </div>
   );
 }
 
@@ -190,16 +197,17 @@ function GeneralSettings({ settings }: { settings: WebSettings }) {
           class="settings-theme-options"
         >
           {THEME_OPTIONS.map((option) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={String(settings.theme === option.id)}
-              data-theme-option={option.id}
-              class="settings-theme-option"
-            >
+            <label class="settings-theme-option">
+              <input
+                type="radio"
+                class="sr-only"
+                name="theme"
+                value={option.id}
+                checked={settings.theme === option.id}
+              />
               <ThemeIcon preference={option.id} />
               <span class="settings-theme-option-label">{option.label}</span>
-            </button>
+            </label>
           ))}
         </div>
       </section>
@@ -554,7 +562,7 @@ export function SkillSearchResults({
               hx-post="/settings/skills/install"
               hx-target="#skill-search-results"
               hx-swap="outerHTML"
-              hx-include="[data-scope-value]"
+              hx-include=".skill-search-form [name=scope]"
             >
               <input type="hidden" name="cwd" value={cwd} />
               <input type="hidden" name="package" value={hit.package} />
@@ -594,13 +602,11 @@ function AddSkillPanel({ view, home }: { view: SkillsView; home?: string }) {
         </div>
         <div class="skill-search-scope">
           <ScopePicker name="scope" trusted={view.projectResourcesLoaded} />
-          <span
-            class="skill-search-scope-path"
-            data-scope-path
-            data-scope-path-global="→ ~/.pi/agent/skills/"
-            data-scope-path-project={`→ ${shortPath(view.cwd, home)}/.pi/skills/`}
-          >
-            → ~/.pi/agent/skills/
+          <span class="skill-search-scope-path">
+            <span class="config-scope-global">→ ~/.pi/agent/skills/</span>
+            <span class="config-scope-project">
+              → {shortPath(view.cwd, home)}/.pi/skills/
+            </span>
           </span>
         </div>
       </form>
@@ -969,13 +975,11 @@ function AddPluginPanel({
             pi.dev/packages
           </a>
         </div>
-        <div
-          class="plugin-scope-path"
-          data-scope-path
-          data-scope-path-global="~/.pi/agent/{npm,git}"
-          data-scope-path-project={`${shortPath(cwd, home)}/.pi/agent/{npm,git}`}
-        >
-          ~/.pi/agent/{"{npm,git}"}
+        <div class="plugin-scope-path">
+          <span class="config-scope-global">~/.pi/agent/{"{npm,git}"}</span>
+          <span class="config-scope-project">
+            {shortPath(cwd, home)}/.pi/agent/{"{npm,git}"}
+          </span>
         </div>
       </div>
       <ConfigField label="Source">

@@ -239,40 +239,6 @@ function noop(): void {
   // A browser that refuses the clipboard leaves the value on screen to select.
 }
 
-/**
- * pi-web's global/project segmented control. The pressed button writes the
- * hidden field its form posts, and the install path beside it follows.
- */
-function setUpScopePickers(): void {
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const option = target.closest<HTMLElement>("[data-scope]");
-    const picker = option?.closest<HTMLElement>("[data-scope-picker]");
-    const scope = option?.dataset["scope"];
-    if (!picker || scope === undefined) return;
-    for (const button of picker.querySelectorAll<HTMLElement>("[data-scope]")) {
-      button.setAttribute(
-        "aria-pressed",
-        String(button.dataset["scope"] === scope),
-      );
-    }
-    const field =
-      picker.parentElement?.querySelector<HTMLInputElement>(
-        "[data-scope-value]",
-      );
-    if (field) field.value = scope;
-    const path = picker
-      .closest("form, .config-detail-stack")
-      ?.querySelector<HTMLElement>("[data-scope-path]");
-    const shown =
-      path?.dataset[
-        scope === "project" ? "scopePathProject" : "scopePathGlobal"
-      ];
-    if (path && shown !== undefined) path.textContent = shown;
-  });
-}
-
 /** The three example sources under the Add plugin form fill the field. */
 function setUpPluginExamples(): void {
   document.addEventListener("click", (event) => {
@@ -346,7 +312,6 @@ export function setUpShell(): void {
   setUpToasts();
   setUpViewport();
   setUpSessionCopy();
-  setUpScopePickers();
   setUpPluginExamples();
   setUpExtensions();
   setUpNotifications();

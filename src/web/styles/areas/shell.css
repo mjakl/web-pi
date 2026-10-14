@@ -1359,6 +1359,11 @@ html.dark .catppuccin-file-icon {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
+.menu-filter-row {
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
 .menu-item:focus-visible,
 .menu-filter:focus-visible {
   outline: 2px solid var(--accent);
@@ -1435,17 +1440,6 @@ html.dark .catppuccin-file-icon {
   flex-shrink: 0;
   padding: var(--space-5) 14px;
   border-bottom: 1px solid var(--border);
-}
-.directory-picker-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
 }
 .directory-picker-path {
   min-width: 0;
@@ -1621,10 +1615,6 @@ html.dark .catppuccin-file-icon {
 .sidebar-project-path > span {
   unicode-bidi: plaintext;
 }
-.sidebar-project-filter {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
 .sidebar-project-list {
   min-height: 0;
   max-height: min(50vh, 380px);
@@ -1662,7 +1652,6 @@ html.dark .catppuccin-file-icon {
 .menu-sidebar-project:not(:popover-open) {
   display: none;
 }
-.sidebar-project-filter,
 .menu-sidebar-project > .menu-item {
   flex-shrink: 0;
 }

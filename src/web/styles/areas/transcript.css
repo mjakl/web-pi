@@ -658,20 +658,22 @@
   }
 }
 
-/* Message hover actions. Was two `hovered` React state hooks in MessageView
-   re-rendering a whole message subtree on every pointer enter and leave, when
-   opacity and pointer-events were the only things that changed. */
-.message-actions {
+/* Message and history actions show while their row is hovered or holds
+   focus. Phones have no hover, so there they always show. */
+.message-actions,
+.history-actions {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s;
 }
-.message-row:hover .message-actions {
+.message-row:is(:hover, :focus-within) .message-actions,
+.history-action-host:is(:hover, :focus-within) > .history-actions {
   opacity: 1;
   pointer-events: auto;
 }
 @media (max-width: 640px) {
-  .message-actions {
+  .message-actions,
+  .history-actions {
     opacity: 1;
     pointer-events: auto;
   }
@@ -983,14 +985,6 @@
   gap: 3px;
   justify-content: flex-end;
   flex-wrap: wrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s;
-}
-.history-action-host:hover > .history-actions,
-.history-action-host:focus-within > .history-actions {
-  opacity: 1;
-  pointer-events: auto;
 }
 .history-action {
   display: inline-flex;
@@ -1012,16 +1006,6 @@
 .history-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-.message-row:focus-within .message-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-@media (max-width: 640px) {
-  .history-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
 }
 
 .branch-sync-notice {

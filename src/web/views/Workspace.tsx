@@ -97,7 +97,7 @@ export function BrowsePane({
         >
           <ParentFolderIcon />
         </button>
-        <label for="directory-path" class="directory-picker-label">
+        <label for="directory-path" class="sr-only">
           Directory path
         </label>
         <input

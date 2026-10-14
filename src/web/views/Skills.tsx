@@ -95,7 +95,7 @@ export function SkillsSelector({
         role="dialog"
         aria-label="Skills"
       >
-        <div class="composer-skills-filter">
+        <div class="menu-filter-row">
           <input
             id="skills-filter"
             class="menu-filter"

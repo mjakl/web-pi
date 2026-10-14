@@ -122,7 +122,7 @@ try {
           list.append(copy);
         }
         const filter = document.createElement('div');
-        filter.className = 'sidebar-project-filter';
+        filter.className = 'menu-filter-row';
         filter.innerHTML = '<input class="menu-filter" placeholder="Filter projects…">';
         list.before(filter);
         return true;

@@ -419,7 +419,7 @@ export function ModelSelector({
       >
         <ReasoningField pick={pick} />
         {models.length > FILTER_FROM ? (
-          <div class="composer-model-filter">
+          <div class="menu-filter-row">
             <input
               id="model-filter"
               class="menu-filter composer-model-filter-input"

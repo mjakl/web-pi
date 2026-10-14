@@ -208,11 +208,6 @@
   flex-direction: column;
   overflow: hidden;
 }
-.composer-skills-filter {
-  flex-shrink: 0;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
 .composer-skills-results {
   min-height: 0;
   overflow-y: auto;
@@ -570,11 +565,6 @@ button.extension-widget-trigger:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.composer-model-filter {
-  flex-shrink: 0;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
 }
 .composer-model-filter-input {
   min-width: 220px;

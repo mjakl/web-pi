@@ -38,7 +38,7 @@
     color 0.12s,
     border-color 0.12s;
 }
-.sidebar-icon-button:enabled:hover {
+.sidebar-icon-button:hover {
   background: var(--bg-selected);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -486,13 +486,6 @@
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-
-/* Navigation links do not match :enabled. */
-a.sidebar-icon-button:hover {
-  background: var(--bg-selected);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
 
 /* SessionItem.tsx L855: the row's menu trigger takes --bg-selected while its

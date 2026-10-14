@@ -314,7 +314,6 @@ export function liveUseCases({
 
     // --- Session inspection ----------------------------------------------
 
-    /** Tool definitions of a running session; nothing is started to get them. */
     /**
      * What the session would run with. pi-web resumes a dormant session to
      * answer these two panels — a command that starts no turn and writes no

@@ -600,7 +600,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
             <CustomFrameBody frame={panel} />
           </Partial>
         ));
-        // Text an extension asked to put in the composer, and a title it set.
+        // Text an extension asked to put in the composer.
         for (const text of status?.editorText ?? []) {
           await send(
             <Partial target="#editor-insert">

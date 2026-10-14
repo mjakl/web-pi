@@ -303,17 +303,6 @@ function ChangeRow({
   );
 }
 
-/**
- * What the sidebar's explorer body holds. pi-web shows either the changes or
- * the tree, never both (`changesCollapsed` in FileExplorer.tsx), and the
- * search results take the same place while a query is open. All three keep the
- * id so the next swap lands in the same spot.
- */
-/**
- * What pi-web shows in the explorer body when the folder cannot be read
- * (FileExplorer.tsx `error`): the reason, in the danger colour. A session
- * whose working folder is gone is the usual one.
- */
 /** The explorer's tree is fetched separately into #file-explorer. */
 export function ExplorerSection({
   sessionId,
@@ -417,6 +406,11 @@ export function ExplorerSection({
   );
 }
 
+/**
+ * What pi-web shows in the explorer body when the folder cannot be read
+ * (FileExplorer.tsx `error`): the reason, in the danger colour. A session
+ * whose working folder is gone is the usual one.
+ */
 export function ExplorerError({ message }: { message: string }) {
   // The 2px/4px box is the tree's own; pi-web keeps it around every state of
   // the explorer body, so the text lands where the first row would.
@@ -427,6 +421,12 @@ export function ExplorerError({ message }: { message: string }) {
   );
 }
 
+/**
+ * What the sidebar's explorer body holds. pi-web shows either the changes or
+ * the tree, never both (`changesCollapsed` in FileExplorer.tsx), and the
+ * search results take the same place while a query is open. All three keep the
+ * id so the next swap lands in the same spot.
+ */
 export function Explorer({
   context,
   status,

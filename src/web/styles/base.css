@@ -2,10 +2,12 @@
   Element defaults, kept in a cascade layer so every unlayered rule in the
   app stylesheets wins over them. Copied from Tailwind CSS v4.2.2 preflight
   (MIT) when Tailwind was removed, minus rules for elements web-pi never
-  renders (visible file inputs, date/time/search inputs, multi-select
-  optgroups, progress, datalist pickers, abbr, b, small, samp, sub, sup, menu,
-  canvas, video, embed, object) and minus an @supports guard that every
-  browser on the floor passes.
+  renders (visible file inputs, date/time inputs, multi-select optgroups,
+  progress, datalist pickers, abbr, b, small, samp, sub, sup, menu, canvas,
+  video, embed, object), minus an @supports guard that every browser on the
+  floor passes, and minus the ::-webkit-search-decoration reset, which
+  Tailwind adds to remove the inner padding of search inputs in Chrome and
+  Safari on macOS. The skills, model and explorer filters are search inputs.
 */
 
 @layer base {

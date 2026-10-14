@@ -1,7 +1,8 @@
-// The browser half of the extension bridge: Escape cancels a dialog, the
-// custom-UI panel forwards keystrokes as terminal bytes, and text an extension
-// sends lands at the composer's cursor. Everything else about these panels is
-// server-rendered and arrives on the session stream.
+// The browser half of the extension bridge: Escape cancels a dialog, a
+// dialog's timeout counts down, the custom-UI panel forwards keystrokes as
+// terminal bytes, and text an extension sends lands at the composer's cursor.
+// Everything else about these panels is server-rendered and arrives on the
+// session stream.
 
 import { closesIn } from "@core/extension-ui";
 import { bracketedPaste, terminalKeyData } from "@core/terminal-input";

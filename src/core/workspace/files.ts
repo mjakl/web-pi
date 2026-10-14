@@ -12,7 +12,8 @@ import type { Shared } from "./deps.ts";
 import type { FileScope, FileView } from "./views.ts";
 
 // The file panel and the `@` menu: listings, the viewer, Git changes, and
-// completion. Every path goes through `authorize` before it is touched.
+// completion. Every path goes through `authorize` before it is touched,
+// except the directory a path-like `@` query names (see fileCompletion).
 
 /** Starts watching an authorized file; the result stops it. */
 type Watch = (handlers: Parameters<Watcher["watch"]>[1]) => () => void;
@@ -71,7 +72,10 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       return { matches: await deps.files.search(cwd, query, AT_RESULT_LIMIT) };
     },
 
-    /** Immediate children for a path-like `@` query, containment enforced. */
+    /**
+     * Immediate children for a path-like `@` query: names only, kept lexically
+     * inside the folder rather than authorized.
+     */
     async fileCompletion(
       scope: FileScope,
       query: string,

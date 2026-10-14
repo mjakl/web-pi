@@ -1,7 +1,7 @@
 // The sidebar's browser half: the state pi-web keeps in React and web-pi
 // cannot render from the server — which sessions finished while the reader
 // was elsewhere, where a row's fixed-position menu lands, whether a modifier
-// is held, and which project group is open.
+// is held, and which session trees are open.
 
 import { relativeTime } from "@core/sessions";
 import type { Htmx } from "htmx.org";

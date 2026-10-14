@@ -169,7 +169,7 @@ export function setUpAtCompletion(
         loadedAt: Date.now(),
       };
     } catch {
-      // Keep whatever index we had; the menu degrades to server search.
+      // Keep whatever index we had; without one, the next keystroke asks again.
     }
   }
 

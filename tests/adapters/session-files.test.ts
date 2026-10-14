@@ -13,7 +13,15 @@ import { readStars, rowMetadata, userMessageText } from "@core/session-entries";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { Window, type HTMLElement } from "happy-dom";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,7 +30,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, createReadStream: vi.fn(actual.createReadStream) };
+  return {
+    ...actual,
+    createReadStream: vi.fn(actual.createReadStream),
+    renameSync: vi.fn(actual.renameSync),
+    writeFileSync: vi.fn(actual.writeFileSync),
+  };
 });
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -90,6 +103,7 @@ describe("session file edits", () => {
       parentSession: fileOf(grandparent),
     });
     const child = makeSession(["leaf"], { parentSession: fileOf(parent) });
+    chmodSync(fileOf(child), 0o640);
     const subagent = makeSession(["subagent"], {
       parentSession: fileOf(parent),
     });
@@ -116,6 +130,7 @@ describe("session file edits", () => {
       parentSession?: string;
     };
     expect(header.parentSession).toBe(fileOf(grandparent));
+    expect(statSync(fileOf(child)).mode & 0o777).toBe(0o640);
     // Only the header line is rewritten.
     expect(
       readFileSync(fileOf(child), "utf8").split("\n").slice(1).join("\n"),
@@ -139,6 +154,57 @@ describe("session file edits", () => {
     expect(readFileSync(file, "utf8").split("\n").slice(1)).toEqual(
       entriesBefore,
     );
+  });
+
+  it("replaces a child whole, so a write that fails halfway leaves it intact", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const parent = makeSession(["parent"]);
+    const file = fileOf(
+      makeSession(["child"], { parentSession: fileOf(parent) }),
+    );
+    const before = readFileSync(file, "utf8");
+    vi.mocked(fs.writeFileSync).mockImplementationOnce(
+      (path, data, options) => {
+        // A disk that fills up after the first few bytes.
+        actual.writeFileSync(path, (data as string).slice(0, 10), options);
+        throw Object.assign(new Error("no space left on device"), {
+          code: "ENOSPC",
+        });
+      },
+    );
+
+    removeSessionFile(fileOf(parent));
+
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(
+      readdirSync(sessionDir).filter((name) => name.endsWith(".tmp")),
+    ).toEqual([]);
+  });
+
+  it("rewinds again after a failed rewind or a stale temporary file", () => {
+    const manager = makeSession(["first", "second", "third"]);
+    const file = fileOf(manager);
+    chmodSync(file, 0o640);
+    // The fixed name an earlier writer left behind after a crash.
+    writeFileSync(`${file}.tmp${String(process.pid)}`, "stale");
+    const prompts = manager
+      .getEntries()
+      .filter((entry) => userMessageText(entry) !== undefined);
+    const before = readFileSync(file, "utf8");
+    vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+      throw new Error("rename failed");
+    });
+    expect(() => rewindSessionFile(file, prompts[2]?.id ?? "")).toThrow(
+      "rename failed",
+    );
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(
+      readdirSync(sessionDir).filter((name) => name.endsWith(".tmp")),
+    ).toEqual([]);
+
+    expect(rewindSessionFile(file, prompts[2]?.id ?? "").text).toBe("third");
+    expect(rewindSessionFile(file, prompts[1]?.id ?? "").text).toBe("second");
+    expect(statSync(file).mode & 0o777).toBe(0o640);
   });
 
   it("rewinds to a user message, keeping earlier lines verbatim", () => {

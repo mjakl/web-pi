@@ -1,3 +1,4 @@
+import { writeFileAtomic } from "@adapters/fs/atomic-write";
 import { pathKey } from "@core/path-access";
 import type { EditableMessage } from "@core/ports";
 import { delegationFold } from "@core/session-delegation";
@@ -14,16 +15,12 @@ import type {
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
-  openSync,
   readdirSync,
   readFileSync,
-  renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -31,16 +28,9 @@ import { dirname, join } from "node:path";
 // and rewind markers. Pi's SessionManager does every append; only delete and
 // rewind rewrite a file, because the SDK has no way to remove entries.
 
-function writeAtomic(filePath: string, contents: string): void {
-  const temporary = `${filePath}.tmp${String(process.pid)}`;
-  const fd = openSync(temporary, "wx", 0o600);
-  try {
-    writeSync(fd, contents);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  renameSync(temporary, filePath);
+/** A rewritten session keeps the permissions its owner gave it. */
+function rewrite(filePath: string, contents: string): void {
+  writeFileAtomic(filePath, contents, statSync(filePath).mode & 0o7777);
 }
 
 function jsonl(entries: readonly FileEntry[]): string {
@@ -105,11 +95,7 @@ export function reparentChildren(filePath: string): void {
       const rewritten: SessionHeader = { ...header };
       if (newParent === undefined) delete rewritten.parentSession;
       else rewritten.parentSession = newParent;
-      writeFileSync(
-        child,
-        JSON.stringify(rewritten) + contents.slice(end),
-        "utf8",
-      );
+      rewrite(child, JSON.stringify(rewritten) + contents.slice(end));
     } catch {
       // A child that cannot be read or written keeps its stale parent; the
       // delete itself must still go through.
@@ -179,10 +165,7 @@ export function rewindSessionFile(
     timestamp: new Date().toISOString(),
   });
 
-  writeAtomic(
-    filePath,
-    `${lines.slice(0, index + 1).join("\n")}\n${jsonl(tail)}`,
-  );
+  rewrite(filePath, `${lines.slice(0, index + 1).join("\n")}\n${jsonl(tail)}`);
   return removed;
 }
 

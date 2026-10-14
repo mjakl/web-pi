@@ -96,7 +96,7 @@ const LANGUAGE: Record<string, string> = {
   ts: "typescript",
   tsx: "tsx",
   txt: "text",
-  vue: "html",
+  vue: "vue",
   xml: "xml",
   yaml: "yaml",
   yml: "yaml",

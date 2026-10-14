@@ -55,6 +55,10 @@ beforeAll(async () => {
   await writeFile(join(repo, "logo.png"), PNG);
   await writeFile(join(repo, "report.pdf"), "%PDF-1.7\n");
   await writeFile(join(repo, "a.svg"), "<svg xmlns='x'/>");
+  await writeFile(
+    join(repo, "App.vue"),
+    "<template><p>{{ msg }}</p></template>\n<script>export default {};</script>\n",
+  );
   await symlink(outside, join(repo, "escape"));
   await writeFile(
     join(repo, "large.ts"),
@@ -350,7 +354,7 @@ describe("viewer", () => {
     },
   );
 
-  it("renders HTML previews above 256 KiB in the existing sandbox", async () => {
+  it("renders HTML previews above 256 KiB in a static sandbox", async () => {
     const path = join(repo, "large.html");
     const body = "x".repeat(262_145);
     const res = await app.request(
@@ -361,7 +365,18 @@ describe("viewer", () => {
     expect(html).toContain(
       `srcdoc="&lt;p&gt;${body}&lt;/p&gt;&lt;b&gt;End of file&lt;/b&gt;"`,
     );
-    expect(html).toContain('sandbox="allow-scripts"');
+    // No allow-* token: the file can neither run script nor submit a form.
+    expect(html).toContain('sandbox=""');
+  });
+
+  it("opens a Vue component as coloured source, with no preview", async () => {
+    const url = `/files/view?session=s1&path=${encodeURIComponent(join(repo, "App.vue"))}`;
+    const html = await (await app.request(url)).text();
+    expect(html).toContain('data-mode="source"');
+    expect(html).toContain("hljs-tag");
+    expect(html).toContain("vue · 3 lines");
+    expect(html).not.toContain("mode=preview");
+    expect(html).not.toContain("<iframe");
   });
 
   it("defaults markdown to the rendered preview with its frontmatter", async () => {

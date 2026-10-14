@@ -99,6 +99,7 @@ const ALIASES: Record<string, string> = {
   toml: "ini",
   ts: "typescript",
   tsx: "typescript",
+  vue: "xml",
   yml: "yaml",
   zsh: "bash",
 };

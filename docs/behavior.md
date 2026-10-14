@@ -77,6 +77,10 @@ audio and PDF, offers downloads and line references, and displays Git status and
 per-file diffs. Tabs and panel preferences belong to the browser; file changes
 use a server watcher. Settled turns refresh the tree and changes.
 
+HTML files open in a rendered preview that is static: a sandboxed frame shows
+their HTML and CSS but runs no scripts and submits no forms. Vue components open
+as source.
+
 Every file request uses `authorize` in `src/core/workspace/deps.ts`: lexical
 containment before filesystem access, followed by realpath containment against
 resolved roots. Roots include the session/project and validated folders; lookup

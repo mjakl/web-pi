@@ -42,6 +42,8 @@ describe("hasPreview and catppuccinIcon", () => {
     expect(hasPreview("readme.md")).toBe(true);
     expect(hasPreview("page.html")).toBe(true);
     expect(hasPreview("main.ts")).toBe(false);
+    // A component is not a page: it shows as source.
+    expect(hasPreview("App.vue")).toBe(false);
   });
 
   it("picks the icon by special name, then extension", () => {

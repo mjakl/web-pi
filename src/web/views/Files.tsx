@@ -689,10 +689,12 @@ function ViewerContent({
   }
   const text = view.text ?? "";
   if (mode === "preview" && view.language === "html") {
+    // Static: a repository's script or form could still send requests to
+    // this server from the opaque origin a sandbox gives the frame.
     return (
       <iframe
         srcdoc={text}
-        sandbox="allow-scripts"
+        sandbox=""
         class="file-viewer-frame"
         title="HTML preview"
       />

@@ -43,7 +43,7 @@ export default defineConfig({
         },
       },
     ],
-    coverage: { provider: "v8" },
+    coverage: { provider: "v8", include: ["src/**"] },
     sequence: { shuffle: true },
     pool: "threads",
     testTimeout: 20_000,

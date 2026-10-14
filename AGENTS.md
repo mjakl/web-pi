@@ -188,6 +188,8 @@ before changing folder selection or worktree discovery.
 - `tests/client` mounts the markup a view renders and dispatches DOM events at
   the client module; `setup.ts` fakes htmx and undoes every listener after each
   test. happy-dom has no layout, so a test that needs geometry sets it.
+- `just coverage` measures `src/` only, and code that runs in the browser realm
+  of `tests/web/htmx4-browser.ts` does not appear in it.
 - Add or update the nearest test for changed behaviour; assert on rendered
   output or port behaviour, never on source text.
 - `just build` writes `dist/` and the built assets; `just smoke` builds, packs

@@ -1,7 +1,9 @@
 // Completion tones follow server events. System notifications belong solely
 // to the push subscription, so an unsubscribed browser stays unsubscribed.
 
+import { displayedSessionId } from "./navigation.ts";
 import { soundEnabled } from "./preferences.ts";
+import { finishedId } from "./sidebar.ts";
 
 let audio: AudioContext | undefined;
 
@@ -62,18 +64,8 @@ function setUpCompletion(): void {
  */
 function setUpBackgroundCompletion(): void {
   document.body.addEventListener("completed", (event) => {
-    const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
-    if (typeof text !== "string") return;
-    let finished: { id?: string } = {};
-    try {
-      finished = JSON.parse(text) as typeof finished;
-    } catch {
-      return;
-    }
-    if (!finished || typeof finished.id !== "string") return;
-    const current =
-      document.querySelector("main")?.getAttribute("data-session-id") ?? "";
-    if (finished.id && finished.id !== current) playDone();
+    const id = finishedId(event);
+    if (id !== undefined && id !== displayedSessionId()) playDone();
   });
 }
 

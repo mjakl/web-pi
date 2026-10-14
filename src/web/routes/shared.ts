@@ -1,9 +1,10 @@
-// What every route module needs: the dependencies, the few request helpers
-// that answer in more than one area, and the cookie names the server keeps its
-// own state in. Each area's routes live in its own module beside this one;
-// createWebApp in src/web/app.tsx builds the context and composes them.
+// What every route module needs: the dependencies and the few request helpers
+// that answer in more than one area. Each area's routes live in its own module
+// beside this one; createWebApp in src/web/app.tsx builds the context and
+// composes them.
 
 import { imageLimitError } from "@core/composer";
+import { SESSION_COOKIE } from "@core/cookies";
 import { FileAccessError } from "@core/path-access";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { skillSelections } from "@core/skill-prompt";
@@ -66,24 +67,6 @@ export function html(node: {
 }): Promise<string> {
   return Promise.resolve(node.toString());
 }
-
-/** The working folder the picker last committed: where `/new` starts. */
-export const CWD_COOKIE = "web-pi-cwd";
-
-/**
- * The session the reader has open. pi-web keeps settings and the top-bar
- * panels over the workspace it was opened from, which a page reached by its
- * own URL cannot tell from the referrer alone.
- */
-export const SESSION_COOKIE = "web-pi-session";
-
-/** Which settings section was open last. */
-export const SETTINGS_COOKIE = "web-pi-settings";
-
-/** The skill last opened, and the folder it belongs to. */
-export const SKILL_COOKIE = "web-pi-skill";
-
-export const YEAR = 60 * 60 * 24 * 365;
 
 /** Navigate without discarding the surrounding shell or in-memory drafts. */
 export function sessionLocation(c: Context, path: string): void {

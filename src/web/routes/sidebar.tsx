@@ -1,4 +1,5 @@
 // The global session list, directory choices and shared lifecycle stream.
+import { CWD_COOKIE } from "@core/cookies";
 import { FileAccessError } from "@core/path-access";
 import { type RuntimeEvent } from "@core/ports";
 import { isSessionId } from "@core/sessions";
@@ -14,7 +15,6 @@ import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,
   type WebApp,
-  CWD_COOKIE,
   currentSessionId,
   errorText,
   field,

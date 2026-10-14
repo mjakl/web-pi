@@ -3,6 +3,12 @@ import { webSettingsPatch } from "@core/web-settings";
 // Pages, the top-bar panels, settings, extension dialogs, trust, push,
 // and the installable-app files. The shell area owns this module.
 
+import {
+  CWD_COOKIE,
+  SESSION_COOKIE,
+  SETTINGS_COOKIE,
+  SKILL_COOKIE,
+} from "@core/cookies";
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
 import { isSessionId } from "@core/sessions";
@@ -33,10 +39,6 @@ import { deleteCookie, getCookie } from "hono/cookie";
 import {
   type RouteContext,
   type WebApp,
-  CWD_COOKIE,
-  SESSION_COOKIE,
-  SETTINGS_COOKIE,
-  SKILL_COOKIE,
   currentSessionId,
   displayedCwd,
   errorText,

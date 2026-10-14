@@ -224,6 +224,13 @@ describe("shortcuts", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("leaves Escape in an editable region to that region", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load(`${LIST}<div id="editable" contenteditable="true"></div>`);
+    keydown(byId("editable"), "Escape");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("closes an open top panel or popover first, and only then aborts", async () => {
     const fetch = mockFetch(() => text(""));
     await load(LIST + PANELS);

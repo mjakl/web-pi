@@ -7,7 +7,9 @@ import { relativeTime } from "@core/sessions";
 import type { Htmx } from "htmx.org";
 import { requestContext, swapTasks } from "./htmx.ts";
 import { setUpRegion } from "./lifecycle.ts";
+import { displayedSessionId } from "./navigation.ts";
 import { setUpFolderMemory } from "./preferences.ts";
+import { isTextEntry } from "./viewport.ts";
 
 // Keep the existing stored map readable; project values no longer affect dots.
 const UNREAD_KEY = "web-pi:unread";
@@ -34,12 +36,23 @@ function storeUnread(ids: Map<string, string>): void {
   }
 }
 
-function currentSessionId(): string {
-  return document.querySelector("main")?.getAttribute("data-session-id") ?? "";
+/**
+ * The session a sidebar stream `finished` or `completed` event names, or
+ * undefined for anything unreadable.
+ */
+export function finishedId(event: Event): string | undefined {
+  const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
+  if (typeof text !== "string") return undefined;
+  try {
+    const { id } = JSON.parse(text) as { id?: unknown };
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function paintSelection(): void {
-  const active = currentSessionId();
+  const active = displayedSessionId();
   for (const row of document.querySelectorAll<HTMLElement>(
     ".session-row[data-session-id]",
   )) {
@@ -75,22 +88,13 @@ function paintUnread(): void {
 function setUpUnread(): void {
   setUpRegion("main", () => {
     const ids = unreadIds();
-    if (ids.delete(currentSessionId())) storeUnread(ids);
+    if (ids.delete(displayedSessionId())) storeUnread(ids);
     paintUnread();
   });
   // The global stream announces every finished session, including unloaded rows.
   document.addEventListener("finished", (event) => {
-    const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
-    if (typeof text !== "string") return;
-    let finished: { id?: string } = {};
-    try {
-      finished = JSON.parse(text) as typeof finished;
-    } catch {
-      return;
-    }
-    if (!finished || typeof finished.id !== "string") return;
-    const id = finished.id;
-    if (!id || id === currentSessionId()) return;
+    const id = finishedId(event);
+    if (id === undefined || id === displayedSessionId()) return;
     const pending = unreadIds();
     pending.set(id, "");
     storeUnread(pending);
@@ -137,7 +141,7 @@ function setUpSessionTree(): void {
     { open: boolean; active: string; ancestor: boolean }
   >();
   let attemptedSelection: string | undefined;
-  let displayedSelection = currentSessionId();
+  let displayedSelection = displayedSessionId();
   const collapsedSelection = new Set<string>();
   let pending = false;
   let refreshNeeded = false;
@@ -155,7 +159,7 @@ function setUpSessionTree(): void {
   const reconcile = () => {
     const list = document.getElementById("session-list");
     if (!list) return;
-    const active = currentSessionId();
+    const active = displayedSessionId();
     if (active !== displayedSelection) {
       displayedSelection = active;
       collapsedSelection.clear();
@@ -210,7 +214,7 @@ function setUpSessionTree(): void {
       })
       .finally(() => {
         pending = false;
-        if (explicitRefresh && active !== currentSessionId())
+        if (explicitRefresh && active !== displayedSessionId())
           refreshNeeded = true;
         reconcile();
       });
@@ -596,9 +600,7 @@ function setUpShortcuts(): void {
       event.shiftKey ||
       (!event.ctrlKey && !event.metaKey) ||
       !/^[0-9]$/.test(event.key) ||
-      event.target instanceof HTMLInputElement ||
-      event.target instanceof HTMLTextAreaElement ||
-      event.target instanceof HTMLSelectElement
+      isTextEntry(event.target)
     ) {
       return;
     }

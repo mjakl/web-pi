@@ -1,3 +1,4 @@
+import { COOKIE_MAX_AGE, CWD_COOKIE, SESSION_COOKIE } from "@core/cookies";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
@@ -7,14 +8,11 @@ import { composerRoutes } from "@web/routes/composer";
 import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
-  CWD_COOKIE,
   displayedCwd,
   errorText,
   type RouteContext,
-  SESSION_COOKIE,
   toastHeader,
   type WebDeps,
-  YEAR,
 } from "@web/routes/shared";
 import { shellRoutes } from "@web/routes/shell";
 import { sidebarRoutes } from "@web/routes/sidebar";
@@ -46,7 +44,7 @@ export function createWebApp(deps: WebDeps) {
     setCookie(c, name, value, {
       path: "/",
       sameSite: "Lax",
-      maxAge: YEAR,
+      maxAge: COOKIE_MAX_AGE,
     });
   }
 

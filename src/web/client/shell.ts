@@ -11,9 +11,10 @@ import { setUpNotifications } from "./notify.ts";
 import { setUpPreferences } from "./preferences.ts";
 import { setUpPush } from "./push.ts";
 import { setUpResize } from "./resize.ts";
+import { displayedCwd, displayedSessionId } from "./navigation.ts";
 import { setUpTheme } from "./theme.ts";
 import { setUpToasts } from "./toasts.ts";
-import { setUpViewport } from "./viewport.ts";
+import { isTextEntry, setUpViewport } from "./viewport.ts";
 
 const SIDEBAR_WIDTH_KEY = "web-pi-sidebar-width";
 const SIDEBAR_MIN = 180;
@@ -31,12 +32,10 @@ function sidebar(): HTMLElement | null {
  * restored index and new-session views (AppShell.tsx L1096).
  */
 function setUpTitle(): void {
-  const main = document.querySelector("main");
-  const cwd = main?.dataset["cwd"] ?? "";
   const opened =
-    (main?.dataset["sessionId"] ?? "") !== "" ||
+    displayedSessionId() !== "" ||
     new URLSearchParams(location.search).has("cwd");
-  const name = cwd.split(/[\\/]/).filter(Boolean).pop();
+  const name = displayedCwd().split(/[\\/]/).filter(Boolean).pop();
   document.title =
     name === undefined || !opened ? "web-pi" : `${name} - web-pi`;
 }
@@ -215,14 +214,6 @@ function mountTopPanels(host: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-function inTextEntry(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLInputElement
-  );
-}
-
 /**
  * What Escape closes before it may stop the turn. The browser closes a
  * dialog or popover only after the key's listeners have run, and a panel
@@ -241,7 +232,7 @@ function setUpShortcuts(): void {
     if (event.key === "Escape") {
       if (
         !event.defaultPrevented &&
-        !inTextEntry(event.target) &&
+        !isTextEntry(event.target) &&
         !somethingOpen()
       )
         abortTurn();

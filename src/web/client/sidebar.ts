@@ -415,11 +415,11 @@ function setUpProjectFilter(): void {
 const EXPLORER_OPEN_KEY = "web-pi:file-explorer:open";
 
 /**
- * The explorer folds to its header row (§3.5). pi-web keeps `explorerOpen`
- * in React and reads the stored value after hydration, so a collapsed
- * explorer opens for a frame there too; here aria-expanded on the toggle is
- * the state and areas/sidebar.css paints both states from it. Storage is
- * best-effort, as in pi-web: without it the choice lasts for this page.
+ * The explorer folds to its header row. pi-web keeps `explorerOpen` in React
+ * and reads the stored value after hydration, so a collapsed explorer opens
+ * for a frame there too; here aria-expanded on the toggle is the state and
+ * areas/sidebar.css paints both states from it. Storage is best-effort, as in
+ * pi-web: without it the choice lasts for this page.
  */
 function mountExplorerFold(button: HTMLElement, signal: AbortSignal): void {
   let open = true;
@@ -447,7 +447,7 @@ function mountExplorerFold(button: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-/** The refresh button says it worked: a check for two seconds (§3.1). */
+/** The refresh button says it worked: a check for two seconds. */
 function mountSidebarRefresh(button: HTMLElement, signal: AbortSignal): void {
   button.removeAttribute("data-done");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -516,8 +516,8 @@ function setUpRowMenus(): void {
 
 /**
  * pi-web puts a ⌘1…⌘0 badge where a row's menu trigger is while a modifier
- * is held, and jumps to that session on the matching digit (§3.4). The
- * modifier decides the label, so it is written here rather than server-side.
+ * is held, and jumps to that session on the matching digit. The modifier
+ * decides the label, so it is written here rather than server-side.
  */
 function setUpShortcuts(): void {
   let modifier: "ctrl" | "meta" | null = null;
@@ -642,7 +642,7 @@ function mountRelativeTimes(sidebar: HTMLElement, signal: AbortSignal): void {
   window.addEventListener("pageshow", paint, { signal });
 }
 
-/** pi-web's whole row is the click target, not just its title (§3.4). */
+/** pi-web's whole row is the click target, not just its title. */
 function setUpRowSelection(): void {
   document.addEventListener("click", (event) => {
     const target = event.target;

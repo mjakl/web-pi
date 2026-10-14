@@ -3,8 +3,8 @@ import type { RailMark } from "@core/conversation-rail";
 import type { SessionView } from "@core/workspace";
 import { StarIcon } from "./icons.tsx";
 
-// pi-web's ChatMinimap (§5), rendered on the server. pi-web measures the
-// rail's pixel height and places row `r` at `12 + r * gap` with
+// pi-web's ChatMinimap, rendered on the server. pi-web measures the rail's
+// pixel height and places row `r` at `12 + r * gap` with
 // `gap = min(50, (height - 30 - 24) / rows)`; the same value falls out of a
 // calc() against the rail's own height, so nothing here needs a measurement.
 // src/web/client/rail.ts only tracks the reading position and the popover.

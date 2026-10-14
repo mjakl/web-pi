@@ -635,7 +635,7 @@ function DiffView({ rows }: { rows: UnifiedRow[] }) {
   );
 }
 
-/** The toolbar every media viewer shares (FileViewer.tsx §7.4). */
+/** The toolbar every media viewer shares (pi-web's FileViewer.tsx). */
 function MediaToolbar({
   view,
   sessionId,

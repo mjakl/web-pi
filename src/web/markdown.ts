@@ -6,7 +6,7 @@ import { Marked, type Tokens } from "marked";
 // Model output is untrusted. Raw HTML inside Markdown is shown as text rather
 // than sanitised, which needs no allowlist and cannot leak a script.
 
-/** Past this the page prints the source instead of parsing it (§3.2). */
+/** Past this the page prints the source instead of parsing it. */
 const MAX_MARKDOWN_CHARS = 100_000;
 
 export type MarkdownOptions = {
@@ -72,7 +72,7 @@ function remoteImage(
   );
 }
 
-/** pi-web's CodeBlock (§4.5): a language header, copy button and tinted body. */
+/** pi-web's CodeBlock: a language header, copy button and tinted body. */
 function codeBlock(code: string, language: string): string {
   const label = language === "" ? "text" : language;
   const body =
@@ -197,7 +197,7 @@ export function renderMarkdown(
   options: MarkdownOptions = {},
 ): string {
   if (options.filePreview !== true && source.length > MAX_MARKDOWN_CHARS) {
-    // pi-web's SafeMarkdownBody reveal (§4.4.2), as a disclosure.
+    // pi-web's SafeMarkdownBody reveal, as a disclosure.
     const size = escapeHtml(formatBytes(source.length));
     return (
       `<details class="markdown-oversized"><summary class="markdown-oversized-summary">⚠ Message content is very large (${size}).` +

@@ -184,7 +184,7 @@ export function CopyButton({
 }: {
   text: string;
   class?: string;
-  /** The extension card's footer copies with a word, not an icon (§4.6). */
+  /** The extension card's footer copies with a word, not an icon. */
   bare?: boolean;
 }) {
   if (text === "") return <></>;

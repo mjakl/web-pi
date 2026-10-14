@@ -12,7 +12,7 @@ import {
 // into the assistant message that requested them, so a turn renders as one
 // block. Everything here is a pure projection of session entries.
 
-/** §10: previews, and the point where thinking is fetched on demand. */
+/** Previews, and the point where thinking is fetched on demand. */
 const TOOL_PREVIEW_CHARS = 120;
 const NOTE_PREVIEW_CHARS = 140;
 /**

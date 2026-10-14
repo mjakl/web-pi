@@ -20,7 +20,7 @@ import { createMenu, handleMenuKey, type Menu } from "./menu.ts";
 const INDEX_TTL_MS = 10_000;
 const SEARCH_DEBOUNCE_MS = 150;
 
-/** pi-web's Catppuccin mask, built here because the rows are (§6.4). */
+/** pi-web's Catppuccin mask, built here because the rows are. */
 function icon(entry: FileEntry): string {
   const name = entry.isDir ? "_folder" : catppuccinIcon(entry.path);
   return `<span aria-hidden="true" class="catppuccin-file-icon" style="--catppuccin-icon: url(${catppuccinIconUrl(name)})"></span>`;
@@ -41,7 +41,7 @@ function row(entry: FileEntry, index: number): string {
   );
 }
 
-/** pi-web's `@` panel: the count header, then the matches (§6.4). */
+/** pi-web's `@` panel: the count header, then the matches. */
 function panel(title: string, body: string): string {
   return (
     `<div class="composer-menu-header"><span>${escapeHtml(title)}</span>` +

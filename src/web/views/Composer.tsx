@@ -190,7 +190,7 @@ export function ComposerText({
   );
 }
 
-/** pi-web's ModelNoticeBanner (§6.2), for the one tone web-pi raises. */
+/** pi-web's ModelNoticeBanner, for the one tone web-pi raises. */
 export function ModelScopeWarning({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return <></>;
   return (
@@ -287,7 +287,7 @@ function pickAttributes(pick: ModelPick, value: string) {
   };
 }
 
-/** pi-web's reasoning row: the label and the level select (§6.1). */
+/** pi-web's reasoning row: the label and the level select. */
 function ReasoningField({ pick }: { pick: ModelPick }) {
   const current = pick.current;
   const value =
@@ -349,10 +349,10 @@ function compareModels(a: ModelOption, b: ModelOption): number {
 }
 
 /**
- * pi-web's ModelSelector (§6.5): the toolbar trigger and the listbox it
- * anchors. The popover is the browser's — `popovertarget` opens it, light
- * dismiss and Escape close it — and CSS anchor positioning pins it to the
- * trigger, so nothing here needs a script.
+ * pi-web's ModelSelector: the toolbar trigger and the listbox it anchors.
+ * The popover is the browser's — `popovertarget` opens it, light dismiss and
+ * Escape close it — and CSS anchor positioning pins it to the trigger, so
+ * nothing here needs a script.
  */
 export function ModelSelector({
   pick,
@@ -494,9 +494,9 @@ export function ModelSelector({
 }
 
 /**
- * pi-web's mobile "more" menu (§6.1): a phone has no Alt key and no room for
- * the extension status line, so both live here. `.composer-more` is hidden
- * above 640px by areas/composer.css, which is where pi-web's `isMobile` was.
+ * pi-web's mobile "more" menu: a phone has no Alt key and no room for the
+ * extension status line, so both live here. `.composer-more` is hidden above
+ * 640px by areas/composer.css, which is where pi-web's `isMobile` was.
  */
 function MoreControls({ sessionId }: { sessionId?: string }) {
   return (
@@ -549,7 +549,7 @@ function MoreControls({ sessionId }: { sessionId?: string }) {
   );
 }
 
-/** pi-web's drag-and-drop overlay (§4.1); the client bundle unhides it. */
+/** pi-web's drag-and-drop overlay; the client bundle unhides it. */
 export function DropZone() {
   return (
     <div class="chat-drop-zone" hidden>

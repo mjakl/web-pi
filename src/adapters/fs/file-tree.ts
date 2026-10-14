@@ -26,7 +26,7 @@ const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 /** A NUL byte this close to the start marks a binary file, as for Git. */
 const BINARY_SNIFF_BYTES = 8192;
 
-/** Names the explorer never lists, whatever `.gitignore` says (spec §2). */
+/** Names the explorer never lists, whatever `.gitignore` says. */
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
   ".git",

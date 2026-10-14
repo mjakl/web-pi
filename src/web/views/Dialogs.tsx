@@ -57,8 +57,8 @@ export function TrustDialog({ cwd }: { cwd: string }) {
 }
 
 /**
- * The top bar's trust warning (ui-map 2.3). pi-web keeps it beside the tabs,
- * in `--warning`, and it opens the dialog.
+ * The top bar's trust warning. pi-web keeps it beside the tabs, in
+ * `--warning`, and it opens the dialog.
  */
 export function TrustBadge({
   cwd,

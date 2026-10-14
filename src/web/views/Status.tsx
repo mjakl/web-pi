@@ -16,7 +16,7 @@ import {
 
 // Everything about a running session that is not the transcript: the banners
 // and the queue panel above the composer surface (pi-web keeps them inside
-// ChatInput's 820px column, §6.1), plus the two things elsewhere on the page
+// ChatInput's 820px column), plus the two things elsewhere on the page
 // that the same render owns — the model selector in the toolbar and the
 // context readout in the top bar, both swapped out of band.
 
@@ -125,7 +125,7 @@ export function compactDisabled(view: SessionView): boolean {
   return turnBusy(view.status);
 }
 
-/** One queued message: the kind as a pill, then the text (§6.1). */
+/** One queued message: the kind as a pill, then the text. */
 function QueuedRow({
   behavior,
   text,

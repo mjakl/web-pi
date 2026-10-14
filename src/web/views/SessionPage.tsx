@@ -274,7 +274,7 @@ function TopBar({
 /**
  * The stats cluster on the right of the bar: cumulative tokens, then the
  * context gauge. pi-web drops a group whose count is zero and puts the exact
- * numbers in the hover text (ui-map 2.3).
+ * numbers in the hover text.
  */
 function SessionStatsButton({
   usage,

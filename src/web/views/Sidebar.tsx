@@ -30,7 +30,7 @@ import {
 export type Row = { summary: SessionSummary; metadata: SessionRowMetadata };
 
 /**
- * Running, live or stopped (§3.4). The unread halo is a browser concern —
+ * Running, live or stopped. The unread halo is a browser concern —
  * which turns finished while the reader was elsewhere is in localStorage —
  * so `client/sidebar.ts` adds `.session-indicator-unread` and the `--info`
  * tint on top of what is rendered here.

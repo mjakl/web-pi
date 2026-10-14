@@ -171,8 +171,8 @@ const FILTER_FROM = 8;
 
 /**
  * The workspace pill and the menu it anchors: a native popover positioned by
- * CSS anchor positioning (§3.1, §1.9). The list is fetched when the popover
- * opens — a real store holds hundreds of projects.
+ * CSS anchor positioning. The list is fetched when the popover opens — a real
+ * store holds hundreds of projects.
  */
 export function ProjectSelect({ cwd, home }: { cwd: string; home?: string }) {
   const folder = cwd;

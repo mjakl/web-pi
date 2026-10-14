@@ -16,7 +16,7 @@ export function codeText(block: Element | null | undefined): string {
 
 /**
  * Colour every settled code block and number its lines, as pi-web's
- * `SyntaxHighlighter showLineNumbers` does (§4.5). What is still in flight in
+ * `SyntaxHighlighter showLineNumbers` does. What is still in flight in
  * the running turn is left plain: it changes on every frame, and tokenising
  * half a line is wasted work. The file viewer is coloured on the server
  * instead, where a whole file can be split into numbered rows.

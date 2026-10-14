@@ -47,5 +47,8 @@ export default defineConfig({
     sequence: { shuffle: true },
     pool: "threads",
     testTimeout: 20_000,
+    // A poll waits for work, not for a timer: on a machine busy with other
+    // runs, rendering a long transcript in happy-dom can take seconds.
+    expect: { poll: { timeout: 5_000 } },
   },
 });

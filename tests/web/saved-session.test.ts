@@ -349,7 +349,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(1);
+  await expect.poll(() => sessionStreams().length).toBe(1);
   expect(
     new URL(required(sessionStreams()[0]).url).searchParams.get("saved"),
   ).toBe("1");
@@ -382,13 +382,12 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-one")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External answer one");
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(2);
+  await expect.poll(() => sessionStreams().length).toBe(2);
   const secondStream = required(
     browser.document.querySelector("main [hx-sse\\:connect]"),
   );
@@ -419,7 +418,6 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-two")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External question two");
   expect(f.open).not.toHaveBeenCalled();
@@ -445,9 +443,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   await f.workspace.reload(f.id);
   await browser.advanceTime(2000);
   await expect
-    .poll(() => browser.document.querySelector("#entry-active-answer"), {
-      timeout: 4000,
-    })
+    .poll(() => browser.document.querySelector("#entry-active-answer"))
     .not.toBeNull();
   expect(browser.document.querySelector("#entry-old-answer")).toBeNull();
   expect(browser.document.querySelector("#log")).not.toBe(oldLog);
@@ -475,7 +471,7 @@ it("returns to saved observation when ownership ends before the stream connects"
   );
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => stoppedBeforeConnect, { timeout: 4000 }).toBe(true);
+  await expect.poll(() => stoppedBeforeConnect).toBe(true);
   await expect
     .poll(() => browser.document.querySelector("main [hx-sse\\:connect]"))
     .toBeNull();
@@ -493,7 +489,6 @@ it("returns to saved observation when ownership ends before the stream connects"
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-race")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External answer after race");
   expect(f.open).not.toHaveBeenCalled();
@@ -735,9 +730,7 @@ it.each(["initial", "reconnect"])(
       },
     );
     await browser.advanceTime(4000);
-    await expect
-      .poll(() => observations, { timeout: 5000 })
-      .toContain("unavailable");
+    await expect.poll(() => observations).toContain("unavailable");
     const savedRequest = required(
       browser.requests.find((request) =>
         new URL(request.url).pathname.endsWith("/saved"),
@@ -774,7 +767,6 @@ it.each(["initial", "reconnect"])(
     await expect
       .poll(
         () => document.querySelector("#entry-external-recovered")?.textContent,
-        { timeout: 4000 },
       )
       .toContain("Recovered external answer");
     expect(document.querySelector("#entry-sibling")).toBeNull();
@@ -823,9 +815,7 @@ it("observes an empty saved session and keeps its last good content when the fil
   ).toBe(false);
   await browser.advanceTime(1);
   await expect
-    .poll(() => document.querySelector("#entry-first")?.textContent, {
-      timeout: 4000,
-    })
+    .poll(() => document.querySelector("#entry-first")?.textContent)
     .toContain("First saved message");
   const owner = required(
     document.querySelector<HTMLElement>("main[data-saved-session]"),
@@ -838,7 +828,7 @@ it("observes an empty saved session and keeps its last good content when the fil
   expect(response.status).toBe(204);
   expect(response.headers.get("X-Web-Pi-Saved")).toBe("unavailable");
   await browser.advanceTime(2000);
-  await expect.poll(() => unavailable, { timeout: 4000 }).toBe(true);
+  await expect.poll(() => unavailable).toBe(true);
   expect(document.querySelector("#entry-first")?.textContent).toContain(
     "First saved message",
   );

@@ -155,7 +155,7 @@ export function RecalledImages({
     <div
       id="recalled-images"
       hidden
-      {...(oob === false ? {} : { "hx-swap-oob": "innerHTML" })}
+      hx-swap-oob={oob === false ? undefined : "innerHTML"}
     >
       {images.map((image) => (
         <span data-image={image.data} data-mime={image.mimeType} />
@@ -380,7 +380,7 @@ export function ModelSelector({
       hx-target="this"
       hx-swap="outerHTML"
       class={`model-selector is-composer${disabled === true ? " is-disabled" : ""}`}
-      {...(oob === true ? { "hx-swap-oob": "outerHTML" } : {})}
+      hx-swap-oob={oob === true ? "outerHTML" : undefined}
     >
       {/* `/new` posts the pick with the first prompt instead of applying it. */}
       {pick.sessionId === undefined ? (
@@ -609,9 +609,9 @@ export function Composer({
       hx-sync="this:drop"
       hx-target="#toasts"
       hx-swap="beforeend"
-      {...(sessionId === undefined ? {} : { "data-session-id": sessionId })}
-      {...(cwd === undefined ? {} : { "data-cwd": cwd })}
-      {...(start?.usable === true ? { "data-complete": "folder" } : {})}
+      data-session-id={sessionId}
+      data-cwd={cwd}
+      data-complete={start?.usable === true ? "folder" : undefined}
     >
       <input
         id="image-input"
@@ -663,15 +663,9 @@ export function Composer({
               >
                 <AttachImageIcon />
               </button>
-              <MoreControls
-                {...(sessionId === undefined ? {} : { sessionId })}
-              />
+              <MoreControls sessionId={sessionId} />
               {pick === undefined ? null : <ModelSelector pick={pick} />}
-              <SkillsSelector
-                {...(sessionId === undefined ? {} : { sessionId })}
-                {...(cwd === undefined ? {} : { cwd })}
-                skills={skills}
-              />
+              <SkillsSelector sessionId={sessionId} cwd={cwd} skills={skills} />
               <button
                 type="submit"
                 class="composer-action-primary"

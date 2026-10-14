@@ -90,10 +90,10 @@ export function CompactButton({
       type="button"
       id="context-compact"
       class="context-compact-button"
-      {...(warn ? { "data-warning": "true" } : {})}
-      {...(disabled === true || compacting ? { disabled: true } : {})}
-      {...(compacting ? { "aria-busy": "true" } : {})}
-      {...(oob === true ? { "hx-swap-oob": "true" } : {})}
+      data-warning={warn ? "true" : undefined}
+      disabled={disabled === true || compacting}
+      aria-busy={compacting ? "true" : undefined}
+      hx-swap-oob={oob === true ? "true" : undefined}
       title={compacting ? "Compacting context…" : "Compact context"}
       aria-label={compacting ? "Compacting context…" : "Compact context"}
       hx-post={`/sessions/${sessionId}/compact`}
@@ -233,9 +233,9 @@ export function Status({
       <span
         id="session-state"
         hidden
-        {...(status?.running ? { "data-running": "true" } : {})}
-        {...(status?.bashRunning ? { "data-bash-running": "true" } : {})}
-        {...(status?.compacting ? { "data-compacting": "true" } : {})}
+        data-running={status?.running ? "true" : undefined}
+        data-bash-running={status?.bashRunning ? "true" : undefined}
+        data-compacting={status?.compacting ? "true" : undefined}
       />
       {status?.title ? (
         <span id="extension-title" hidden data-title={status.title} />

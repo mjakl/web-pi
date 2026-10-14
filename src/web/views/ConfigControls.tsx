@@ -10,19 +10,25 @@ import { AddConfigIcon } from "./icons.tsx";
 export function ConfigButton({
   variant = "secondary",
   small,
+  type = "button",
   class: extraClass,
   children,
   ...rest
 }: {
   variant?: "primary" | "secondary" | "danger";
   small?: boolean;
+  /**
+   * A default, not an attribute written before `rest`: a spread
+   * `type: undefined` would drop it and leave a submit button.
+   */
+  type?: "button" | "submit";
   class?: string;
   children?: unknown;
   [key: string]: unknown;
 }) {
   return (
     <button
-      type="button"
+      type={type}
       {...rest}
       class={`config-button config-button-${variant} config-button-${small === true ? "small" : "default"}${extraClass ? ` ${extraClass}` : ""}`}
     >
@@ -35,15 +41,18 @@ export function ConfigButton({
 export function ConfigSwitch({
   checked,
   label,
+  type = "button",
   ...rest
 }: {
   checked: boolean;
   label: string;
+  /** A default for the same reason as ConfigButton's. */
+  type?: "button" | "submit";
   [key: string]: unknown;
 }) {
   return (
     <button
-      type="button"
+      type={type}
       {...rest}
       class="config-switch"
       role="switch"

@@ -177,11 +177,7 @@ function TreeNode({
           <span class="file-tree-spacer" />
         )}
         <span class="file-tree-icon">
-          {isDir ? (
-            <FolderIcon open={open === true} />
-          ) : (
-            <FileIcon name={name} />
-          )}
+          {isDir ? <FolderIcon /> : <FileIcon name={name} />}
         </span>
         <span class="file-tree-name" title={path}>
           {name}

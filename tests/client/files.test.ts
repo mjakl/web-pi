@@ -753,11 +753,6 @@ describe("the explorer tree", () => {
       false,
     );
     expect(expanded).toBe(1);
-    expect(
-      src
-        .querySelector<HTMLElement>(".catppuccin-file-icon")
-        ?.style.getPropertyValue("--catppuccin-icon"),
-    ).toContain("_folder_open");
     keydown(src, "ArrowRight");
     expect(document.activeElement).toBe(item("/repo/one/src/a.ts"));
     keydown(item("/repo/one/src/a.ts"), "ArrowDown");

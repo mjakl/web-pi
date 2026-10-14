@@ -485,6 +485,11 @@
   transform: rotate(90deg);
 }
 
+/* `open ? FolderOpen : Folder`: the folder icon carries both shapes. */
+[aria-expanded="true"] > .file-tree-row .catppuccin-file-icon {
+  mask-image: var(--catppuccin-icon-open);
+}
+
 /* The static spokes pi-web shows while a directory is loading; htmx marks the
    node it is fetching for, not the icon inside it. */
 .file-tree-loading {

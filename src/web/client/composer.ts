@@ -25,43 +25,26 @@ import {
   setUpSessionInputFocus,
 } from "./session-input-focus.ts";
 import { showToast } from "./toasts.ts";
+import { COMPOSER_ACTION_SHAPES, type ComposerAction } from "@web/views/icons";
 
 // Everything the composer cannot ask the server for: which key does what, the
 // attachment previews, the local file index, and the draft in localStorage.
 
 const COMPOSITION_GRACE_MS = 100;
 
-type Action = "send" | "stop" | "steer" | "followup";
-
-/**
- * The four states of pi-web's primary button. The shapes are the paths
- * views/icons.tsx draws (#51), repeated here because the button keeps one
- * `<svg>` and only its contents change.
- */
-const ACTIONS: Record<Action, { shape: string; label: string; title: string }> =
-  {
-    send: {
-      shape: '<path d="M12 19V5m-7 7 7-7 7 7"></path>',
-      label: "Send",
-      title: "Send",
-    },
-    stop: {
-      shape:
-        '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"></rect>',
-      label: "Stop agent",
-      title: "Stop agent",
-    },
-    steer: {
-      shape: '<path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"></path>',
-      label: "Steer",
-      title: "Interrupt the current run and inject this message now",
-    },
-    followup: {
-      shape: '<path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8"></path>',
-      label: "Queue",
-      title: "Queue after the agent finishes (Option/Alt)",
-    },
-  };
+/** The four states of pi-web's primary button; views/icons.tsx draws them. */
+const ACTIONS: Record<ComposerAction, { label: string; title: string }> = {
+  send: { label: "Send", title: "Send" },
+  stop: { label: "Stop agent", title: "Stop agent" },
+  steer: {
+    label: "Steer",
+    title: "Interrupt the current run and inject this message now",
+  },
+  followup: {
+    label: "Queue",
+    title: "Queue after the agent finishes (Option/Alt)",
+  },
+};
 
 /** Alt turns steer into follow-up while it is down, as pi-web does. */
 let altHeld = false;
@@ -159,7 +142,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
       images.count() > 0 ||
       skills.count() > 0;
     const running = form.hasAttribute("data-running");
-    const action: Action = !running
+    const action: ComposerAction = !running
       ? "send"
       : form.hasAttribute("data-bash-running")
         ? "stop"
@@ -171,7 +154,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     if (button.dataset["action"] !== action) {
       button.dataset["action"] = action;
       const svg = button.querySelector("svg");
-      if (svg) svg.innerHTML = ACTIONS[action].shape;
+      if (svg) svg.innerHTML = COMPOSER_ACTION_SHAPES[action];
       button.setAttribute("aria-label", ACTIONS[action].label);
       button.title = ACTIONS[action].title;
     }

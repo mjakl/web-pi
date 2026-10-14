@@ -11,6 +11,7 @@
  */
 
 import { type CatppuccinIconName, catppuccinIcon } from "@core/file-types";
+import { raw } from "hono/html";
 
 // Browser-created controls use the same inventory without a JSX renderer.
 /* 33 · close tab */
@@ -712,22 +713,24 @@ export function AttachImageIcon({ size = 18 }: IconProps) {
   );
 }
 
-/* 51 · the composer's primary action */
+/* 51 · the composer's primary action. The button keeps its one `<svg>` and
+   the client bundle swaps only the shape inside, so the shapes are markup. */
+export const COMPOSER_ACTION_SHAPES = {
+  send: '<path d="M12 19V5m-7 7 7-7 7 7"></path>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"></rect>',
+  steer: '<path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"></path>',
+  followup: '<path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8"></path>',
+};
+
+export type ComposerAction = keyof typeof COMPOSER_ACTION_SHAPES;
+
 export function ComposerActionIcon({
   size = 16,
   action,
-}: IconProps & { action: "send" | "stop" | "steer" | "followup" }) {
+}: IconProps & { action: ComposerAction }) {
   return (
     <Stroked size={size} width={1.8}>
-      {action === "stop" ? (
-        <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />
-      ) : action === "followup" ? (
-        <path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8" />
-      ) : action === "steer" ? (
-        <path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5" />
-      ) : (
-        <path d="M12 19V5m-7 7 7-7 7 7" />
-      )}
+      {raw(COMPOSER_ACTION_SHAPES[action])}
     </Stroked>
   );
 }
@@ -938,18 +941,25 @@ export function catppuccinIconUrl(name: CatppuccinIconName): string {
   return `/static/icons/catppuccin/latte/${name}.svg`;
 }
 
-function CatppuccinIcon({ name }: { name: CatppuccinIconName }) {
+function CatppuccinIcon({
+  name,
+  open,
+}: {
+  name: CatppuccinIconName;
+  open?: CatppuccinIconName;
+}) {
   return (
     <span
       aria-hidden="true"
       class="catppuccin-file-icon"
-      style={`--catppuccin-icon: url(${catppuccinIconUrl(name)})`}
+      style={`--catppuccin-icon: url(${catppuccinIconUrl(name)})${open === undefined ? "" : `; --catppuccin-icon-open: url(${catppuccinIconUrl(open)})`}`}
     />
   );
 }
 
-export function FolderIcon({ open = false }: { open?: boolean }) {
-  return <CatppuccinIcon name={open ? "_folder_open" : "_folder"} />;
+/** A tree folder: files.css draws the open one while its node is expanded. */
+export function FolderIcon() {
+  return <CatppuccinIcon name="_folder" open="_folder_open" />;
 }
 
 /** The icon for a file name; `catppuccinIcon` in the core picks which. */

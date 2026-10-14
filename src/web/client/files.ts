@@ -439,16 +439,7 @@ function expand(item: HTMLElement, open: boolean): void {
   item.setAttribute("aria-expanded", open ? "true" : "false");
   const children = item.querySelector<HTMLElement>(":scope > [data-children]");
   if (children) children.hidden = !open;
-  const folder = item.querySelector<HTMLElement>(
-    ":scope > .file-tree-row .catppuccin-file-icon",
-  );
-  // The folder icon has an open variant; the chevron is turned by CSS.
-  if (folder) {
-    folder.style.setProperty(
-      "--catppuccin-icon",
-      `url(${catppuccinIconUrl(open ? "_folder_open" : "_folder")})`,
-    );
-  }
+  // CSS turns the chevron and opens the folder icon.
   if (open) item.dispatchEvent(new CustomEvent("expand"));
 }
 

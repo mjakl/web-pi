@@ -180,6 +180,15 @@ describe("explorer", () => {
     expect(html).not.toContain('data-name="notes.md"');
   });
 
+  it("gives a folder both icons, for the stylesheet to pick by aria-expanded", async () => {
+    const url = `/files/tree?session=s1&depth=0&path=${encodeURIComponent(repo)}`;
+    const html = await (await app.request(url)).text();
+    expect(html).toContain('data-name="src"');
+    expect(html).toContain(
+      "--catppuccin-icon: url(/static/icons/catppuccin/latte/_folder.svg); --catppuccin-icon-open: url(/static/icons/catppuccin/latte/_folder_open.svg)",
+    );
+  });
+
   it("searches the index and puts the tree back on an empty query", async () => {
     const found = await (
       await app.request("/files/search?session=s1&q=main")

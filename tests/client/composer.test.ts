@@ -1,5 +1,6 @@
 import { BUILTIN_COMMANDS, rankCommands } from "@core/composer";
 import { CommandMenu, Composer, ModelSelector } from "@web/views/Composer";
+import { ComposerActionIcon } from "@web/views/icons";
 import { describe, expect, it, vi } from "vitest";
 import {
   area,
@@ -71,6 +72,21 @@ function page({
 
 function behavior(): string {
   return field("#composer-behavior").value;
+}
+
+/** The button's icon is the one the server draws for the same action. */
+function drawsItsAction(): void {
+  const action = primary().dataset["action"];
+  if (
+    action !== "send" &&
+    action !== "stop" &&
+    action !== "steer" &&
+    action !== "followup"
+  )
+    throw new Error(`Unknown action ${String(action)}`);
+  expect(primary().querySelector("svg")?.outerHTML).toBe(
+    render(ComposerActionIcon({ action })),
+  );
 }
 
 function primary(): HTMLButtonElement {
@@ -188,6 +204,7 @@ describe("the primary button", () => {
     setUpComposer();
     expect(primary().disabled).toBe(true);
     expect(primary().dataset["action"]).toBe("send");
+    drawsItsAction();
     type(area(), "go");
     expect(primary().disabled).toBe(false);
     click(primary());
@@ -199,12 +216,15 @@ describe("the primary button", () => {
     const { setUpComposer } = await load();
     setUpComposer();
     expect(primary().dataset["action"]).toBe("stop");
+    drawsItsAction();
     expect(primary().disabled).toBe(false);
     expect(primary().getAttribute("aria-label")).toBe("Stop agent");
     type(area(), "change course");
     expect(primary().dataset["action"]).toBe("steer");
+    drawsItsAction();
     keydown(document.body, "Alt", { altKey: true });
     expect(primary().dataset["action"]).toBe("followup");
+    drawsItsAction();
     expect(primary().dataset["behavior"]).toBe("followUp");
     expect(primary().getAttribute("aria-label")).toBe("Queue");
     keyup(document.body, "Alt");

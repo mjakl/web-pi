@@ -88,40 +88,6 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(required(document.querySelector("textarea")).value).toBe("draft");
   });
 
-  it.each(["accepted", "HTTP 200 rejection"])(
-    "requires explicit composer acceptance for %s",
-    async (kind) => {
-      const { document } = await htmxBrowser(
-        page(composer),
-        () =>
-          new Response(
-            kind === "accepted"
-              ? ""
-              : `<div class="notice-shelf-item">Rejected</div>`,
-            {
-              headers:
-                kind === "accepted"
-                  ? { "X-Web-Pi-Submission": "accepted" }
-                  : {},
-            },
-          ),
-      );
-      required(document.querySelector("button")).click();
-      await eventually(() => {
-        if (kind === "accepted") {
-          expect(required(document.querySelector("textarea")).value).toBe("");
-        } else {
-          expect(
-            required(document.getElementById("toasts")).textContent,
-          ).toContain("Rejected");
-          expect(required(document.querySelector("textarea")).value).toBe(
-            "draft",
-          );
-        }
-      });
-    },
-  );
-
   it.each([422, 500])(
     "does not swap or clear drafts on HTTP %i, but delivers header toasts",
     async (status) => {

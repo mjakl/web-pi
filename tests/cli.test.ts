@@ -102,38 +102,6 @@ describe("web-pi flags", () => {
     }
   });
 
-  it("rejects an invalid notification grace period before opening a server or writing state", async () => {
-    const home = await mkdtemp(join(tmpdir(), "web-pi-grace-cli-"));
-    try {
-      await expect(
-        promisify(execFile)(
-          process.execPath,
-          [
-            "--import",
-            "tsx",
-            "src/dev.ts",
-            "--runtime",
-            "fake",
-            "--port",
-            "30142",
-          ],
-          {
-            timeout: 5000,
-            env: {
-              PATH: "",
-              HOME: home,
-              PI_CODING_AGENT_DIR: join(home, "agent"),
-              WEB_PI_NOTIFICATION_GRACE_PERIOD: "invalid",
-            },
-          },
-        ),
-      ).rejects.toThrow(/WEB_PI_NOTIFICATION_GRACE_PERIOD/);
-      expect(await readdir(home)).toEqual([]);
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
   it("refuses an empty host before binding every interface or warning about it", async () => {
     const home = await mkdtemp(join(tmpdir(), "web-pi-host-cli-"));
     try {

@@ -185,9 +185,11 @@ describe("workspace over the fake runtime", () => {
       images: [{ data: "AAAA", mimeType: "image/png" }],
     });
 
-    const recalled = await workspace.recallQueue(id);
-    expect(recalled.text).toBe("second");
-    expect(recalled.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
+    const recalled = await workspace.recallQueue(id, { text: "typed" });
+    expect(recalled?.text).toBe("second\n\ntyped");
+    expect(recalled?.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
+    // The queue is empty now: nothing comes back to touch the draft.
+    expect(await workspace.recallQueue(id, { text: "typed" })).toBeUndefined();
   });
 
   it("recalls selected prompts separately and keeps manual skill identities discoverable while running", async () => {

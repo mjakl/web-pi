@@ -204,6 +204,23 @@ describe("where images come from", () => {
     expect(input().files?.[0]?.name).toBe("recalled.png");
     expect(byId("recalled-images").childElementCount).toBe(0);
   });
+
+  it("adds recalled images after the attached ones, up to ten, and says what was left", async () => {
+    const { images } = await load();
+    images.add(
+      Array.from({ length: 8 }, (_, index) => image(`${String(index)}.png`)),
+    );
+    await flush();
+    byId("recalled-images").innerHTML =
+      `<span data-image="${btoa("a")}" data-mime="image/png"></span>`.repeat(3);
+    htmxEvent(document.body, "htmx:after:settle");
+    expect(images.count()).toBe(10);
+    expect(input().files?.[0]?.name).toBe("0.png");
+    expect(input().files?.[9]?.name).toBe("recalled.png");
+    expect(byId("toasts").textContent).toBe(
+      "At most 10 images per message: 1 recalled image was not attached.",
+    );
+  });
 });
 
 describe("image owner cleanup", () => {

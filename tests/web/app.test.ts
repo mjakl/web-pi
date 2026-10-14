@@ -605,14 +605,36 @@ describe("web app", () => {
     expect(page).toContain("Queued · 1");
     expect(page).toContain("follow-up");
 
+    // The button posts the draft in the composer, which stays after the
+    // queued text.
+    const draft = new FormData();
+    draft.set("text", "  my draft\n");
     const recalled = await (
-      await app.request("/sessions/s1/queue/recall", { method: "POST" })
+      await app.request("/sessions/s1/queue/recall", {
+        method: "POST",
+        body: draft,
+      })
     ).text();
     expect(recalled).toContain('id="composer-text"');
-    expect(recalled).toContain("and then this");
+    expect(recalled).toContain(">and then this\n\n  my draft\n</textarea>");
     expect(await (await app.request("/sessions/s1")).text()).not.toContain(
       "Queued ·",
     );
+
+    // Already sent: the composer and its draft stay as they are.
+    const drained = await app.request("/sessions/s1/queue/recall", {
+      method: "POST",
+      body: draft,
+    });
+    expect(drained.status).toBe(204);
+    expect(drained.headers.get("HX-Reswap")).toBe("none");
+    expect(JSON.parse(drained.headers.get("HX-Trigger") ?? "null")).toEqual({
+      "web-pi:toast": {
+        level: "info",
+        message: "The queued messages were already sent.",
+      },
+    });
+    expect(await drained.text()).toBe("");
   });
 
   it("runs a built-in slash command instead of prompting", async () => {

@@ -24,7 +24,11 @@ import {
 } from "@core/transcript";
 import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
-import { recallSkillPrompts, type QueueRecall } from "@core/skill-prompt";
+import {
+  recallSkillPrompts,
+  type QueueRecall,
+  type SkillPrompt,
+} from "@core/skill-prompt";
 import { isSubagentSession } from "@core/sessions";
 import { delegationFold } from "@core/session-delegation";
 import type { Shared } from "./deps.ts";
@@ -208,12 +212,18 @@ export function liveUseCases({
 
     /**
      * Empties the queue and hands it back for the composer: the texts as one
-     * draft, and the images of every queued message, so recalling a message
-     * that carried a screenshot does not silently drop it.
+     * draft ahead of the reader's own, and the images of every queued
+     * message, so recalling a message that carried a screenshot does not
+     * silently drop it. Nothing comes back when the queue was already sent.
      */
-    async recallQueue(id: string): Promise<QueueRecall> {
+    async recallQueue(
+      id: string,
+      draft?: SkillPrompt,
+    ): Promise<QueueRecall | undefined> {
       await requireWritableSession(id);
       const live = deps.runtime.get(id);
+      const queued = live?.clearQueue() ?? [];
+      if (queued.length === 0) return undefined;
       const available =
         live?.commands().flatMap((command) =>
           command.source === "skill" && command.skillId
@@ -225,7 +235,7 @@ export function liveUseCases({
               ]
             : [],
         ) ?? [];
-      return recallSkillPrompts(live?.clearQueue() ?? [], available);
+      return recallSkillPrompts(queued, available, draft);
     },
 
     async runBash(

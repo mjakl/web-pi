@@ -30,6 +30,19 @@ const eventually = async (assertion: () => void) => {
     .toBe(true);
 };
 const composer = `<form id="composer" data-session-id="s1" hx-post="/send" hx-target="#toasts" hx-swap="beforeend" hx-encoding="multipart/form-data"><textarea id="composer-text" name="text">draft</textarea><button type="submit" name="mode" value="followUp">Send</button><div id="slash-menu"></div><div id="at-menu"></div><input id="image-input" type="file" multiple><div id="image-previews"></div></form><div id="toasts"></div>`;
+// The queue panel's button, as views/Status.tsx renders it.
+const recall = `<button type="button" id="recall" hx-post="/sessions/s1/queue/recall" data-request-fields="text skills" hx-target="#composer-text" hx-swap="outerHTML">Recall</button>`;
+const storedSession = {
+  summary: {
+    id: "s1",
+    cwd: "/repo",
+    name: "Test",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    modifiedAt: "2026-09-01T00:00:00.000Z",
+    fileSize: 1,
+  },
+  entries: [],
+};
 
 describe("shipped HTMX 4 with the real browser client", () => {
   it("loads the scripts and startup configuration selected by HtmlLayout", async () => {
@@ -166,24 +179,31 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(required(requests[0]).headers.get("HX-Request")).toBe("true");
   });
 
+  it("leaves the draft alone when the queue was already sent", async () => {
+    const app = createWebApp({
+      workspace: createWorkspace(
+        createFakeWorld({ sessions: [storedSession] }),
+      ),
+      staticRoot: "/nonexistent",
+      defaultCwd: "/repo",
+    });
+    const { document } = await open(
+      page(composer.replace("</form>", `${recall}</form>`)),
+      (request) => app.request(request),
+    );
+    required(document.querySelector<HTMLButtonElement>("#recall")).click();
+    await eventually(() => {
+      expect(required(document.getElementById("toasts")).textContent).toBe(
+        "The queued messages were already sent.",
+      );
+    });
+    expect(document.querySelectorAll("#composer-text")).toHaveLength(1);
+    expect(required(document.querySelector("textarea")).value).toBe("draft");
+  });
+
   it("submits and recalls a queued prompt through the real routes, including the OOB image holder", async () => {
     const workspace = createWorkspace(
-      createFakeWorld({
-        delayMs: 200,
-        sessions: [
-          {
-            summary: {
-              id: "s1",
-              cwd: "/repo",
-              name: "Test",
-              createdAt: "2026-09-01T00:00:00.000Z",
-              modifiedAt: "2026-09-01T00:00:00.000Z",
-              fileSize: 1,
-            },
-            entries: [],
-          },
-        ],
-      }),
+      createFakeWorld({ delayMs: 200, sessions: [storedSession] }),
     );
     const app = createWebApp({
       workspace,
@@ -199,7 +219,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
       .replace('hx-post="/send"', 'hx-post="/sessions/s1/prompt"')
       .replace(
         "</form>",
-        `<input name="behavior" value="followUp"><button type="button" id="recall" hx-post="/sessions/s1/queue/recall" data-request-fields="none" hx-target="#composer-text" hx-swap="outerHTML">Recall</button><div id="recalled-images"></div></form>`,
+        `<input name="behavior" value="followUp">${recall}<div id="recalled-images"></div></form>`,
       );
     const { document, window, requests } = await open(
       page(`${markup}<div id="status"></div>`),
@@ -226,10 +246,14 @@ describe("shipped HTMX 4 with the real browser client", () => {
           0,
         );
       });
+      // What the reader typed meanwhile stays, after the queued text.
+      const area = required(document.querySelector("textarea"));
+      area.value = "typed meanwhile";
+      area.dispatchEvent(new window.Event("input", { bubbles: true }));
       required(document.querySelector<HTMLButtonElement>("#recall")).click();
       await eventually(() => {
         expect(required(document.querySelector("textarea")).value).toBe(
-          "draft",
+          "draft\n\ntyped meanwhile",
         );
       });
       expect(

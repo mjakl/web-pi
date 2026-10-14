@@ -248,8 +248,17 @@ export function setUpImages(
       }
     }
     target.replaceChildren();
-    if (recalled.length > 0) {
-      attached.push(...recalled);
+    // They join what is attached already, up to the same limit.
+    const room = Math.max(MAX_IMAGES - attached.length - draft.pending, 0);
+    const left = recalled.length - room;
+    if (left > 0) {
+      showToast(
+        `At most ${String(MAX_IMAGES)} images per message: ${String(left)} recalled image${left === 1 ? " was" : "s were"} not attached.`,
+        "warning",
+      );
+    }
+    if (room > 0 && recalled.length > 0) {
+      attached.push(...recalled.slice(0, room));
       notify();
     }
   };

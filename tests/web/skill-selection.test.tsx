@@ -299,13 +299,21 @@ describe("skill selection HTTP and display boundary", () => {
     const live = world.runtime.get("s1");
     if (!live) throw new Error("Missing live fixture");
     vi.spyOn(live, "clearQueue").mockReturnValue(queue);
+    // The reader's own draft and selection come along and stay.
+    const mine = { id: "/fake/skills/mine/SKILL.md", name: "mine" };
+    const draft = new FormData();
+    draft.set("text", "typed meanwhile");
+    draft.set("skills", JSON.stringify([other, mine]));
     const document = documentOf(
       await (
-        await app.request("/sessions/s1/queue/recall", { method: "POST" })
+        await app.request("/sessions/s1/queue/recall", {
+          method: "POST",
+          body: draft,
+        })
       ).text(),
     );
     expect(document.querySelector("#composer-text")?.textContent).toBe(
-      `${original}\n\nsecond request`,
+      `${original}\n\nsecond request\n\ntyped meanwhile`,
     );
     expect(
       JSON.parse(
@@ -313,6 +321,27 @@ describe("skill selection HTTP and display boundary", () => {
           .querySelector("#composer-text")
           ?.getAttribute("data-restored-skills") ?? "null",
       ),
-    ).toEqual([testing, other]);
+    ).toEqual([testing, other, mine]);
+  });
+
+  it("refuses a recall with a damaged selection and keeps the queue", async () => {
+    const { app, workspace, world } = fixture();
+    await workspace.activate("s1");
+    const live = world.runtime.get("s1");
+    if (!live) throw new Error("Missing live fixture");
+    const clear = vi.spyOn(live, "clearQueue");
+    const draft = new FormData();
+    draft.set("text", "typed");
+    draft.set("skills", "{not json");
+    const response = await app.request("/sessions/s1/queue/recall", {
+      method: "POST",
+      body: draft,
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("HX-Reswap")).toBe("none");
+    expect(response.headers.get("HX-Trigger")).toContain(
+      "Invalid skill selection",
+    );
+    expect(clear).not.toHaveBeenCalled();
   });
 });

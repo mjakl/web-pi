@@ -221,6 +221,34 @@ describe("skill prompt provenance", () => {
     },
   );
 
+  it("puts the reader's draft after the queued text and unions its selections", () => {
+    const queue = [
+      queued(encodeSkillPrompt("queued", [first], "PRIVATE")),
+      queued(
+        `Prefix\n${encodeSkillPrompt("/skill:second later", [first], "PRIVATE")}`,
+      ),
+    ];
+    expect(
+      recallSkillPrompts(queue, [first, second], {
+        text: "  typed\n",
+        skills: [second, first],
+      }),
+    ).toEqual({
+      text: "queued\n\n/skill:second later\n\n  typed\n",
+      // The reader's selection covers the inline command: nothing is lost.
+      skills: [first, second],
+      images: [],
+    });
+    expect(
+      recallSkillPrompts([queued("queued")], [], { text: " \n", skills: [] }),
+    ).toEqual({ text: "queued", images: [] });
+    expect(
+      recallSkillPrompts([{ ...queued(""), images: [] }], [], {
+        text: "typed",
+      }).text,
+    ).toBe("typed");
+  });
+
   it("does not infer an invocation from a plain unexpanded command or inline prose", () => {
     expect(
       recallSkillPrompts(

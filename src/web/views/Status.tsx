@@ -172,9 +172,10 @@ function QueuePanel({
           class="composer-queue-recall"
           title="Remove all queued messages and put them back into the input box for editing"
           hx-post={`/sessions/${sessionId}/queue/recall`}
-          // The button sits inside the composer form; without this htmx would
-          // post the draft and its attachments with the recall.
-          data-request-fields="none"
+          // The button sits inside the composer form. The recall puts the
+          // queued text in front of the draft, so it posts the draft's text
+          // and skills, never its attachments.
+          data-request-fields="text skills"
           hx-target="#composer-text"
           hx-swap="outerHTML"
         >

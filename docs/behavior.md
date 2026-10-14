@@ -59,7 +59,10 @@ model or a second context formula.
 - A successful submit clears only the originating draft revision and submitted
   attachments, not edits made while the response was pending.
 - During a run, sending steers by default; Alt selects a queued follow-up. Queue
-  recall restores text and images. Input history is scoped to the composer.
+  recall puts the queued text before the draft, separated by a blank line, adds
+  its skills to the selection and its images to the attachments up to the limit;
+  a queue that was already sent leaves the composer as it is. Input history is
+  scoped to the composer.
 - `!command` runs a shell command whose output enters context; `!!command`
   records it with `excludeFromContext`. Both use the project-command boundary in
   [ADR 0001](adr/0001-project-command-environment.md).

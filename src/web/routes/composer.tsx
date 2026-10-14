@@ -42,6 +42,7 @@ import {
   errorText,
   field,
   html,
+  rawField,
   readSubmission,
   sessionLocation,
   toastHeader,
@@ -241,14 +242,32 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   });
 
   /**
-   * Recall answers with the composer's textarea holding the queued texts, and
-   * the images those messages carried riding along out of band for the client
-   * bundle to put back into the attachment strip.
+   * Recall answers with the composer's textarea holding the queued texts and
+   * then the draft the button posted, and the images those messages carried
+   * riding along out of band for the client bundle to put back into the
+   * attachment strip. A queue that drained before the click leaves the
+   * composer alone.
    */
   app.post("/sessions/:id/queue/recall", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const recalled = await deps.workspace.recallQueue(id);
+    const form = await c.req.formData().catch(() => new FormData());
+    const posted = await readSubmission(form);
+    if ("error" in posted) {
+      toastHeader(c, posted.error);
+      c.header("HX-Reswap", "none");
+      return c.body(null, 204);
+    }
+    const recalled = await deps.workspace.recallQueue(id, {
+      // Untrimmed, as it stands in the editor.
+      text: rawField(form, "text").replaceAll("\r\n", "\n"),
+      skills: posted.skills,
+    });
+    if (!recalled) {
+      toastHeader(c, "The queued messages were already sent.", "info");
+      c.header("HX-Reswap", "none");
+      return c.body(null, 204);
+    }
     if (recalled.warning) toastHeader(c, recalled.warning, "warning");
     return c.html(
       <>

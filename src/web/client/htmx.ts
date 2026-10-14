@@ -4,15 +4,18 @@ export function requestContext(event: Event): HtmxRequestCtx {
   return (event as CustomEvent<{ ctx: HtmxRequestCtx }>).detail.ctx;
 }
 
-/** Only explicitly marked controls filter the collected form fields. */
+/**
+ * Only explicitly marked controls filter the collected form fields: they
+ * name the fields they send, or "none".
+ */
 export function setUpRequestFields(): void {
   document.body.addEventListener("htmx:config:request", (event) => {
     const ctx = requestContext(event);
     const fields = ctx.sourceElement.getAttribute("data-request-fields");
-    if (fields !== "none" && fields !== "thinking") return;
+    if (fields === null) return;
     const body = ctx.request.body;
     if (!(body instanceof FormData)) return;
-    const allowed = new Set(fields === "thinking" ? ["thinking"] : []);
+    const allowed = new Set(fields === "none" ? [] : fields.split(" "));
     // HTMX has already merged these explicit values into FormData. Preserve
     // those entries, including repeated values, rather than rebuilding it.
     const vals = ctx.sourceElement.getAttribute("hx-vals");

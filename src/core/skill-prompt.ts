@@ -113,13 +113,21 @@ export function recoverSkillPrompt(text: string): SkillPrompt {
 
 export type QueueRecall = EditableMessage & { warning?: string };
 
-/** Recover each authored request before joining; union only dropdown selections. */
+/**
+ * Recover each authored request before joining; union only dropdown
+ * selections. The draft the reader has in the composer goes last, as Pi's
+ * editor puts it after the queued text.
+ */
 export function recallSkillPrompts(
   queued: readonly QueuedMessage[],
   available: readonly SkillSelection[],
+  current: SkillPrompt = { text: "" },
 ): QueueRecall {
   const drafts = queued.map(({ text }) => recoverSkillPrompt(text));
-  const skills = uniqueSkills(drafts.flatMap((prompt) => prompt.skills ?? []));
+  const skills = uniqueSkills([
+    ...drafts.flatMap((prompt) => prompt.skills ?? []),
+    ...(current.skills ?? []),
+  ]);
   // Resolve names against this live session's discovery, just as resend will.
   // A selected identity or the combined draft's first command already includes it.
   const included = new Set(skills.map((skill) => skill.id));
@@ -141,11 +149,10 @@ export function recallSkillPrompts(
     lost.size > 0
       ? `After queue recall, ${[...lost].map((name) => `/skill:${name}`).join(", ")} will not invoke from the middle of the combined request. Select ${[...lost].join(", ")} in Skills to include ${lost.size === 1 ? "it" : "them"} on resend.`
       : undefined;
+  const texts = drafts.map(({ text }) => text).filter((text) => text !== "");
+  if (current.text.trim() !== "") texts.push(current.text);
   return {
-    text: drafts
-      .map(({ text }) => text)
-      .filter((text) => text !== "")
-      .join("\n\n"),
+    text: texts.join("\n\n"),
     images: queued.flatMap((message) => message.images ?? []),
     ...(skills.length > 0 ? { skills } : {}),
     ...(warning ? { warning } : {}),

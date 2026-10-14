@@ -1,7 +1,4 @@
-/* Shared settings and configuration surfaces. ConfigPanelShell only ever
-   fills its SettingsPanel section, so the modal variant and the is-embedded
-   modifier that distinguished it are gone; the border/radius/shadow resets
-   went with the modal box they were undoing. */
+/* Shared settings and configuration surfaces. */
 .config-panel-root {
   display: flex;
   width: 100%;
@@ -736,10 +733,6 @@
   cursor: pointer;
 }
 
-.settings-model-row[hidden] {
-  display: none;
-}
-
 .settings-model-row:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -766,10 +759,6 @@
 .settings-model-include {
   color: var(--text-dim);
   font-size: var(--text-xs);
-}
-
-.settings-models .settings-prompt-actions {
-  flex-wrap: wrap;
 }
 
 .settings-general-title {
@@ -962,7 +951,6 @@
     border-radius: var(--radius-lg);
     background: var(--bg);
     color: var(--text);
-    font-size: 16px;
   }
 }
 

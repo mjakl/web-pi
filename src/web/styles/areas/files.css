@@ -522,10 +522,6 @@
   flex-shrink: 0;
 }
 
-.file-tabs[hidden] {
-  display: none;
-}
-
 .file-source-view.is-wrapped {
   width: 100%;
 }
@@ -601,7 +597,6 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  box-sizing: border-box;
   flex: 0 0 28px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

@@ -23,7 +23,7 @@ const SEARCH_DEBOUNCE_MS = 150;
 function icon(entry: FileEntry): string {
   const name = entry.isDir ? "_folder" : catppuccinIcon(entry.path);
   const root = "/static/icons/catppuccin";
-  return `<span aria-hidden="true" class="catppuccin-file-icon composer-file-icon" style="--catppuccin-icon-light: url(${root}/latte/${name}.svg); --catppuccin-icon-dark: url(${root}/mocha/${name}.svg)"></span>`;
+  return `<span aria-hidden="true" class="catppuccin-file-icon" style="--catppuccin-icon-light: url(${root}/latte/${name}.svg); --catppuccin-icon-dark: url(${root}/mocha/${name}.svg)"></span>`;
 }
 
 /** One row: the directory prefix dim, the name plain, "/" dim for folders. */
@@ -35,8 +35,7 @@ function row(entry: FileEntry, index: number): string {
   return (
     `<button type="button" class="menu-item composer-file-option"` +
     ` data-index="${String(index)}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.isDir ? "1" : ""}">` +
-    `<span class="composer-file-icon-host">${icon(entry)}</span>` +
-    `<span class="composer-file-name">` +
+    `${icon(entry)}<span class="composer-file-name">` +
     `${prefix === "" ? "" : dim(prefix)}${escapeHtml(name)}${entry.isDir ? dim("/") : ""}` +
     `</span></button>`
   );

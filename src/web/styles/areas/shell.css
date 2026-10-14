@@ -1167,7 +1167,6 @@ html.dark .catppuccin-file-icon {
   font-weight: 600;
 }
 
-/* chat window */
 .chat-window {
   --conversation-rail-width: 36px;
   position: relative;
@@ -1300,7 +1299,6 @@ html.dark .catppuccin-file-icon {
 
 /* Shared dropdown appearance; each component owns positioning and interaction. */
 .menu-surface {
-  box-sizing: border-box;
   padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1312,7 +1310,6 @@ html.dark .catppuccin-file-icon {
   padding: 0;
 }
 .menu-item {
-  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -1352,7 +1349,6 @@ html.dark .catppuccin-file-icon {
   cursor: default;
 }
 .menu-filter {
-  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 5px var(--space-4);

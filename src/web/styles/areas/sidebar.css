@@ -478,7 +478,6 @@
 }
 .sidebar-file-search-input {
   width: 100%;
-  box-sizing: border-box;
   padding: var(--space-3) var(--space-12);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

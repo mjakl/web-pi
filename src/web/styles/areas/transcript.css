@@ -651,7 +651,6 @@
   }
   .chat-empty h1 {
     gap: var(--space-4);
-    margin-right: 0;
   }
   .chat-jump-to-latest {
     right: 14px;
@@ -825,7 +824,6 @@
 @media (pointer: coarse) {
   .subagent-card summary {
     min-height: 44px;
-    box-sizing: border-box;
   }
 }
 
@@ -949,7 +947,6 @@
 .message-preview-popover {
   position: fixed;
   z-index: var(--layer-popover);
-  box-sizing: border-box;
   width: max-content;
   max-width: min(280px, calc(100vw - 16px));
   padding: var(--space-5) var(--space-6);

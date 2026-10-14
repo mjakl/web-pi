@@ -213,9 +213,6 @@
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
 }
-.composer-skills-filter .menu-filter {
-  width: 100%;
-}
 .composer-skills-results {
   min-height: 0;
   overflow-y: auto;
@@ -442,7 +439,6 @@ button.extension-widget-trigger:focus-visible {
   bottom: calc(100% + 8px);
   z-index: var(--layer-completion);
   overflow: hidden;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   max-height: min(48vh, 400px);
@@ -531,15 +527,6 @@ button.extension-widget-trigger:focus-visible {
 }
 .composer-file-prefix {
   color: var(--text-dim);
-}
-.composer-file-icon-host {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-.composer-file-icon {
-  width: 14px;
-  height: 14px;
 }
 .composer-file-name {
   min-width: 0;
@@ -820,7 +807,6 @@ button.extension-widget-trigger:focus-visible {
   .composer-textarea {
     min-height: 0;
     padding-bottom: 0;
-    font-size: 16px;
   }
 
   .composer-toolbar {

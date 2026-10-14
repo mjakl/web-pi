@@ -4,11 +4,13 @@ set quiet := true
 # inlines the @imports. Absolute /static/... urls are the browser's, not
 # esbuild's, so they stay external. Target = the browserslist floor.
 esbuild-css := "./node_modules/.bin/esbuild src/web/styles/index.css --bundle --target=chrome125,edge125,firefox147,safari26 '--external:/static/*' --outfile=static/app.css"
-esbuild := "./node_modules/.bin/esbuild src/web/client/main.ts --bundle --format=esm --target=es2022 --alias:@core=./src/core --outfile=static/client.js"
+# Both script bundles get their path aliases and JSX settings from
+# tsconfig.json, which esbuild reads itself.
+esbuild := "./node_modules/.bin/esbuild src/web/client/main.ts --bundle --format=esm --target=es2022 --outfile=static/client.js"
 # The published server: everything bundled except the locally installed Pi SDK
 # and the runtime packages listed in AGENTS.md. Not
 # minified, so a stack trace from an install still names real functions.
-esbuild-server := "./node_modules/.bin/esbuild src/server.ts src/server-runtime.ts src/cli.ts --bundle --platform=node --format=esm --target=node24 --jsx=automatic --jsx-import-source=hono/jsx --alias:@=./src --alias:@core=./src/core --alias:@adapters=./src/adapters --alias:@web=./src/web '--external:@earendil-works/*' --external:web-push --external:undici --outdir=dist"
+esbuild-server := "./node_modules/.bin/esbuild src/server.ts src/server-runtime.ts src/cli.ts --bundle --platform=node --format=esm --target=node24 '--external:@earendil-works/*' --external:web-push --external:undici --outdir=dist"
 smoke := "WEB_PI_SMOKE=1 pnpm exec vitest run tests/smoke"
 
 # INFO: List all available commands

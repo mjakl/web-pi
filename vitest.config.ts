@@ -1,35 +1,8 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
-const rootDir = path.dirname(fileURLToPath(import.meta.url));
-
 export default defineConfig({
-  resolve: {
-    alias: [
-      {
-        find: /^@\/(.*)$/,
-        replacement: `${path.resolve(rootDir, "src")}/$1`,
-      },
-      {
-        find: /^@core\/(.*)$/,
-        replacement: `${path.resolve(rootDir, "src/core")}/$1`,
-      },
-      {
-        find: /^@adapters\/(.*)$/,
-        replacement: `${path.resolve(rootDir, "src/adapters")}/$1`,
-      },
-      {
-        find: /^@web\/(.*)$/,
-        replacement: `${path.resolve(rootDir, "src/web")}/$1`,
-      },
-      {
-        find: /^#\/(.*)$/,
-        replacement: `${path.resolve(rootDir, "tests")}/$1`,
-      },
-    ],
-  },
-  oxc: { jsx: { runtime: "automatic", importSource: "hono/jsx" } },
+  // Path aliases and JSX settings come from tsconfig.json.
+  resolve: { tsconfigPaths: true },
   test: {
     // Two projects, one run: the server and core tests in Node, and the
     // client bundle's modules in a browser-like DOM. `vitest run` executes
@@ -40,11 +13,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: [
-            "tests/**/*.test.ts",
-            "tests/**/*.test.tsx",
-            "src/**/*.test.ts",
-          ],
+          include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
           exclude: [
             "**/node_modules/**",
             "**/dist/**",

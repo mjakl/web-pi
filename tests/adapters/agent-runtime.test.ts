@@ -852,4 +852,32 @@ describe("a stop already in progress", () => {
     await expect(sending).rejects.toThrow(`Unknown session ${session.id}`);
     expect(existsSync(file)).toBe(false);
   });
+
+  it("fails a delete whose stop does not finish, and an open queued behind it", async () => {
+    const { workspace, session, stopping, release, asked } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const deleteWaits = asked(1);
+      const removing = expect(workspace.remove(session.id)).rejects.toThrow(
+        "This session is still stopping. Try again once it has stopped.",
+      );
+      await deleteWaits;
+      const activating = expect(workspace.activate(session.id)).rejects.toThrow(
+        "Cannot reopen a session that is still stopping.",
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      await removing;
+      // Behind the delete, the open waits for the same stop, as long again.
+      await asked(2);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await activating;
+    } finally {
+      vi.useRealTimers();
+      release();
+      await stopping;
+    }
+    expect(existsSync(file)).toBe(true);
+  });
 });

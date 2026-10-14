@@ -147,3 +147,32 @@ export function isSessionId(value: unknown): value is string {
     typeof value === "string" && value.length <= 128 && SESSION_ID.test(value)
   );
 }
+
+/**
+ * How long anything waits for a session's runtime to stop. The `exec` Pi
+ * gives extensions allows a cancelled command 5 seconds between SIGTERM and
+ * SIGKILL; twice that leaves room for the abort and the last writes.
+ */
+const STOP_WAIT_MS = 10_000;
+
+/**
+ * Whether a runtime's stop settles, either way, in that time. A stop can hang
+ * on an extension's session_shutdown or a tool that ignores the abort, and
+ * whoever waits for it then gives up instead of hanging with it.
+ */
+export async function stopsInTime(stop: Promise<unknown>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      stop.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(resolve, STOP_WAIT_MS, false);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

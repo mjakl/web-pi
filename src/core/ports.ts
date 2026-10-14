@@ -379,8 +379,9 @@ export type AgentRuntime = {
   /**
    * Resume a persisted session, or create a new one in `cwd`. An id that is
    * already open, or still starting, answers with that session; one that is
-   * stopping is reopened once its stop has finished, so a caller never needs
-   * `get` first. An explicit model or reasoning level starts the session
+   * stopping is reopened once its stop has finished, and refused when that
+   * takes longer than `stopsInTime` allows, so a caller never needs `get`
+   * first. An explicit model or reasoning level starts the session
    * there and is written back as Pi's default when the session really started
    * on it.
    */

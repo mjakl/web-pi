@@ -21,6 +21,7 @@ import {
 import {
   isSubagentSession,
   recentProjects,
+  stopsInTime,
   type SessionRowMetadata,
   type SessionSummary,
 } from "@core/sessions";
@@ -384,10 +385,18 @@ export function sessionUseCases({
     }
   }
 
-  /** Resolves once nothing writes the file, also when a stop was under way. */
+  /**
+   * Resolves once nothing writes the file, also when a stop was under way.
+   * Delete and rewind go through here, so a stop that hangs fails them before
+   * they touch a file the runtime may still write.
+   */
   async function stop(id: string): Promise<void> {
     await requireWritableSession(id);
-    await heldRuntime(id)?.stop();
+    const live = heldRuntime(id);
+    if (live && !(await stopsInTime(live.stop())))
+      throw new Error(
+        "This session is still stopping. Try again once it has stopped.",
+      );
   }
 
   /** A live session owns its file; only a stopped one is edited on disk. */

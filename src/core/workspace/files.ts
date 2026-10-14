@@ -139,7 +139,9 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
         ...(change ? { status: change.status } : {}),
       };
       if (kind === "text") {
-        view.text = await deps.files.readText(path);
+        const text = await deps.files.readText(path);
+        if (text === undefined) view.binary = true;
+        else view.text = text;
       }
       if (change) {
         const diff = await deps.git.diff(cwd, change);

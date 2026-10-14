@@ -23,6 +23,8 @@ const MAX_CHILDREN = 20;
 const CACHE_TTL_MS = 10_000;
 const CACHE_MAX_ENTRIES = 20;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+/** A NUL byte this close to the start marks a binary file, as for Git. */
+const BINARY_SNIFF_BYTES = 8192;
 
 /** Names the explorer never lists, whatever `.gitignore` says (spec §2). */
 const SKIPPED_DIRECTORIES = new Set([
@@ -254,6 +256,10 @@ export function createFileTree(): Files {
     async readText(path) {
       const handle = await open(path, constants.O_RDONLY);
       try {
+        // A positional read leaves the file position at 0 for readFile.
+        const head = Buffer.alloc(BINARY_SNIFF_BYTES);
+        const { bytesRead } = await handle.read(head, 0, head.length, 0);
+        if (head.subarray(0, bytesRead).includes(0)) return undefined;
         return await handle.readFile("utf8");
       } finally {
         await handle.close();

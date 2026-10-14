@@ -649,14 +649,17 @@ describe("containment", () => {
 });
 
 describe("unsupported documents", () => {
-  it("uses the generic viewer and preserves the original download bytes", async () => {
+  it("offers a binary file for download instead of printing it", async () => {
     const path = encodeURIComponent(join(repo, "report.docx"));
     const view = await app.request(`/files/view?session=s1&path=${path}`);
     expect(view.status).toBe(200);
     const html = await view.text();
-    expect(html).toContain('data-kind="text"');
-    expect(html).toContain('data-mode="source"');
-    expect(html).toContain('aria-label="Download file"');
+    expect(html).toContain("Binary file · 6 B");
+    expect(html).toContain(
+      `href="/files/raw?path=${path}&amp;session=s1&amp;download=1"`,
+    );
+    expect(html).toContain('download="report.docx"');
+    expect(html).not.toContain("file-source-line");
     expect(html).not.toContain("<iframe");
     const download = await app.request(
       `/files/raw?session=s1&path=${path}&download=1`,

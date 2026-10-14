@@ -621,6 +621,29 @@ function DownloadLink({
   );
 }
 
+/** A binary file is offered for download rather than printed as text. */
+function BinaryNotice({
+  view,
+  sessionId,
+}: {
+  view: FileView;
+  sessionId: string;
+}) {
+  return (
+    <div class="file-viewer-empty file-viewer-binary">
+      <span>Binary file · {formatBytes(view.size)}</span>
+      <a
+        class="config-button config-button-secondary config-button-default"
+        href={`${rawFileUrl(view.path, sessionId)}&download=1`}
+        download={baseName(view.path)}
+      >
+        <DownloadIcon size={14} />
+        Download
+      </a>
+    </div>
+  );
+}
+
 function MediaViewer({
   view,
   sessionId,
@@ -745,6 +768,9 @@ export function Viewer({
   );
   if (view.kind !== "text") {
     return shell(<MediaViewer view={view} sessionId={sessionId} />);
+  }
+  if (view.binary === true) {
+    return shell(<BinaryNotice view={view} sessionId={sessionId} />);
   }
   const lines = view.text === undefined ? null : view.text.split("\n").length;
   const meta = deleted

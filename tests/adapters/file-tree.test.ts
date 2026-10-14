@@ -113,6 +113,21 @@ describe("file tree", () => {
     expect(await createFileTree().readText(path)).toBe(text);
   });
 
+  it("never reads a file whole when a NUL byte sits in its first 8 KiB", async () => {
+    const files = createFileTree();
+    const binary = join(root, "early-nul.bin");
+    await writeFile(
+      binary,
+      Buffer.concat([Buffer.alloc(8191, 0x61), Buffer.from([0])]),
+    );
+    expect(await files.readText(binary)).toBeUndefined();
+    // Past the first 8 KiB, as for Git, a NUL byte is just text.
+    const late = join(root, "late-nul.txt");
+    const text = `${"a".repeat(8192)}\0tail`;
+    await writeFile(late, text);
+    expect(await files.readText(late)).toBe(text);
+  });
+
   it("streams a byte range", async () => {
     const stream = createFileTree().stream(join(root, "README.md"), {
       start: 1,

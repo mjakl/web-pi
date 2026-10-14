@@ -487,8 +487,11 @@ export type Files = {
   stat(path: string): Promise<FileStat | undefined>;
   /** The path with every symlink resolved; undefined when it cannot be. */
   realpath(path: string): Promise<string | undefined>;
-  /** Complete UTF-8 text. */
-  readText(path: string): Promise<string>;
+  /**
+   * Complete UTF-8 text, or undefined for a binary file: one with a NUL byte
+   * in its first 8 KiB, which is never read whole.
+   */
+  readText(path: string): Promise<string | undefined>;
   /** Bytes for a media response, optionally one Range slice. */
   stream(
     path: string,

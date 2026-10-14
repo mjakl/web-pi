@@ -345,6 +345,10 @@
 .file-viewer-status.is-error {
   color: var(--danger);
 }
+.file-viewer-binary {
+  flex-direction: column;
+  gap: var(--space-4);
+}
 .file-viewer-toolbar {
   min-width: 0;
   min-height: 35px;

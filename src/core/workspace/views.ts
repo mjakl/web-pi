@@ -153,6 +153,8 @@ export type FileView = {
   size: number;
   /** Complete text for a text file. */
   text?: string;
+  /** Not media, but not text either: a NUL byte near the start. */
+  binary?: boolean;
   /** The file is gone from disk; only the diff is left. */
   deleted?: boolean;
   status?: GitFileStatus;

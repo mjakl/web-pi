@@ -3,7 +3,13 @@ import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createWorkspace } from "@core/workspace";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createWebApp } from "@web/app";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -87,6 +93,21 @@ it("parses a stopped session once for a page's images and thinking", async () =>
 it("reads a changed file again instead of serving the kept parse", async () => {
   const { app, manager, parses, base, first } = fixture();
   await app.request(`${base}/entries/${first}/thinking/0`);
+  const later = manager.appendMessage(answer("later reasoning"));
+  const response = await app.request(`${base}/entries/${later}/thinking/0`);
+  expect(await response.text()).toContain("later reasoning");
+  expect(parses).toHaveBeenCalledTimes(2);
+});
+
+it("parses a file with a damaged line once per revision too", async () => {
+  const { app, manager, parses, base, first } = fixture();
+  // A crash left half a line. Pi skips it; the strict reader refuses the file.
+  appendFileSync(required(manager.getSessionFile()), '{"type":"mess\n');
+  for (let index = 0; index < 3; index += 1) {
+    const response = await app.request(`${base}/entries/${first}/thinking/0`);
+    expect(await response.text()).toContain("first reasoning");
+  }
+  expect(parses).toHaveBeenCalledOnce();
   const later = manager.appendMessage(answer("later reasoning"));
   const response = await app.request(`${base}/entries/${later}/thinking/0`);
   expect(await response.text()).toContain("later reasoning");

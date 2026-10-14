@@ -232,11 +232,15 @@ export function createShared(deps: WorkspaceDeps) {
     const kept: Kept = {
       read: (async () => {
         const last = await previous;
-        // Only strict, stable reads come back "changed": a file that changed
-        // while it was read, or does not parse strictly, is "unavailable".
         const check = await deps.sessions.readSaved(id, last?.read.revision);
         if (check.kind === "unchanged") return last;
-        return check.kind === "changed" ? { read: check.snapshot } : undefined;
+        if (check.kind === "changed") return { read: check.snapshot };
+        // Only strict, stable reads come back "changed". A file with a line
+        // Pi skips is read the tolerant way and kept under the revision that
+        // read saw, so it is parsed once per revision too; a file that
+        // changed while it was read gets one that never matches.
+        const tolerant = await deps.sessions.read(id);
+        return tolerant && { read: tolerant };
       })(),
     };
     savedReads.delete(id);
@@ -250,9 +254,7 @@ export function createShared(deps: WorkspaceDeps) {
         else savedReads.delete(id);
       }
     }
-    if (saved) return saved;
-    const tolerant = await deps.sessions.read(id);
-    return tolerant && { read: tolerant };
+    return saved;
   }
 
   /** Drops the oldest settled reads until the kept files fit the bound. */

@@ -18,9 +18,6 @@
     "LICENSE.pi-web"
   ],
   "type": "module",
-  "scripts": {
-    "prepare": "scripts/prepare.sh"
-  },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.2.0",
     "@earendil-works/pi-ai": "1.2.0",
@@ -41,7 +38,6 @@
     "highlight.js": "11.12.0",
     "hono": "4.13.13",
     "htmx.org": "4.0.0",
-    "husky": "9.1.7",
     "marked": "18.0.14",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

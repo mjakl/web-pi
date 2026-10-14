@@ -7,12 +7,12 @@ import {
   readStars,
   STAR_TYPE,
 } from "@core/session-entries";
-import type {
-  FileEntry,
-  SessionEntry,
-  SessionHeader,
+import {
+  type FileEntry,
+  type SessionEntry,
+  type SessionHeader,
+  type SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -155,21 +155,16 @@ export function rewindSessionFile(
   return removed;
 }
 
-/** Star state the source has, applied to a copy that may already carry some. */
-export function copyStars(
-  source: readonly SessionEntry[],
-  targetFile: string,
-): void {
-  const wanted = readStars(source);
-  const manager = SessionManager.open(targetFile);
-  const entries = manager.getEntries();
+/** Star state the source had, applied to a copy that may already carry some. */
+function copyStars(wanted: Set<string>, copy: SessionManager): void {
+  const entries = copy.getEntries();
   const current = readStars(entries);
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "assistant")
       continue;
     const starred = wanted.has(entry.id);
     if (starred !== current.has(entry.id)) {
-      manager.appendCustomEntry(STAR_TYPE, { targetId: entry.id, starred });
+      copy.appendCustomEntry(STAR_TYPE, { targetId: entry.id, starred });
     }
   }
 }
@@ -178,24 +173,24 @@ export function copyStars(
  * Write the root-to-`leafId` path into a new session file next to the source,
  * with the source as its parent. Used by both fork and clone: the SDK does the
  * copy, and only a path that ends before any answer needs writing by hand.
+ * The source's manager is repointed at the copy, so the caller drops it.
  */
 export function branchToNewFile(
-  sourceFile: string,
+  source: SessionManager,
   leafId: string,
 ): { id: string; file: string } {
-  // createBranchedSession repoints its manager at the new file, so this one is
-  // read for the source entries first and thrown away afterwards.
-  const throwaway = SessionManager.open(sourceFile);
-  const entries = throwaway.getEntries();
-  const file = throwaway.createBranchedSession(leafId);
+  const stars = readStars(source.getEntries());
+  const file = source.createBranchedSession(leafId);
   if (!file) throw new Error("Session is not stored on disk");
+  // Without an answer there is no star to append, so Pi's unflushed manager
+  // never writes over this file.
   if (!existsSync(file)) {
-    const header = throwaway.getHeader();
+    const header = source.getHeader();
     if (!header) throw new Error("Branched session has no header");
-    writeFileSync(file, jsonl([header, ...throwaway.getEntries()]), {
+    writeFileSync(file, jsonl([header, ...source.getEntries()]), {
       flag: "wx",
     });
   }
-  copyStars(entries, file);
-  return { id: throwaway.getSessionId(), file };
+  copyStars(stars, source);
+  return { id: source.getSessionId(), file };
 }

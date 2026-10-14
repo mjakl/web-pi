@@ -609,10 +609,7 @@ export function createPiSessionCatalog(options: {
     },
 
     async fork(id, entryId) {
-      const { filePath, manager, selectedId } = await openSelection(
-        id,
-        entryId,
-      );
+      const { manager, selectedId } = await openSelection(id, entryId);
       const entry = manager.getEntry(selectedId ?? entryId);
       if (!entry) throw new Error("Select an existing conversation message");
       const draft = editableUserMessage(entry) ?? { text: "", images: [] };
@@ -627,16 +624,16 @@ export function createPiSessionCatalog(options: {
           "Nothing precedes the first message; use New for an empty session.",
         );
       }
-      const forked = branchToNewFile(filePath, leafId);
+      const forked = branchToNewFile(manager, leafId);
       paths.set(forked.id, forked.file);
       return { id: forked.id, ...draft };
     },
 
     async clone(id, leafId) {
-      const { filePath, manager, selectedId } = await openSelection(id, leafId);
+      const { manager, selectedId } = await openSelection(id, leafId);
       const leaf = selectedId ?? manager.getLeafId();
       if (leaf === null) throw new Error("Cannot clone an empty session");
-      const cloned = branchToNewFile(filePath, leaf);
+      const cloned = branchToNewFile(manager, leaf);
       paths.set(cloned.id, cloned.file);
       return cloned.id;
     },

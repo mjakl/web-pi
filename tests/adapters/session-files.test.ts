@@ -276,7 +276,7 @@ describe("session file edits", () => {
       starred: true,
     });
 
-    const forked = branchToNewFile(file, firstAnswer.id);
+    const forked = branchToNewFile(SessionManager.open(file), firstAnswer.id);
 
     const copy = SessionManager.open(forked.file);
     expect(copy.getSessionId()).toBe(forked.id);
@@ -295,6 +295,25 @@ describe("session file edits", () => {
 });
 
 describe("Pi session catalog", () => {
+  it("forks and clones, stars included, from one read of the source", async () => {
+    const manager = makeSession(["first", "second"]);
+    const id = manager.getSessionId();
+    const answerId = manager.getEntries()[1]?.id ?? "";
+    manager.appendCustomEntry("web-pi:star", {
+      targetId: answerId,
+      starred: true,
+    });
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    const open = vi.spyOn(SessionManager, "open");
+    const forked = await catalog.fork(id, answerId);
+    const cloned = await catalog.clone(id);
+    expect(open).toHaveBeenCalledTimes(2);
+    for (const copy of [forked.id, cloned]) {
+      const entries = (await catalog.read(copy))?.entries ?? [];
+      expect(readStars(entries)).toEqual(new Set([answerId]));
+    }
+  });
+
   it("reads the current folder without opening or rewriting the transcript", async () => {
     const manager = makeSession(["folder lookup"]);
     manager.appendSessionInfo("Name still comes from the transcript");

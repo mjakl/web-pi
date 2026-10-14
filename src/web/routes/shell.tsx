@@ -42,6 +42,7 @@ import {
   displayedCwd,
   errorText,
   field,
+  hxTrigger,
   rawField,
   toastHeader,
 } from "./shared.ts";
@@ -353,7 +354,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         JSON.parse(field(form, "patterns")) as unknown,
         sessionId,
       );
-      c.header("HX-Trigger", "models-changed");
+      hxTrigger(c, { "models-changed": {} });
     } catch (error) {
       failed = true;
       message = `Could not save models: ${errorText(error)}`;

@@ -132,7 +132,9 @@ it("persists only global enabledModels, reconstructs it, and leaves General pref
   const before = await globals();
   const response = await save([second]);
   expect(await response.text()).toContain("Selection saved.");
-  expect(response.headers.get("HX-Trigger")).toBe("models-changed");
+  expect(JSON.parse(response.headers.get("HX-Trigger") ?? "null")).toEqual({
+    "models-changed": {},
+  });
   expect(await globals()).toEqual({
     ...before,
     enabledModels: ["second/shared"],

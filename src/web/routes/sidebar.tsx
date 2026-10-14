@@ -20,6 +20,7 @@ import {
   field,
   fileFailure,
   html,
+  hxTrigger,
   sessionLocation,
   toastHeader,
 } from "./shared.ts";
@@ -132,10 +133,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
         if (c.req.header("HX-Request") === "true") {
           sessionLocation(c, `/new?cwd=${encodeURIComponent(newCwd(c))}`);
           // HX-Location skips the response body. Refresh the surviving tree too.
-          c.header(
-            "HX-Trigger",
-            JSON.stringify({ "web-pi:sidebar-refresh": {} }),
-          );
+          hxTrigger(c, { "web-pi:sidebar-refresh": {} });
         } else c.header("HX-Redirect", "/new");
         return c.body(null, 200);
       }

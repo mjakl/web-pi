@@ -142,16 +142,35 @@ export function rawField(form: FormData, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * Adds events to the response's HX-Trigger header, beside any set already.
+ * A header cannot carry characters above U+00FF, and the action has run by
+ * the time it is written, so everything outside ASCII is escaped as `\uXXXX`;
+ * htmx reads the header with JSON.parse, which restores the text.
+ */
+export function hxTrigger(c: Context, events: Record<string, unknown>): void {
+  const set = c.res.headers.get("HX-Trigger");
+  const merged = {
+    ...(set ? (JSON.parse(set) as Record<string, unknown>) : {}),
+    ...events,
+  };
+  c.header(
+    "HX-Trigger",
+    JSON.stringify(merged).replaceAll(
+      /[^\x20-\x7E]/g,
+      // UTF-16 code units, so an emoji becomes its escaped surrogate pair.
+      (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    ),
+  );
+}
+
 /** Errors reach the reader as a toast, wherever the request came from. */
 export function toastHeader(
   c: Context,
   message: string,
   level: "info" | "warning" | "error" = "error",
 ): void {
-  c.header(
-    "HX-Trigger",
-    JSON.stringify({ "web-pi:toast": { level, message } }),
-  );
+  hxTrigger(c, { "web-pi:toast": { level, message } });
 }
 
 export type Submission = {

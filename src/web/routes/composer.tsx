@@ -42,6 +42,7 @@ import {
   errorText,
   field,
   html,
+  hxTrigger,
   rawField,
   readSubmission,
   sessionLocation,
@@ -168,13 +169,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       }
       if (c.req.header("HX-Request") !== "true")
         return c.redirect(`/sessions/${id}`, 303);
-      const triggers = JSON.parse(
-        response.headers.get("HX-Trigger") ?? "{}",
-      ) as Record<string, unknown>;
-      c.header(
-        "HX-Trigger",
-        JSON.stringify({ ...triggers, "web-pi:session-created": { cwd, id } }),
-      );
+      // Beside a built-in's toast, which this context already carries.
+      hxTrigger(c, { "web-pi:session-created": { cwd, id } });
       sessionLocation(c, `/sessions/${id}`);
       return c.body(null, 200);
     });

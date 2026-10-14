@@ -649,6 +649,45 @@ describe("web app", () => {
     expect(world.store.get("s1")?.summary.name).toBe("Renamed by command");
   });
 
+  it("confirms a rename whose name is not Latin-1, through an ASCII header", async () => {
+    const { app, world } = testApp();
+    const form = new FormData();
+    form.set("text", "/name Fix the “quotes” bug");
+    const res = await app.request("/sessions/s1/prompt", {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(200);
+    const trigger = res.headers.get("HX-Trigger") ?? "";
+    // htmx reads the header with JSON.parse, which restores the escapes.
+    expect(trigger).toMatch(/^[\x20-\x7e]*$/);
+    expect(JSON.parse(trigger)).toEqual({
+      "web-pi:toast": {
+        level: "info",
+        message: 'Renamed to "Fix the “quotes” bug".',
+      },
+    });
+    expect(world.store.get("s1")?.summary.name).toBe("Fix the “quotes” bug");
+  });
+
+  it("reports a folder it cannot use with its name intact", async () => {
+    const { app } = testApp();
+    const body = new FormData();
+    body.set("cwd", "/missing/日本 🦉");
+    const res = await app.request("/workspaces/validate", {
+      method: "POST",
+      body,
+      headers: { "HX-Request": "true" },
+    });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.headers.get("HX-Trigger") ?? "null")).toEqual({
+      "web-pi:toast": {
+        level: "error",
+        message: "Folder not found: /missing/日本 🦉",
+      },
+    });
+  });
+
   it("renders a persisted compaction summary without a duplicate success notice", async () => {
     const { app, world } = testApp();
     const stored = world.store.get("s1");
@@ -735,22 +774,42 @@ describe("web app", () => {
     expect(wrong.status).toBe(403);
   });
 
-  it("tells the browser to re-key its draft once a session exists", async () => {
+  it.each(["/repo/two", "/repo/日本"])(
+    "tells the browser to re-key its draft once a session exists in %s",
+    async (cwd) => {
+      const { app } = testApp();
+      const form = new FormData();
+      form.set("cwd", cwd);
+      form.set("text", "hello");
+      const res = await app.request("/sessions", {
+        method: "POST",
+        body: form,
+        headers: { "HX-Request": "true" },
+      });
+      expect(JSON.parse(res.headers.get("HX-Location") ?? "{}")).toMatchObject({
+        path: "/sessions/new-1",
+        target: "#session-region",
+      });
+      expect(JSON.parse(res.headers.get("HX-Trigger") ?? "null")).toEqual({
+        "web-pi:session-created": { cwd, id: "new-1" },
+      });
+    },
+  );
+
+  it("keeps a built-in's toast beside the new session's trigger", async () => {
     const { app } = testApp();
     const form = new FormData();
-    form.set("cwd", "/repo/two");
-    form.set("text", "hello");
+    form.set("cwd", "/repo/日本");
+    form.set("text", "/name Café “one”");
     const res = await app.request("/sessions", {
       method: "POST",
       body: form,
       headers: { "HX-Request": "true" },
     });
-    expect(JSON.parse(res.headers.get("HX-Location") ?? "{}")).toMatchObject({
-      path: "/sessions/new-1",
-      target: "#session-region",
+    expect(JSON.parse(res.headers.get("HX-Trigger") ?? "null")).toEqual({
+      "web-pi:toast": { level: "info", message: 'Renamed to "Café “one”".' },
+      "web-pi:session-created": { cwd: "/repo/日本", id: "new-1" },
     });
-    expect(res.headers.get("hx-trigger")).toContain("web-pi:session-created");
-    expect(res.headers.get("hx-trigger")).toContain("/repo/two");
   });
 
   it("pushes rows and a finished marker on the shared stream", async () => {

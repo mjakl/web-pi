@@ -260,7 +260,7 @@ function fakeProject(cwd: string): ProjectInfo {
   return { root: cwd, branch: null, isWorktree: false, isTopLevel: true };
 }
 
-export const FAKE_SKILLS: SkillInfo[] = [
+const FAKE_SKILLS: SkillInfo[] = [
   {
     name: "testing",
     description: "How this repository tests things",
@@ -289,7 +289,7 @@ export const FAKE_SKILLS: SkillInfo[] = [
   },
 ];
 
-export const FAKE_PACKAGES: PackageInfo[] = [
+const FAKE_PACKAGES: PackageInfo[] = [
   {
     source: "npm:@acme/pi-plugin@1.2.0",
     scope: "user",
@@ -311,9 +311,9 @@ export const FAKE_PACKAGES: PackageInfo[] = [
   },
 ];
 
-export const FAKE_SYSTEM_PROMPT = "You are Pi, a coding agent.\n\nBe concise.";
+const FAKE_SYSTEM_PROMPT = "You are Pi, a coding agent.\n\nBe concise.";
 
-export const FAKE_TOOLS: ToolView[] = [
+const FAKE_TOOLS: ToolView[] = [
   {
     name: "read",
     description: "Read a file from disk",
@@ -388,17 +388,20 @@ class FakeLiveSession implements LiveSession {
   private readonly stored: FakeStoredSession;
   private readonly script: (prompt: string) => ScriptedStep[];
   private readonly delayMs: number;
+  private readonly slashCommands: SlashCommand[];
   private readonly onStop: () => void;
 
   constructor(
     stored: FakeStoredSession,
     script: (prompt: string) => ScriptedStep[],
     delayMs: number,
+    slashCommands: SlashCommand[],
     onStop: () => void,
   ) {
     this.stored = stored;
     this.script = script;
     this.delayMs = delayMs;
+    this.slashCommands = slashCommands;
     this.onStop = onStop;
     this.id = stored.summary.id;
     this.turnStart = branchOf(stored).length;
@@ -741,7 +744,7 @@ class FakeLiveSession implements LiveSession {
   }
 
   commands(): SlashCommand[] {
-    return FAKE_COMMANDS;
+    return this.slashCommands;
   }
 
   toolDefinitions(): ToolView[] {
@@ -937,16 +940,15 @@ export function createFakeWorld(
     script?: (prompt: string) => ScriptedStep[];
     delayMs?: number;
     files?: string[];
-    tmpdir?: string;
     models?: ModelOption[];
+    /** What the slash menu offers, `FAKE_COMMANDS` by default. */
+    commands?: SlashCommand[];
     /** Which repository a folder belongs to: how sessions group by project. */
     projects?: (cwd: string) => ProjectInfo;
     /** Folders whose project resources are gated behind trust. */
     trustRequired?: string[];
     /** Folders that are no longer on disk: their sessions are read-only. */
     missingFolders?: string[];
-    skills?: SkillInfo[];
-    packages?: PackageInfo[];
   } = {},
 ): FakeWorld {
   // Every session has a file, as it would under Pi: the statistics panel
@@ -976,10 +978,9 @@ export function createFakeWorld(
   const gated = new Set(options.trustRequired ?? []);
   const missing = new Set(options.missingFolders ?? []);
   const trusted = new Set<string>();
-  const skills = (options.skills ?? FAKE_SKILLS).map((skill) => ({ ...skill }));
-  const plugins = (options.packages ?? FAKE_PACKAGES).map((entry) => ({
-    ...entry,
-  }));
+  const commands = [...(options.commands ?? FAKE_COMMANDS)];
+  const skills = FAKE_SKILLS.map((skill) => ({ ...skill }));
+  const plugins = FAKE_PACKAGES.map((entry) => ({ ...entry }));
   let subscriptions: PushSubscription[] = [];
   let settings = { ...DEFAULT_WEB_SETTINGS };
   let modelPatterns: string[] | null = null;
@@ -996,10 +997,16 @@ export function createFakeWorld(
   }
 
   function open(stored: FakeStoredSession): FakeLiveSession {
-    const session = new FakeLiveSession(stored, script, delayMs, () => {
-      live.delete(stored.summary.id);
-      announce({ type: "stopped", sessionId: stored.summary.id });
-    });
+    const session = new FakeLiveSession(
+      stored,
+      script,
+      delayMs,
+      commands,
+      () => {
+        live.delete(stored.summary.id);
+        announce({ type: "stopped", sessionId: stored.summary.id });
+      },
+    );
     let wasBusy = false;
     session.subscribe((event) => {
       const busy = session.snapshot().status.running;
@@ -1378,7 +1385,7 @@ export function createFakeWorld(
     resources: {
       // A stopped session lists extension commands too: the real loader reads
       // them off disk, gated by project trust, rather than resuming an agent.
-      commands: () => Promise.resolve(FAKE_COMMANDS),
+      commands: () => Promise.resolve(commands),
     },
     files: {
       index: () =>
@@ -1457,6 +1464,6 @@ export function createFakeWorld(
         return Promise.resolve();
       },
     },
-    tmpdir: options.tmpdir ?? "/tmp",
+    tmpdir: "/tmp",
   };
 }

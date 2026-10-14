@@ -1,6 +1,7 @@
 import {
   assistantEntry,
   createFakeWorld,
+  FAKE_COMMANDS,
   userEntry,
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
@@ -265,6 +266,27 @@ describe("workspace over the fake runtime", () => {
       await expect(workspace.activate("s1")).rejects.toThrow(
         "Working folder is unavailable. This session is read-only: /repo/one",
       );
+    });
+
+    it("offers the slash commands its own world was given", async () => {
+      const given = [
+        ...FAKE_COMMANDS,
+        {
+          name: "skill:release",
+          description: "Plan a release",
+          source: "skill" as const,
+          skillId: "/fake/skills/release/SKILL.md",
+        },
+      ];
+      const { workspace } = stopped({ commands: given });
+      // The world keeps its own copy, so neither list leaks into the other.
+      given.length = 0;
+      const names = async (from: typeof workspace) =>
+        (await from.commands("s1", "")).map((command) => command.name);
+      expect(await names(workspace)).toContain("skill:release");
+      await workspace.activate("s1");
+      expect(await names(workspace)).toContain("skill:release");
+      expect(await names(stopped().workspace)).not.toContain("skill:release");
     });
 
     it("is read without classifying it: only a runtime needs the check", async () => {

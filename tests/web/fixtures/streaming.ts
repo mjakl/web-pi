@@ -7,6 +7,9 @@ import type { LiveEvent, LiveSnapshot } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { HTMLDetailsElement } from "happy-dom";
+import { nextEvent, required } from "#/web/helpers";
+import { htmxBrowser } from "#/web/htmx4-browser";
 
 /** Manually advanced snapshots, real workspace projections and HTTP routes. */
 export async function streamingFixture() {
@@ -394,4 +397,42 @@ export async function streamingFixture() {
       return listeners.size;
     },
   };
+}
+
+/**
+ * The fixture's session page, which reconnects at once, and its first live
+ * frame, awaited by tests that must act after the initial render.
+ */
+export async function open(
+  f: Awaited<ReturnType<typeof streamingFixture>>,
+  markup?: string,
+  transport = (request: Request) => f.app.request(request),
+  options: { clock?: boolean } = {},
+) {
+  let firstFrame: Promise<unknown> | undefined;
+  const browser = await htmxBrowser(
+    markup ?? (await (await f.app.request(`/sessions/${f.id}`)).text()),
+    (request) =>
+      new URL(request.url).pathname === "/events"
+        ? new Response("")
+        : transport(request),
+    {
+      ...options,
+      instantReconnect: true,
+      afterMarkup: (window) => {
+        firstFrame = nextEvent(window.document, "htmx:sse:after:message");
+      },
+    },
+  );
+  return { ...browser, firstFrame: required(firstFrame) };
+}
+
+export function toggleDetails(card: HTMLDetailsElement) {
+  card.open = !card.open;
+  const view = required(card.ownerDocument.defaultView);
+  card.dispatchEvent(new view.Event("toggle"));
+}
+
+export function openDetails(card: HTMLDetailsElement) {
+  if (!card.open) toggleDetails(card);
 }

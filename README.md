@@ -218,9 +218,8 @@ Server-side HTTP honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 
 Browser baseline: **Chrome/Edge 125+, Firefox 147+, Safari 26+**. Native
 popovers, CSS anchor positioning, `@starting-style`, `:has()`, and
-`field-sizing` are required, not optional enhancements. These are the declared
-support floors, not a claim that every minimum browser was exercised for this
-change.
+`field-sizing` are required, not optional enhancements. These are declared
+support floors; not every minimum version is tested.
 
 ## Codemode, tool search, and MCP
 

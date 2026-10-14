@@ -59,8 +59,10 @@ export function isReadToolName(name: string): boolean {
 }
 
 /**
- * The absolute file a read, write, or edit call names. The transcript turns
- * it into a link into the file panel; anything else keeps its plain preview.
+ * The absolute file a read, write, or edit call names, by Pi's rule: one
+ * leading `@` is dropped, and a `~` path is left alone because only Pi's
+ * process knows the home folder it meant. The transcript turns it into a
+ * link into the file panel; anything else keeps its plain preview.
  */
 export function toolFilePath(
   call: { name: string; arguments: unknown },
@@ -76,10 +78,10 @@ export function toolFilePath(
   const args = call.arguments;
   if (typeof args !== "object" || args === null) return undefined;
   const record = args as Record<string, unknown>;
-  const path = record["file_path"] ?? record["path"];
-  if (typeof path !== "string" || path === "" || path.startsWith("~")) {
-    return undefined;
-  }
+  const reported = record["file_path"] ?? record["path"];
+  if (typeof reported !== "string") return undefined;
+  const path = reported.startsWith("@") ? reported.slice(1) : reported;
+  if (path === "" || path.startsWith("~")) return undefined;
   // A pattern or a glob is not a file; a path is what the panel can open.
   return /[*?]/.test(path) ? undefined : resolveUnder(cwd, path);
 }
@@ -101,13 +103,8 @@ export function writtenFiles(
       const { call } = block;
       if (!isWriteToolName(call.name) && !isEditToolName(call.name)) continue;
       if (!call.result || call.result.isError) continue;
-      const args = call.arguments;
-      if (typeof args !== "object" || args === null) continue;
-      const record = args as Record<string, unknown>;
-      const reported = record["file_path"] ?? record["path"];
-      if (typeof reported !== "string" || reported === "") continue;
-      const path = resolveUnder(cwd, reported);
-      if (!files.includes(path)) files.push(path);
+      const path = toolFilePath(call, cwd);
+      if (path !== undefined && !files.includes(path)) files.push(path);
     }
   }
   return files;

@@ -132,6 +132,22 @@ describe("written files", () => {
     const [turn] = groupTurns(items, "/repo");
     expect(turn?.written).toEqual(["/repo/src/a.ts", "/abs/b.ts"]);
   });
+
+  it("follows Pi's path rules: one leading @ goes, a home path is no chip", () => {
+    const [turn] = groupTurns(
+      [
+        user("u1"),
+        assistant("a1", [
+          writeCall("c1", "write", { file_path: "@src/a.ts" }),
+          writeCall("c2", "edit", { path: "~/notes.md" }),
+          writeCall("c3", "write", { path: "@~/notes.md" }),
+        ]),
+        assistant("a2", [text("done")]),
+      ],
+      "/repo",
+    );
+    expect(turn?.written).toEqual(["/repo/src/a.ts"]);
+  });
 });
 
 describe("toolFilePath", () => {
@@ -149,6 +165,15 @@ describe("toolFilePath", () => {
     expect(
       toolFilePath(call("read", { path: "src/*.ts" }), "/repo"),
     ).toBeUndefined();
+  });
+
+  it("strips one leading @ as Pi does, and refuses a home path", () => {
+    const call = (path: string) => ({ name: "read", arguments: { path } });
+    expect(toolFilePath(call("@src/a.ts"), "/repo")).toBe("/repo/src/a.ts");
+    expect(toolFilePath(call("@@src/a.ts"), "/repo")).toBe("/repo/@src/a.ts");
+    expect(toolFilePath(call("~/notes.md"), "/repo")).toBeUndefined();
+    expect(toolFilePath(call("@~/notes.md"), "/repo")).toBeUndefined();
+    expect(toolFilePath(call("@"), "/repo")).toBeUndefined();
   });
 });
 

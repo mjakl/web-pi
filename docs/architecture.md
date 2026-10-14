@@ -398,8 +398,11 @@ command's navigation/notice effects while a newer choice is still loading. The
 guard clears parsed HX headers because HTMX fires `HX-Trigger` even after
 response cancellation, including a canceled response body read. Displayed
 session identity and contextual cwd live on `main`. Request headers derive from
-that owner; only a mounted blank new-session view commits the directory
-preference, so canceled responses and old-session navigation cannot change it.
+that owner: every htmx request names the displayed session, or none, in
+`X-Web-Pi-Session`, and only a full page load falls back to its referrer and the
+`web-pi-session` cookie. Only a mounted blank new-session view commits the
+directory preference, so canceled responses and old-session navigation cannot
+change it.
 The notice shelf uses native `hx-preserve` across region replacements.
 
 Text drafts remain keyed by session or `new:<cwd>`, debounced for 300 ms and

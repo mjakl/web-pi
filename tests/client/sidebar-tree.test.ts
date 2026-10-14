@@ -268,7 +268,7 @@ describe("visible shortcuts and selection recovery", () => {
     expect(htmx().ajax).toHaveBeenCalledOnce();
     expect(htmx().ajax).toHaveBeenCalledWith(
       "GET",
-      "/sidebar/rows?selected=missing",
+      "/sidebar/rows",
       expect.objectContaining({
         target: byId("session-list"),
         swap: "innerHTML",
@@ -280,16 +280,5 @@ describe("visible shortcuts and selection recovery", () => {
     navigate("other");
     navigate("another-missing");
     expect(htmx().ajax).toHaveBeenCalledTimes(2);
-  });
-
-  it("uses the displayed session rather than stale paging selection", async () => {
-    await setup("other");
-    const ctx = {
-      request: { action: "/sidebar/rows?parent=parent&after=50&selected=old" },
-    };
-    htmxEvent(byId("session-list"), "htmx:config:request", { ctx });
-    expect(ctx.request.action).toBe(
-      "/sidebar/rows?parent=parent&after=50&selected=other",
-    );
   });
 });

@@ -196,12 +196,11 @@ function setUpSessionTree(): void {
     automaticRefreshNeeded = false;
     attemptedSelection = active;
     pending = true;
-    const query = new URLSearchParams({ selected: active });
     const htmx = (globalThis as unknown as { htmx: Htmx }).htmx;
     // The stream cannot know about later navigation. Replace just its first
     // page to reveal an off-page path; a missing ID gets one attempt, not a loop.
     void htmx
-      .ajax("GET", `/sidebar/rows?${query.toString()}`, {
+      .ajax("GET", "/sidebar/rows", {
         source: list,
         target: list,
         swap: "innerHTML",
@@ -325,13 +324,6 @@ function setUpSessionTree(): void {
   document.addEventListener("web-pi:sidebar-refresh", () => {
     refreshNeeded = true;
     reconcile();
-  });
-  document.addEventListener("htmx:config:request", (event) => {
-    const ctx = requestContext(event);
-    const url = new URL(ctx.request.action, location.href);
-    if (url.pathname !== "/sidebar/rows") return;
-    url.searchParams.set("selected", currentSessionId());
-    ctx.request.action = url.pathname + url.search;
   });
   document.addEventListener("htmx:before:request", (event) => {
     const ctx = requestContext(event);

@@ -113,12 +113,15 @@ export function displayedCwd(c: Context): string | undefined {
   }
 }
 
-/** An explicit displayed identity wins, including no open session. */
+/**
+ * The session the page shows. Every htmx request names it in a header,
+ * including none open; a full page load has only its referrer and cookie.
+ */
 export function currentSessionId(c: Context): string | undefined {
   const displayed = c.req.header("X-Web-Pi-Session");
   if (displayed !== undefined)
     return isSessionId(displayed) ? displayed : undefined;
-  const url = c.req.header("HX-Current-URL") ?? c.req.header("Referer") ?? "";
+  const url = c.req.header("Referer") ?? "";
   const id = /\/sessions\/([^/?#]+)/.exec(url)?.[1];
   if (id !== undefined && isSessionId(id)) return id;
   // Typed, bookmarked or opened in a new tab: no referrer names the session,

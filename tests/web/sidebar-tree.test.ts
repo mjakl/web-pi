@@ -117,15 +117,16 @@ describe("sidebar tree HTTP fragments", () => {
       ),
       session("selected", "parent", 200),
     ]);
-    const first = await (
-      await app.request("/sidebar/rows?selected=selected")
-    ).text();
+    const displayed = { headers: { "X-Web-Pi-Session": "selected" } };
+    const first = await (await app.request("/sidebar/rows", displayed)).text();
     expect(ids(first)).toContain("parent");
     expect(ids(first)).toContain("selected");
     expect(ids(first)).not.toContain("root-50");
-    expect(first).toContain("after=50&amp;parent=parent&amp;selected=selected");
+    expect(first).toContain(
+      'hx-get="/sidebar/rows?after=50&amp;parent=parent"',
+    );
     const laterRoots = await (
-      await app.request("/sidebar/rows?after=50&selected=selected")
+      await app.request("/sidebar/rows?after=50", displayed)
     ).text();
     expect(ids(laterRoots)).toEqual([
       "root-50",
@@ -135,9 +136,7 @@ describe("sidebar tree HTTP fragments", () => {
       "root-54",
     ]);
     const laterChildren = await (
-      await app.request(
-        "/sidebar/rows?after=50&parent=parent&selected=selected",
-      )
+      await app.request("/sidebar/rows?after=50&parent=parent", displayed)
     ).text();
     expect(ids(laterChildren)).toEqual([
       "child-50",
@@ -146,15 +145,10 @@ describe("sidebar tree HTTP fragments", () => {
       "child-53",
       "child-54",
     ]);
-    const displayedWins = await (
-      await app.request("/sidebar/rows?selected=selected", {
-        headers: { "X-Web-Pi-Session": "root-1" },
-      })
-    ).text();
-    expect(ids(displayedWins)).not.toContain("parent");
+    // A page with no session open says so, and that wins over the cookie.
     const blankSelection = await (
-      await app.request("/sidebar/rows?selected=", {
-        headers: { Cookie: "web-pi-session=selected" },
+      await app.request("/sidebar/rows", {
+        headers: { "X-Web-Pi-Session": "", Cookie: "web-pi-session=selected" },
       })
     ).text();
     expect(ids(blankSelection)).not.toContain("parent");
@@ -264,16 +258,14 @@ describe("sidebar tree with native HTMX", () => {
       b.document.querySelector("main")?.getAttribute("data-session-id"),
     ).toBe("root-1");
     await b.window.eval(
-      `htmx.ajax('GET', '/sidebar/rows?after=50&selected=pinned', {source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'})`,
+      `htmx.ajax('GET', '/sidebar/rows?after=50', {source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'})`,
     );
     expect(b.document.querySelectorAll("#row-pinned")).toHaveLength(1);
     expect(b.document.querySelector("#row-root-54")).not.toBeNull();
     const last = b.requests
       .filter((r) => new URL(r.url).pathname === "/sidebar/rows")
       .at(-1);
-    expect(
-      new URL(last?.url ?? "http://missing").searchParams.get("selected"),
-    ).toBe("root-1");
+    expect(last?.headers.get("X-Web-Pi-Session")).toBe("root-1");
   });
 
   it("keeps a pending sibling page usable when selection changes before it arrives", async () => {

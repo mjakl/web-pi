@@ -260,7 +260,9 @@ it("shows plain known-child counts without checking controls and retains exact c
     children: { rows: [{ summary: { id: selected.id } }] },
   });
   const linkedHtml = await (
-    await app.request(`/sidebar/rows?selected=${selected.id}`)
+    await app.request("/sidebar/rows", {
+      headers: { "X-Web-Pi-Session": selected.id },
+    })
   ).text();
   expect(linkedHtml).toContain("1 sub-session");
   expect(linkedHtml).not.toContain("1+ sub-sessions");
@@ -394,7 +396,8 @@ it("bounds child routes by header creation while preserving exact counts, select
   const coldBytes = io.streamBytes;
   resetReads();
   const response = await app.request(
-    `/sidebar/rows?parent=${parent.id}&selected=${nested.id}&after=50`,
+    `/sidebar/rows?parent=${parent.id}&after=50`,
+    { headers: { "X-Web-Pi-Session": nested.id } },
   );
   expect(response.status).toBe(200);
   const html = await response.text();

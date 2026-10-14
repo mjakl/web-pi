@@ -32,7 +32,7 @@ describe("automatic session-list refresh", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(htmx().ajax).toHaveBeenCalledExactlyOnceWith(
       "GET",
-      "/sidebar/rows?selected=selected",
+      "/sidebar/rows",
       {
         source: byId("session-list"),
         target: byId("session-list"),
@@ -102,7 +102,7 @@ describe("automatic session-list refresh", () => {
     expect(htmx().ajax).toHaveBeenCalledTimes(3);
   });
 
-  it("queues at most one follow-up during an in-flight refresh and uses the latest selection", async () => {
+  it("queues at most one follow-up during an in-flight refresh", async () => {
     await setup();
     let finish!: () => void;
     htmx().ajax.mockImplementationOnce(
@@ -123,7 +123,7 @@ describe("automatic session-list refresh", () => {
     finish();
     await flush();
     expect(htmx().ajax).toHaveBeenCalledTimes(2);
-    expect(htmx().ajax.mock.calls[1]?.[1]).toBe("/sidebar/rows?selected=next");
+    expect(htmx().ajax.mock.calls[1]?.[1]).toBe("/sidebar/rows");
   });
 
   it("suppresses queued automatic work when hidden and recovers after failure on the next trigger", async () => {
@@ -155,9 +155,7 @@ describe("automatic session-list refresh", () => {
     htmxEvent(document.body, "web-pi:sidebar-refresh");
     await flush();
     expect(htmx().ajax).toHaveBeenCalledOnce();
-    expect(htmx().ajax.mock.calls[0]?.[1]).toBe(
-      "/sidebar/rows?selected=selected",
-    );
+    expect(htmx().ajax.mock.calls[0]?.[1]).toBe("/sidebar/rows");
   });
 
   it("does not duplicate timers or listeners across navigation, list and sidebar processing", async () => {

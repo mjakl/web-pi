@@ -211,7 +211,7 @@ it("keeps selection on the displayed session across global stream, star and lazy
     .not.toBeNull();
   await expect.poll(() => selected(b, "s2")).toBe(true);
   await b.window.eval(
-    `htmx.ajax('GET','/sessions/s1/row?active=s1',{target:'#row-s1',swap:'outerHTML'})`,
+    `htmx.ajax('GET','/sessions/s1/row',{target:'#row-s1',swap:'outerHTML'})`,
   );
   expect(selected(b, "s1")).toBe(false);
   expect(selected(b, "s2")).toBe(true);
@@ -298,7 +298,7 @@ it("retains progressively loaded global rows across cross-directory navigation",
     .toBe(true);
   const sentinel = b.document.querySelector(".session-rows-loading");
   const url = sentinel?.getAttribute("hx-get");
-  expect(url).toBe("/sidebar/rows?after=50&selected=s1");
+  expect(url).toBe("/sidebar/rows?after=50");
   await b.window.eval(
     `htmx.ajax('GET',${JSON.stringify(url)},{source:'.session-rows-loading',target:'.session-rows-loading',swap:'outerHTML'})`,
   );

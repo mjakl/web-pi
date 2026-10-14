@@ -546,7 +546,7 @@ describe("web app", () => {
     const { app, world } = testApp();
     const res = await app.request("/sessions/s1/delete", {
       method: "POST",
-      headers: { "HX-Current-URL": "http://localhost/sessions/s1" },
+      headers: { "X-Web-Pi-Session": "s1" },
     });
     expect(res.headers.get("hx-redirect")).toBe("/new");
     expect(world.store.has("s1")).toBe(false);
@@ -1255,7 +1255,7 @@ describe("the sidebar", () => {
     const { app } = sidebarApp();
     const menu = await (
       await app.request("/sidebar/projects", {
-        headers: { "HX-Current-URL": "http://x/sessions/s2" },
+        headers: { "X-Web-Pi-Session": "s2" },
       })
     ).text();
     // Eleven projects expose a filter; opening the popover must not focus it.
@@ -2331,9 +2331,10 @@ describe("the shell chrome, on every route", () => {
 
   it("opens settings over the workspace, not on a page of its own", async () => {
     const { app } = testApp();
+    // The Settings link is a full page load from the session's page.
     const html = await (
       await app.request("/settings", {
-        headers: { "HX-Current-URL": "http://x/sessions/s1" },
+        headers: { Referer: "http://x/sessions/s1" },
       })
     ).text();
     expect(html).toContain('class="settings-dialog"');
@@ -2344,7 +2345,6 @@ describe("the shell chrome, on every route", () => {
     expect(html).toContain('data-session-id="s1"');
     // Its complete row is selected before any client request.
     expect(html).toMatch(/id="row-s1"[^>]*class="session-row is-selected/);
-    expect(html).not.toContain("/row?active=s1");
   });
 
   it("opens settings over the session the reader last opened", async () => {

@@ -250,8 +250,6 @@ function SessionNode({
   activeId?: string;
 }) {
   const { summary, childCount = 0, children } = row;
-  const query = new URLSearchParams({ parent: summary.id });
-  if (activeId !== undefined) query.set("selected", activeId);
   return (
     <div id={`node-${summary.id}`} class="session-node">
       <SessionRow {...row} {...(activeId === undefined ? {} : { activeId })} />
@@ -274,7 +272,7 @@ function SessionNode({
             {children === undefined ? (
               <div
                 class="session-children-loading"
-                hx-get={`/sidebar/rows?${query.toString()}`}
+                hx-get={`/sidebar/rows?parent=${summary.id}`}
                 hx-trigger="load[this.closest('details').open], web-pi:children"
                 hx-sync="this:drop"
                 hx-target="this"
@@ -305,7 +303,6 @@ export function SessionRows({
 }) {
   const query = new URLSearchParams({ after: String(view.nextOffset) });
   if (view.parentId !== undefined) query.set("parent", view.parentId);
-  if (activeId !== undefined) query.set("selected", activeId);
   return (
     <>
       {view.parentId !== undefined &&

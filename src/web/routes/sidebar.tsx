@@ -55,15 +55,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     if (!Number.isInteger(offset) || offset < 0) return c.notFound();
     const parentId = c.req.query("parent");
     if (parentId !== undefined && !isSessionId(parentId)) return c.notFound();
-    const selected = c.req.query("selected");
-    const activeId =
-      c.req.header("X-Web-Pi-Session") !== undefined
-        ? currentSessionId(c)
-        : selected !== undefined
-          ? isSessionId(selected)
-            ? selected
-            : undefined
-          : currentSessionId(c);
+    const activeId = currentSessionId(c);
     const view = await deps.workspace.sidebar({
       offset,
       ...(parentId === undefined ? {} : { parentId }),

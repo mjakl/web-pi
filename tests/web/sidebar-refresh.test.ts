@@ -96,7 +96,11 @@ it("serializes manual refresh with an in-flight automatic request and retains li
   await b.advanceTime(100);
   expect(scans).toBe(1);
   world.store.set("external", session("external"));
-  held.resolve(await app.request("/sidebar/rows?selected="));
+  held.resolve(
+    await app.request("/sidebar/rows", {
+      headers: { "X-Web-Pi-Session": "" },
+    }),
+  );
   await b.advanceTime(100);
   await expect
     .poll(() => b.document.querySelector("#row-external"))

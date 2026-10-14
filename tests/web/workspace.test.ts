@@ -8,7 +8,7 @@ import { createWebApp } from "@web/app";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The picker, trust, read-only mode and the settings pages, against the fake
 // world. Folders that have to exist are real temporary ones; nothing here
@@ -418,6 +418,41 @@ describe("the settings page", () => {
       )
     ).text();
     expect(installed).toContain("Installed acme/skills@changelog");
+  });
+
+  // A project install runs `npx skills add` in the project folder; trust is
+  // the only thing between the Settings page and that folder.
+  const projectInstall = () =>
+    form({ cwd: repo, package: "acme/skills@changelog", scope: "project" });
+
+  it("refuses a project install while the project is untrusted", async () => {
+    const { app, world } = testApp({ trustRequired: [repo] });
+    const install = vi.spyOn(world.skills, "install");
+    const refused = await (
+      await app.request("/settings/skills/install", projectInstall())
+    ).text();
+    expect(refused).toContain(
+      "Project resources must be trusted before installing into this project",
+    );
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("installs into the project once it is trusted", async () => {
+    const { app, world } = testApp({ trustRequired: [repo] });
+    const install = vi.spyOn(world.skills, "install");
+    await app.request("/workspaces/trust", {
+      ...form({ cwd: repo }),
+      headers: { "HX-Request": "true" },
+    });
+    const installed = await (
+      await app.request("/settings/skills/install", projectInstall())
+    ).text();
+    expect(installed).toContain("Installed acme/skills@changelog");
+    expect(install).toHaveBeenCalledExactlyOnceWith(
+      "acme/skills@changelog",
+      "project",
+      repo,
+    );
   });
 
   it("lists plugins with their status and flips one off and on", async () => {

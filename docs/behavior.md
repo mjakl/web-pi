@@ -6,12 +6,10 @@ tests are authoritative.
 
 ## Sessions and conversation
 
-Pi session JSONL and the live runtime own the conversation. The server projects
-settled history and a non-overlapping live tail into the same views for pages,
-HTMX responses, and SSE updates. History pages backwards, while the desktop rail
-covers all prompts and starred answers. Stars use `web-pi:star` custom entries;
-old `pi-web:star` entries are not recognized or migrated, so answers starred in
-pi-web must be starred again.
+History loads page by page as you scroll back, while the desktop rail covers all
+prompts and starred answers from the start. Stars use `web-pi:star` custom
+entries; old `pi-web:star` entries are not recognized or migrated, so answers
+starred in pi-web must be starred again.
 
 Open persisted conversations managed outside web-pi, including inspection-only
 subagents, check for saved updates every two seconds while the page is visible.
@@ -45,9 +43,10 @@ streaming. Assistant headers show the model, and a finished message its token
 usage; there are no live token counts or tokens-per-second figures. The session
 info panel shows the session's token totals, context usage and active time.
 
-The SSE delivery/recovery contract and context-accounting thresholds live in
-[Architecture](architecture.md). Do not introduce a second browser conversation
-model or a second context formula.
+The context readout becomes critical at **75%** of the model's context window.
+Below that it warns once the context reaches General's token threshold; no
+percentage alone warns. After a compaction, until a new answer reports usage,
+the readout shows an estimate marked with `~`.
 
 ## Composer
 
@@ -69,6 +68,10 @@ model or a second context formula.
   its skills to the selection and its images to the attachments up to the limit;
   a queue that was already sent leaves the composer as it is. Input history is
   scoped to the composer.
+- `/copy` copies the latest completed answer on the active branch: its text
+  blocks joined as written, skipping an empty aborted message. A streaming
+  answer does not count, and an answer with no text has nothing to copy. If the
+  lookup or the clipboard write fails, the command stays in the composer.
 - `!command` runs a shell command whose output enters context; `!!command`
   records it with `excludeFromContext`. Both use the project-command boundary in
   [ADR 0001](adr/0001-project-command-environment.md).
@@ -116,10 +119,24 @@ provider configuration and resource discovery. Skill toggles change only
 `disable-model-invocation` frontmatter. Re-enabling a disabled package loses its
 per-resource filters, matching Pi's representation.
 
+Settings → Models chooses the models the model menu cycles through, for the
+browser and terminal Pi alike: it edits Pi's global `enabledModels`. It lists
+every model with credentials, extension-provided ones included; having
+credentials does not prove the provider accepts them. An absent or empty list
+means all models, including future ones. Saving an unchanged selection writes
+nothing, a save needs at least one model selected, and **Use all models** writes
+an empty list. Patterns that match nothing stay listed as unavailable and
+survive edits. Trusted project overrides are shown but never written, and a save
+never switches a running or stored conversation to another model.
+
 General holds shared appearance, dumb-zone threshold, completion sound and
 system-prompt addition, with defaults **auto**, **100000 tokens**, **on** and
 the built-in note on how the interface renders Markdown. Auto follows the
-current device's OS appearance. Saves apply across browsers; a returning page
+current device's OS appearance. The system-prompt addition replaces only that
+note: an empty text removes it, and **Reset to default** brings it back. New
+sessions, and stopped sessions when they start again, use the saved text; a
+running session keeps the text it started with, also through `/reload`, and
+saving interrupts nothing. Saves apply across browsers; a returning page
 refreshes on focus/visibility, and live context renders use the current server
 threshold. Legacy browser preferences are ignored, not imported. Drafts,
 navigation and browser notification permission remain device-local. See
@@ -224,6 +241,6 @@ Listing a gap here does not authorize work on it.
   minutes** idle or immediately on an explicit stop; there is no general
   live-session cap.
 
-Deliberate limitations are described in [Architecture](architecture.md):
-attachment drafts do not survive reloads, UI strings are English without a
-locale layer, and terminal-only extension APIs are stubbed.
+Some limits are deliberate: image attachments do not survive a reload, the
+interface is in English only, and extension APIs that need a terminal are
+stubbed, as [Architecture](architecture.md#extensions) describes.

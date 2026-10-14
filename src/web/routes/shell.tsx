@@ -175,7 +175,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           sidebar={sidebar}
           view={view}
           {...(trust === undefined ? {} : { trust })}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
           {...(overlay === undefined ? {} : { overlay })}
         />,
       );
@@ -219,7 +218,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         fragment={fragment}
         view={view}
         {...(trust === undefined ? {} : { trust })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
       />
     );
     return fragment

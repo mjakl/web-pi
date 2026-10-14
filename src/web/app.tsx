@@ -89,7 +89,6 @@ export function createWebApp(deps: WebDeps) {
         draft={draft}
         images={images}
         skills={skills}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
       />,
     );
   }

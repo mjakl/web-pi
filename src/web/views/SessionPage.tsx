@@ -342,8 +342,6 @@ export function Shell({
   /** The folder on screen: the document title is built from it. */
   cwd?: string;
   cwdAvailable?: boolean | undefined;
-  /** The reader's home folder: the workspace pill shortens paths with it. */
-  home?: string;
   usage?: ContextUsage;
   tokens?: SessionTokens;
   trust?: { requiresTrust: boolean; trusted: boolean };
@@ -507,7 +505,6 @@ export function NewSessionPage({
       cwd={view.cwd}
       cwdAvailable={view.available}
       trust={view.trust}
-      {...(home === undefined ? {} : { home })}
       {...(overlay === undefined ? {} : { overlay })}
     >
       <section class="chat-window is-empty" aria-label="Messages">
@@ -557,7 +554,6 @@ export function SessionPage({
   images,
   skills,
   trust,
-  home,
   overlay,
 }: {
   sidebar?: SidebarView | undefined;
@@ -567,7 +563,6 @@ export function SessionPage({
   images?: ImageAttachment[];
   skills?: SkillSelection[];
   trust?: { requiresTrust: boolean; trusted: boolean };
-  home?: string;
   overlay?: unknown;
 }) {
   const { summary } = view;
@@ -586,7 +581,6 @@ export function SessionPage({
       savedObservation={view.savedObservation}
       cwd={summary.cwd}
       usage={view.usage}
-      {...(home === undefined ? {} : { home })}
       tokens={view.tokens}
       {...(view.status === null
         ? {}

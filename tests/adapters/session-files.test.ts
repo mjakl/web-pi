@@ -513,6 +513,16 @@ describe("Pi session catalog", () => {
     expect(await catalog.rowMetadata(manager.getSessionId())).toEqual(first);
   });
 
+  it("caches one row, whichever read reached the file first", async () => {
+    const id = makeSession(["hello"]).getSessionId();
+    const direct = createPiSessionCatalog({ agentDir: root });
+    const first = await direct.rowMetadata(id);
+    expect(await direct.rowMetadata(id)).toStrictEqual(first);
+    const discovering = createPiSessionCatalog({ agentDir: root });
+    await discovering.discover({ runtime: [] });
+    expect(await discovering.rowMetadata(id)).toStrictEqual(first);
+  });
+
   it("re-reads a file that changed instead of serving the cached counts", async () => {
     const manager = makeSession(["hello"]);
     const catalog = createPiSessionCatalog({ agentDir: root });

@@ -50,6 +50,8 @@ import {
 
 const METADATA_CACHE_MAX = 4096;
 
+type Row = { summary: SessionSummary; metadata: SessionRowMetadata };
+
 type Header = {
   id: string;
   cwd: string;
@@ -214,16 +216,14 @@ export function createPiSessionCatalog(options: {
   // One entry per file: a re-read replaces the stamp instead of leaving the
   // superseded key behind, so the cap never evicts a hot session for a stale
   // copy of itself.
-  const rows = new Map<
+  const rows = new Map<string, { stamp: string; row: Row }>();
+
+  const pendingRows = new Map<
     string,
-    {
-      stamp: string;
-      row: { summary: SessionSummary; metadata: SessionRowMetadata };
-    }
+    Promise<{ classification: SessionDelegation; row: Row } | undefined>
   >();
 
-  const pendingRows = new Map<string, ReturnType<typeof streamRowMetadata>>();
-
+  /** One revision's EOF pass: its classification, and the row it caches. */
   function readMetadata(filePath: string, header: Header) {
     // A direct page loads its sidebar and exact admission check concurrently.
     // They can share this one revision's EOF pass without retaining its body.
@@ -234,29 +234,26 @@ export function createPiSessionCatalog(options: {
       .then(async (streamed) => {
         if (!streamed || fileStamp(await stat(filePath)) !== header.stamp)
           return undefined;
+        const { metadata, classification } = streamed;
+        const row = {
+          summary: {
+            id: header.id,
+            cwd: header.cwd,
+            createdAt: header.timestamp,
+            modifiedAt: header.modifiedAt,
+            fileSize: header.fileSize,
+            filePath,
+            ...classification,
+            ...(metadata.name ? { name: metadata.name } : {}),
+          },
+          metadata,
+        };
         cacheFile(delegations, filePath, {
           stamp: header.stamp,
-          value: streamed.classification,
+          value: classification,
         });
-        cacheFile(rows, filePath, {
-          stamp: header.stamp,
-          row: {
-            summary: {
-              id: header.id,
-              cwd: header.cwd,
-              createdAt: header.timestamp,
-              modifiedAt: header.modifiedAt,
-              fileSize: header.fileSize,
-              filePath,
-              ...streamed.classification,
-              ...(streamed.metadata.name
-                ? { name: streamed.metadata.name }
-                : {}),
-            },
-            metadata: streamed.metadata,
-          },
-        });
-        return streamed;
+        cacheFile(rows, filePath, { stamp: header.stamp, row });
+        return { classification, row };
       })
       .finally(() => pendingRows.delete(key));
     pendingRows.set(key, read);
@@ -563,36 +560,13 @@ export function createPiSessionCatalog(options: {
         return cached.row;
       const header = readHeader(filePath);
       if (!header || header.id !== id) return undefined;
-      const file = {
-        modifiedAt: header.modifiedAt,
-        fileSize: header.fileSize,
-      };
-      const streamed = await readMetadata(filePath, header).catch(
+      const read = await readMetadata(filePath, header).catch(
         (error: unknown) => {
           if (isFileReadError(error)) return undefined;
           throw error;
         },
       );
-      if (!streamed || fileStamp(await stat(filePath)) !== header.stamp)
-        return undefined;
-      const { metadata, classification } = streamed;
-      const row = {
-        summary: {
-          id: header.id,
-          cwd: header.cwd,
-          ...(metadata.name ? { name: metadata.name } : {}),
-          createdAt: header.timestamp,
-          ...file,
-          ...classification,
-        },
-        metadata,
-      };
-      cacheFile(rows, filePath, { stamp: header.stamp, row });
-      cacheFile(delegations, filePath, {
-        stamp: header.stamp,
-        value: classification,
-      });
-      return row;
+      return read?.row;
     },
 
     async rename(id, name) {

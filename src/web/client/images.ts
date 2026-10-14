@@ -33,12 +33,12 @@ async function downscale(file: File): Promise<File> {
       context.fillStyle = "#fff";
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-      const base64 = url.slice(url.indexOf(",") + 1);
+      const jpeg = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
+      });
       // Only worth it when the result really is smaller than the original.
-      if (base64.length >= Math.ceil(file.size / 3) * 4) return file;
-      const bytes = Uint8Array.from(atob(base64), (c) => c.codePointAt(0) ?? 0);
-      return new File([bytes], `${file.name}.jpg`, { type: "image/jpeg" });
+      if (!jpeg || jpeg.size >= file.size) return file;
+      return new File([jpeg], `${file.name}.jpg`, { type: "image/jpeg" });
     } finally {
       bitmap.close();
     }
@@ -163,10 +163,12 @@ export function setUpImages(
     if (signal?.aborted) return;
     const generation = draft.generation;
     const room = MAX_IMAGES - attached.length - draft.pending;
-    const accepted = files
-      .filter((file) => file.type.startsWith("image/"))
-      .slice(0, Math.max(room, 0));
-    if (accepted.length < files.length) {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    const accepted = images.slice(0, Math.max(room, 0));
+    if (images.length < files.length) {
+      showToast("Only images can be attached.", "warning");
+    }
+    if (accepted.length < images.length) {
       showToast(`At most ${String(MAX_IMAGES)} images per message.`, "warning");
     }
     if (accepted.length === 0) return;

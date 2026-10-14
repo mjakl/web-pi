@@ -120,26 +120,33 @@ async function streamEntries(
   sessionId: string,
   add: (entry: unknown) => void,
 ): Promise<boolean> {
+  const input = createReadStream(filePath, "utf8");
   const lines = createInterface({
-    input: createReadStream(filePath, "utf8"),
+    input,
     crlfDelay: Number.POSITIVE_INFINITY,
   });
   let first = true;
-  for await (const line of lines) {
-    try {
-      const entry: unknown = JSON.parse(line);
-      if (first) {
-        if (sessionHeader(entry)?.id !== sessionId) return false;
-        first = false;
-      } else {
-        add(entry);
+  try {
+    for await (const line of lines) {
+      try {
+        const entry: unknown = JSON.parse(line);
+        if (first) {
+          if (sessionHeader(entry)?.id !== sessionId) return false;
+          first = false;
+        } else {
+          add(entry);
+        }
+      } catch {
+        if (first) return false;
+        // A producer may still be appending the last JSONL entry.
       }
-    } catch {
-      if (first) return false;
-      // A producer may still be appending the last JSONL entry.
     }
+    return !first;
+  } finally {
+    // Closing readline leaves its input open; an early return would leak it.
+    lines.close();
+    input.destroy();
   }
-  return !first;
 }
 
 /**

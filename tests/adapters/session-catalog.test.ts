@@ -402,6 +402,22 @@ describe("non-writing catalog snapshots", () => {
     },
   );
 
+  it("closes a transcript it stops reading early", async () => {
+    const file = fileOf(makeSession("replaced"));
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    const original = vi.mocked(fs.createReadStream).getMockImplementation();
+    if (!original) throw new Error("Missing instrumented stream");
+    let stream: fs.ReadStream | undefined;
+    vi.mocked(fs.createReadStream).mockImplementationOnce((...args) => {
+      // Replaced after its header was read, by more than one stream chunk.
+      writeFileSync(file, `not a header\n${"x".repeat(1 << 20)}\n`);
+      stream = original(...args);
+      return stream;
+    });
+    expect(await catalog.rowMetadata("replaced")).toBeUndefined();
+    expect(stream?.destroyed).toBe(true);
+  });
+
   it("refuses stale remembered paths and missing files rather than initializing them", async () => {
     const manager = makeSession("actual");
     const file = fileOf(manager);

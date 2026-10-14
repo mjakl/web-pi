@@ -1226,15 +1226,12 @@
   font-size: var(--text-xs);
   color: var(--text-dim);
   margin-bottom: var(--space-2);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  column-gap: var(--space-3);
-}
-.assistant-message-header:has(> .answer-star-toggle) {
-  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
 }
 .assistant-model-name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -113,8 +113,10 @@ Rules enforced by `.oxlintrc.json`:
   imports must run in a browser (no Node, no SDK). `main.ts` is the client
   bundle entry point.
 - Anything a page can do without script does: the workspace menu is a native
-  `popover` anchored in CSS, and the subagent fold and the extension widget
-  panel are `<details>` elements the server fills on demand.
+  `popover` anchored in CSS, and the subagent fold is a `<details>` element the
+  server fills on demand. The extension widget panels are a scripted toggle,
+  because the stream replaces the shelf: the client bundle keeps the open panel
+  per session and follows the server's default until the reader picks.
 - Web-owned settings, push state and worktree mappings live under
   `<agentDir>/web-pi/`. Read `docs/deployment.md` before changing their cutover
   or reset behavior. Never let a test or unattended check reach the real store:

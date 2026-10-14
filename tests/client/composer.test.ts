@@ -695,6 +695,41 @@ describe("the extension shelf", () => {
     expect(query(".extension-widget-panels").hidden).toBe(true);
   });
 
+  it("follows each session's default panel until the reader picks one there", async () => {
+    // A session page, with the panel the server opened for it.
+    const session = (id: string, open: string) => {
+      const main = document.createElement("main");
+      main.dataset["sessionId"] = id;
+      main.innerHTML = SHELF;
+      main
+        .querySelector(`[data-widget="${open}"]`)
+        ?.setAttribute("aria-expanded", "true");
+      return main.outerHTML;
+    };
+    const navigate = (id: string, open: string) => {
+      query("main").outerHTML = session(id, open);
+      htmxEvent(query("main"), "htmx:after:settle");
+    };
+    mount(session("s1", "a"));
+    const { setUpComposer } = await load();
+    setUpComposer();
+    expect(byId("widget-panel-0").hidden).toBe(false);
+    click(query('[data-widget="a"]'));
+    expect(query(".extension-widget-panels").hidden).toBe(true);
+    navigate("s2", "b");
+    expect(byId("widget-panel-0").hidden).toBe(true);
+    expect(byId("widget-panel-1").hidden).toBe(false);
+    expect(query('[data-widget="b"]').getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    // Back in the first session, its reader's choice still stands.
+    navigate("s1", "a");
+    expect(query(".extension-widget-panels").hidden).toBe(true);
+    expect(query('[data-widget="a"]').getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+  });
+
   it("adopts the panel the server opened", async () => {
     page();
     document.body.insertAdjacentHTML(

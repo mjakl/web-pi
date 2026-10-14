@@ -714,9 +714,12 @@ composition root and the only importer of Pi adapters.
   and widgets for a terminal. `src/core/ansi.ts` turns SGR colour and bold into
   `<span style>` and escapes everything else, so extension text can never become
   markup; every other escape sequence is dropped. The shelf below the composer
-  holds the one status line and a chip per widget, with at most one panel open
-  (`<details name>`, no script). A widget whose content is a component is
-  rendered through the same headless pi-tui as a custom UI.
+  holds the one status line and a trigger per widget, with at most one panel
+  open. The panels are a scripted toggle rather than `<details>`: the stream
+  replaces the shelf whenever its status line or a widget changes, so the client
+  bundle keeps which panel is open, per session, and follows the panel the
+  server opens until the reader picks one. A widget whose content is a component
+  is rendered through the same headless pi-tui as a custom UI.
 - **Session edits go through Pi's `SessionManager`.** Renames, stars, forks and
   clones use the SDK, so the CLI and web-pi agree on the JSONL format; stars are
   `web-pi:star` custom entries. Catalog reads instead parse raw JSONL and

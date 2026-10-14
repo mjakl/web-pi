@@ -674,22 +674,23 @@ function setUpDropZone(
  * menu, because the strip's own line is sr-only there.
  */
 function setUpShelf(): void {
-  // undefined until the reader has said something: null is "all closed", and
-  // that has to survive the next render as much as an open panel does.
-  let open: string | null | undefined;
+  // The reader's choice per session; null is "all closed", and that has to
+  // survive the next render as much as an open panel does. A session the
+  // reader has not chosen in follows the panel the server opens.
+  const picks = new Map<string, string | null>();
+  const owner = (): string =>
+    document.querySelector<HTMLElement>("main")?.dataset["sessionId"] ?? "";
   const paint = (): void => {
     const shelf = document.getElementById("shelf");
     const panels = shelf?.querySelector<HTMLElement>(
       ".extension-widget-panels",
     );
     if (shelf && panels) {
-      // The server picked one; adopt it so the first click closes it.
-      if (open === undefined) {
-        open =
-          shelf.querySelector<HTMLElement>(
+      const open = picks.has(owner())
+        ? picks.get(owner())
+        : shelf.querySelector<HTMLElement>(
             '.extension-widget-trigger[aria-expanded="true"]',
-          )?.dataset["widget"] ?? null;
-      }
+          )?.dataset["widget"];
       let shown = false;
       for (const trigger of shelf.querySelectorAll<HTMLElement>(
         "button.extension-widget-trigger",
@@ -718,8 +719,12 @@ function setUpShelf(): void {
       "button.extension-widget-trigger",
     );
     if (!trigger) return;
-    const key = trigger.dataset["widget"] ?? "";
-    open = open === key ? null : key;
+    picks.set(
+      owner(),
+      trigger.getAttribute("aria-expanded") === "true"
+        ? null
+        : (trigger.dataset["widget"] ?? ""),
+    );
     paint();
   });
   document.body.addEventListener("htmx:after:settle", (event) => {

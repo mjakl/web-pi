@@ -228,6 +228,20 @@ describe("web app", () => {
     expect((await app.request("/sessions/..%2Fetc")).status).toBe(404);
   });
 
+  it.each([
+    ["GET", "last-assistant-text"],
+    ["POST", "prompt"],
+  ])(
+    "answers %s %s for a malformed session id with 404",
+    async (method, action) => {
+      const { app } = testApp();
+      const response = await app.request(`/sessions/..%2Fetc/${action}`, {
+        method,
+      });
+      expect(response.status).toBe(404);
+    },
+  );
+
   it("starts a session from the form and redirects to it", async () => {
     const { app, world } = testApp();
     const form = new FormData();

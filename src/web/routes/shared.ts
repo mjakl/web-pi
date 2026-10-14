@@ -12,7 +12,7 @@ import { isSessionId } from "@core/sessions";
 import type { SessionView, SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
 import type { SessionPage } from "@web/views/SessionPage";
-import type { Context, Hono } from "hono";
+import type { Context, Env, Hono } from "hono";
 import { getCookie } from "hono/cookie";
 
 export type WebApp = Hono;
@@ -57,6 +57,29 @@ export type RouteContext = {
   row: (c: Context, id: string) => Promise<Response>;
   guard: (c: Context, action: () => Promise<Response>) => Promise<Response>;
 };
+
+/**
+ * Refuses an inspection-only session before any of these actions runs, with
+ * the one 403 and toast `guard` gives it. Some handlers, such as the model
+ * selector, have no other check.
+ */
+export function requireWritable(
+  app: WebApp,
+  { deps, guard }: RouteContext,
+  actions: readonly string[],
+): void {
+  for (const action of actions) {
+    app.use(
+      `/sessions/:id/${action}`,
+      (c: Context<Env, `/sessions/:id/${string}`>, next) =>
+        guard(c, async () => {
+          await deps.workspace.requireWritableSession(c.req.param("id"));
+          await next();
+          return c.res;
+        }),
+    );
+  }
+}
 
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

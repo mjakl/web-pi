@@ -5,7 +5,6 @@
 import { bashCommand, parseBuiltin, skillsConflict } from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
-import { isSessionId } from "@core/sessions";
 import {
   type FileScope,
   InspectionOnlySession,
@@ -50,6 +49,7 @@ import {
   hxTrigger,
   rawField,
   readSubmission,
+  requireWritable,
   sessionLocation,
   toastHeader,
 } from "./shared.ts";
@@ -59,7 +59,7 @@ type Fragment = Parameters<typeof html>[0];
 export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, renderIntervalMs, guard } = ctx;
 
-  for (const action of [
+  requireWritable(app, ctx, [
     "prompt",
     "commands",
     "skills",
@@ -70,23 +70,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     "model-selector",
     "model",
     "events",
-  ]) {
-    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
-      const id = c.req.param("id");
-      if (!id || !isSessionId(id)) return c.notFound();
-      return guard(c, async () => {
-        await deps.workspace.requireWritableSession(id);
-        await next();
-        return c.res;
-      });
-    });
-  }
+  ]);
 
   app.post("/sessions", (c) => submit(c));
-  app.post("/sessions/:id/prompt", (c) => {
-    const id = c.req.param("id");
-    return isSessionId(id) ? submit(c, id) : c.notFound();
-  });
+  app.post("/sessions/:id/prompt", (c) => submit(c, c.req.param("id")));
 
   function reject(c: Context, message: string): Response {
     toastHeader(c, message);
@@ -201,7 +188,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/commands", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const query = c.req.query("q") ?? "";
     const commands = await deps.workspace.commands(id, query);
     return c.html(<CommandMenu commands={commands} query={query} />);
@@ -209,14 +195,12 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/skills", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const commands = await deps.workspace.commands(id, "");
     return c.html(<SkillsMenu commands={commands} />);
   });
 
   app.post("/sessions/:id/compact", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.compact(id);
       return c.body(null, 204);
@@ -225,7 +209,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/compact/abort", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     await deps.workspace.abortCompaction(id);
     return c.body(null, 204);
   });
@@ -239,7 +222,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
    */
   app.post("/sessions/:id/queue/recall", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData().catch(() => new FormData());
     const posted = await readSubmission(form);
     if ("error" in posted) {
@@ -296,12 +278,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     ["file-index", false],
     ["file-completion", true],
   ] as const) {
-    app.get(`/sessions/:id/${name}`, (c) => {
-      const id = c.req.param("id");
-      return isSessionId(id)
-        ? fileMenu(c, { sessionId: id }, path)
-        : c.notFound();
-    });
+    app.get(`/sessions/:id/${name}`, (c) =>
+      fileMenu(c, { sessionId: c.req.param("id") }, path),
+    );
     app.get(`/workspaces/${name}`, (c) =>
       fileMenu(c, { cwd: c.req.query("cwd") ?? "" }, path),
     );
@@ -309,7 +288,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/bash-output", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const path = c.req.query("path") ?? "";
     const download = c.req.query("download") === "1";
     try {
@@ -335,7 +313,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/abort", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     await deps.workspace.abort(id);
     return c.body(null, 204);
   });
@@ -348,7 +325,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
    */
   app.get("/sessions/:id/model-selector", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const view = await deps.workspace.viewSession(id);
     return view
       ? c.html(<ModelSelector pick={modelPick(view)} />)
@@ -357,7 +333,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/model", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const [provider, ...rest] = (c.req.query("model") ?? "").split("/");
     const modelId = rest.join("/");
     // Only the reasoning select posts a body; the option buttons send none.
@@ -440,7 +415,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return streamSSE(c, async (stream) => {
       const ended = Promise.withResolvers<undefined>();
       const send = async (fragment: Fragment): Promise<void> => {

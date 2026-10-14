@@ -11,7 +11,6 @@ import {
 } from "@core/cookies";
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
-import { isSessionId } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { Partial } from "@web/views/Partial";
 import { ExplorerSection } from "@web/views/Files";
@@ -45,6 +44,7 @@ import {
   field,
   hxTrigger,
   rawField,
+  requireWritable,
   toastHeader,
 } from "./shared.ts";
 
@@ -60,31 +60,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     guard,
   } = ctx;
 
-  // These URLs serve both documents and HTMX fragments. Neither representation
-  // may be stored and reused for the other kind of request.
-  for (const path of ["/", "/new", "/sessions/:id", "/settings"]) {
-    app.get(path, async (c, next) => {
-      c.header("Cache-Control", "no-store");
-      await next();
-    });
-  }
-
-  for (const action of [
-    "tools",
-    "system-prompt",
-    "ui/:requestId",
-    "ui/:requestId/input",
-  ]) {
-    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
-      const id = c.req.param("id");
-      if (!id || !isSessionId(id)) return c.notFound();
-      return guard(c, async () => {
-        await deps.workspace.requireWritableSession(id);
-        await next();
-        return c.res;
-      });
-    });
-  }
+  // The tools and system-prompt panels refuse an inspection-only session in
+  // their own guard; the dialog answers have none, so they need this one.
+  requireWritable(app, ctx, ["ui/:requestId", "ui/:requestId/input"]);
 
   // Same-folder navigation retains the expanded tree. File requests use the
   // displayed session header, so its authorization context still changes.
@@ -154,7 +132,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const through = c.req.query("through");
     const options = {
       ...(c.req.query("leaf") === undefined
@@ -164,7 +141,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     };
     const fragment = c.req.header("HX-Target") === "div#session-region";
     const [sidebar, view] = await Promise.all([
-      fragment ? undefined : deps.workspace.sidebar({ selectedId: id }),
+      fragment ? undefined : sidebarOf(id),
       deps.workspace.viewSession(id, options).catch(() => undefined),
     ]);
     if (!view) return c.notFound();
@@ -182,7 +159,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/stats", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const found = await deps.workspace.sessionStats(id);
     if (!found) return c.notFound();
     return c.html(<StatsPanel {...found} />);
@@ -633,7 +609,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/tools", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const tool = c.req.query("tool");
       const tools = await deps.workspace
@@ -654,7 +629,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/system-prompt", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const prompt = await deps.workspace
         .systemPrompt(id)
@@ -675,7 +649,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
    */
   app.post("/sessions/:id/ui/:requestId", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     // The value is passed on verbatim: an editor's text keeps its leading
     // whitespace and its trailing newline, and a select option still matches
@@ -701,7 +674,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   /** One keystroke or paste for an extension's custom UI. */
   app.post("/sessions/:id/ui/:requestId/input", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     const data = form.get("data");
     if (typeof data !== "string" || data === "") return c.body(null, 204);

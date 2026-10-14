@@ -1,6 +1,6 @@
 import { COOKIE_MAX_AGE, CWD_COOKIE, SESSION_COOKIE } from "@core/cookies";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
-import { isSubagentSession } from "@core/sessions";
+import { isSessionId, isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
 import { HtmlLayout } from "@web/HtmlLayout";
@@ -164,6 +164,21 @@ export function createWebApp(deps: WebDeps) {
       ),
     ),
   );
+  // These URLs serve both documents and HTMX fragments. Neither representation
+  // may be stored and reused for the other kind of request.
+  for (const path of ["/", "/new", "/sessions/:id", "/settings"]) {
+    app.get(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
+  // An id Pi could not have written names no session, so nothing under it
+  // exists; the pattern covers the session page itself as well.
+  app.use("/sessions/:id/*", async (c, next) => {
+    if (!isSessionId(c.req.param("id"))) return c.notFound();
+    await next();
+    return c.res;
+  });
 
   const context: RouteContext = {
     deps,

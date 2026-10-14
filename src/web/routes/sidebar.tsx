@@ -36,9 +36,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     const cwd = c.req.query("cwd");
     if (cwd) return c.redirect(`/new?cwd=${encodeURIComponent(cwd)}`);
     const activeId = currentSessionId(c);
-    const view = await deps.workspace.sidebar(
-      activeId === undefined ? {} : { selectedId: activeId },
-    );
+    const view = await sidebarOf(activeId);
     return c.html(<SessionNav view={view} activeId={activeId} />);
   });
 
@@ -72,10 +70,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     );
   });
 
-  app.get("/sessions/:id/row", async (c) => {
-    const id = c.req.param("id");
-    return isSessionId(id) ? row(c, id) : c.notFound();
-  });
+  app.get("/sessions/:id/row", (c) => row(c, c.req.param("id")));
 
   for (const [path, act] of [
     ["stop", (id: string) => deps.workspace.stop(id)],
@@ -84,7 +79,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   ] as const) {
     app.post(`/sessions/:id/${path}`, async (c) => {
       const id = c.req.param("id");
-      if (!isSessionId(id)) return c.notFound();
       return guard(c, async () => {
         await act(id);
         return row(c, id);
@@ -94,7 +88,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.requireWritableSession(id);
       const found = await deps.workspace.row(id);
@@ -104,7 +97,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     return guard(c, async () => {
       await deps.workspace.rename(id, field(form, "name"));
@@ -114,7 +106,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/delete", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.remove(id);
       const activeId = currentSessionId(c);
@@ -126,9 +117,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
         } else c.header("HX-Redirect", "/new");
         return c.body(null, 200);
       }
-      const view = await deps.workspace.sidebar(
-        activeId === undefined ? {} : { selectedId: activeId },
-      );
+      const view = await sidebarOf(activeId);
       return c.html(
         <SessionList
           view={view}
@@ -141,7 +130,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/clone", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const cloned = await deps.workspace.clone(id);
       sessionLocation(c, `/sessions/${cloned}`);

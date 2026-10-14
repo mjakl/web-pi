@@ -920,19 +920,27 @@ it("recovers a new runtime after a no-owner connection returns to saved observat
   const get = f.world.runtime.get.bind(f.world.runtime);
   let attached = false;
   f.world.runtime.get = (id) => (attached ? get(id) : undefined);
-  const { document } = await open(f);
+  const { document, requests } = await open(f);
+  // The stream finds no runtime and hands the page back to saved observation.
+  await expect
+    .poll(() => document.querySelector("main")?.hasAttribute("hx-sse:connect"))
+    .toBe(false);
   expect(f.subscribers).toBe(0);
   f.finish("finished before runtime subscription", false);
   attached = true;
-  // The no-owner stream now closes; the next two-second saved check hands off.
+  // The next two-second saved check finds the runtime and hands off.
   await expect
-    .poll(() => document.querySelector("#entry-a2")?.textContent, {
-      timeout: 4000,
-    })
+    .poll(() => document.querySelector("#entry-a2")?.textContent)
     .toContain("finished before runtime subscription");
   expect(document.querySelectorAll("#entry-a1")).toHaveLength(1);
   expect(document.querySelectorAll("#entry-a2")).toHaveLength(1);
   expect(f.subscribers).toBe(1);
+  const streams = requests.filter((request) =>
+    new URL(request.url).pathname.endsWith(`/${f.id}/events`),
+  );
+  expect(new URL(required(streams.at(-1)).url).searchParams.get("saved")).toBe(
+    "1",
+  );
 });
 
 it("reconciles persisted entries at runtime removal before closing the stream", async () => {

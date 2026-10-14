@@ -499,5 +499,7 @@ describe("stopping", () => {
     await vi.advanceTimersByTimeAsync(120);
     expect(h.runtime.get(kept.id)?.snapshot().status.running).toBe(false);
     expect(events).not.toContain("stopped");
+    // Nor is a timer kept armed for it once its file exists.
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

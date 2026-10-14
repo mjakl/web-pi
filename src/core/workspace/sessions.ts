@@ -435,7 +435,7 @@ export function sessionUseCases({
   async function listedSessions(): Promise<SessionSummary[]> {
     const stored = await deps.sessions.list();
     const known = new Set(stored.map((session) => session.id));
-    // Pi may not have flushed a new runtime's first reply yet.
+    // Pi may not have written a new runtime's file yet.
     const unflushed = deps.runtime
       .live()
       .filter((live) => !known.has(live.id))

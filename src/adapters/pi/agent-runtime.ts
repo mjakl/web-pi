@@ -57,7 +57,10 @@ const PARTIAL_ARGUMENT_CHARS = 4096;
 
 type Partial = Extract<AgentMessage, { role: "assistant" }>;
 
-/** Pi defers the first file until an assistant reply; shell-only turns need it too. */
+/**
+ * Pi writes a new session's file once it holds a user or assistant message,
+ * so a session that has only run shell commands is written here.
+ */
 function persistShellSession(manager: SessionManager): void {
   const file = manager.getSessionFile();
   if (!file || existsSync(file)) return;
@@ -508,8 +511,10 @@ class PiLiveSession implements LiveSession {
                 })),
               }
             : {}),
-          preflightResult: (ok) => {
-            if (ok) resolve();
+          // Pi calls this only for an accepted prompt: started, queued or
+          // handled by an extension.
+          preflightResult: () => {
+            resolve();
           },
         })
         .then(
@@ -531,9 +536,11 @@ class PiLiveSession implements LiveSession {
   }
 
   /**
-   * Stopping a turn on a session Pi never wrote to disk is the reader saying
-   * they are done with it: pi-web's `forceShutdownOnIdle`. It shuts down as
-   * soon as the turn really stops, instead of idling for ten minutes.
+   * Stop on a session Pi never wrote to disk is the reader saying they are
+   * done with it: pi-web's `forceShutdownOnIdle`. It shuts down instead of
+   * idling for ten minutes. Pi writes the file with the first prompt, so this
+   * is a session that opened with `/name` or `/reload`, or whose first prompt
+   * Pi refused, and whose page still offers Stop and Escape.
    */
   async abort(): Promise<void> {
     const draft = !this.hasTranscript();
@@ -996,13 +1003,17 @@ export function createPiAgentRuntime(options: {
       },
     );
     if (unsaved) wrapper.ui.context.notify(unsaved, "warning");
+    // Armed only while the session has no file: once Pi wrote one, activity
+    // stops re-arming it.
     let idle: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
-      if (idle) clearTimeout(idle);
-      idle = setTimeout(() => {
-        if (!wrapper.hasTranscript() && !wrapper.busy) void wrapper.stop();
-        else resetIdle();
-      }, draftIdleMs).unref();
+      clearTimeout(idle);
+      idle = wrapper.hasTranscript()
+        ? undefined
+        : setTimeout(() => {
+            if (wrapper.busy || wrapper.hasTranscript()) resetIdle();
+            else void wrapper.stop();
+          }, draftIdleMs).unref();
     };
     let wasBusy = wrapper.busy;
     wrapper.subscribe((event) => {
@@ -1015,9 +1026,8 @@ export function createPiAgentRuntime(options: {
       if (event.type === "completed") {
         announce({ type: "completed", sessionId: id });
       }
-      if (event.type === "stopped") {
-        if (idle) clearTimeout(idle);
-      } else resetIdle();
+      if (event.type === "stopped") clearTimeout(idle);
+      else if (idle) resetIdle();
     });
     resetIdle();
     try {

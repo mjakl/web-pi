@@ -382,8 +382,8 @@ export type AgentRuntime = {
   get(sessionId: string): LiveSession | undefined;
   /**
    * Every session this process holds open. Pi writes a new session's file
-   * with its first assistant message, so until then this is the only place
-   * the session exists.
+   * with its first user or assistant message, so until then this is the only
+   * place the session exists.
    */
   live(): LiveSession[];
   /**

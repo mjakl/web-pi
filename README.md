@@ -127,9 +127,9 @@ _This is browser emulation, not a physical-device test. Read
 - **Keyboard access.** Ctrl/⌘ + 1–0 opens the first ten visible sessions when
   focus is outside a form field. Hold the modifier to reveal the row shortcuts.
   Up/Down in an empty composer recalls that conversation's requests.
-- **Context in view.** Inspect tokens, context, active time and estimated live
-  tokens per second. Set the context-warning threshold, compact when needed, and
-  inspect the system prompt or tool definitions from the session header.
+- **Context in view.** Inspect token counts, context usage and active time. Set
+  the context-warning threshold, compact when needed, and inspect the system
+  prompt or tool definitions from the session header.
 - **Load detail when needed.** Older history pages backwards. Settled tool
   bodies and older reasoning load when opened; large outputs offer a control to
   fetch the rest. Live tool arguments appear while streaming.
@@ -271,11 +271,13 @@ Set the intended directory and restart to recover. Independent MCP agent
 directories within one process are not supported.
 
 See Pi's
-[Codemode](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/codemode.md)
+[Codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md)
 and
-[MCP](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/mcp.md)
-documentation for configuration and tool exposure. These features do not require
-`pi-server` or change web-pi's session transport.
+[MCP](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md)
+documentation for configuration and tool exposure. Those pages follow Pi's
+`main` branch; the installed Pi SDK ships the pages matching its version in
+`node_modules/@earendil-works/pi-coding-agent/docs/`. These features do not
+require `pi-server` or change web-pi's session transport.
 
 ## Settings and notifications
 

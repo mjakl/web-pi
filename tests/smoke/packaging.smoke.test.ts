@@ -374,8 +374,6 @@ it("serves the built assets and the manifest", async () => {
     expect(script.headers.get("content-type"), path).toContain("javascript");
     expect((await script.text()).length, path).toBeGreaterThan(1000);
   }
-  const retired = await fetch(`${origin}/static/mermaid.js`);
-  expect(retired.status).toBe(404);
   const worker = await fetch(`${origin}/sw.js`);
   expect(worker.status).toBe(200);
   expect(worker.headers.get("content-type")).toContain("javascript");

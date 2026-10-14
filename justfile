@@ -40,8 +40,6 @@ build-css:
 
 # DEV: Build the client script once
 build-js:
-    # Packing includes static/ bundles left by older checkouts.
-    rm -f static/mermaid.js
     {{ esbuild }} --minify
 
 # DEV: Build everything the package ships: assets and dist/

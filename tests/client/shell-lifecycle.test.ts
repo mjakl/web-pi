@@ -1,20 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  byId,
-  click,
-  htmxEvent,
-  keydown,
-  mount,
-  query,
-  setRect,
-} from "./helpers.ts";
+import { byId, click, htmxEvent, keydown, mount, query } from "./helpers.ts";
 
 const shell =
   '<main data-session-id="s1" data-cwd="/repo/one">' +
   '<aside id="session-sidebar" class="sidebar-mobile-pending"><div class="sidebar-resize-handle" tabindex="0"></div></aside>' +
   '<button id="sidebar-toggle"></button><div class="sidebar-overlay-backdrop"></div>' +
-  '<div id="top-bar"><button data-top-panel="system" aria-pressed="false"></button></div>' +
-  '<div id="top-panel" hidden></div>' +
   '<button id="mobile-toolbar-more"><span data-more-closed-icon></span><span data-more-open-icon hidden></span></button>' +
   '<div id="top-bar-tabs"></div></main>';
 
@@ -62,53 +52,6 @@ describe("shell region replacement", () => {
     expect(oldTabs.hasAttribute("data-open")).toBe(true);
     click(byId("mobile-toolbar-more"));
     expect(byId("top-bar-tabs").hasAttribute("data-open")).toBe(true);
-  });
-
-  it("disconnects the old panel observer and listeners before mounting the new panel", async () => {
-    const observers: {
-      observe: ReturnType<typeof vi.fn>;
-      disconnect: ReturnType<typeof vi.fn>;
-    }[] = [];
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        observe = vi.fn();
-        disconnect = vi.fn();
-        constructor() {
-          observers.push(this);
-        }
-      },
-    );
-    await load();
-    const oldHost = byId("top-panel");
-    const oldBar = byId("top-bar");
-    const oldMeasure = vi.spyOn(oldBar, "getBoundingClientRect");
-    click(query("[data-top-panel]"));
-    oldMeasure.mockClear();
-    htmxEvent(oldHost, "htmx:before:cleanup");
-    expect(observers[0]?.disconnect).toHaveBeenCalledOnce();
-    replaceBody();
-    expect(observers).toHaveLength(2);
-    setRect(byId("top-bar"), { bottom: 80, left: 20, width: 500 });
-    click(query("[data-top-panel]"));
-    expect(byId("top-panel").hidden).toBe(false);
-    expect(byId("top-panel").style.top).toBe("80px");
-    window.dispatchEvent(new Event("scroll"));
-    expect(oldMeasure).not.toHaveBeenCalled();
-    keydown(document, "Escape");
-    expect(byId("top-panel").hidden).toBe(true);
-    expect(oldHost.hidden).toBe(false);
-  });
-
-  it("does not measure the bar for a hidden panel on scroll", async () => {
-    await load();
-    const measure = vi.spyOn(byId("top-bar"), "getBoundingClientRect");
-    expect(byId("top-panel").hidden).toBe(true);
-    window.dispatchEvent(new Event("scroll"));
-    expect(measure).not.toHaveBeenCalled();
-    click(query("[data-top-panel]"));
-    window.dispatchEvent(new Event("scroll"));
-    expect(measure).toHaveBeenCalled();
   });
 
   it("releases an in-progress drag when its handle is cleaned up", async () => {

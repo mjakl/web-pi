@@ -125,7 +125,7 @@ export function ToolsPanel({
                 class="tool-definitions-item"
                 aria-pressed={tool.name === shown?.name ? "true" : "false"}
                 hx-get={`/sessions/${sessionId ?? ""}/tools?tool=${encodeURIComponent(tool.name)}`}
-                hx-target="#top-panel"
+                hx-target="#tools-panel"
                 hx-swap="innerHTML"
               >
                 <code>{tool.name}</code>

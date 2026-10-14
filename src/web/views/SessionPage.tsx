@@ -37,9 +37,22 @@ import { DialogHost, MissingFolderNotice, TrustBadge } from "./Dialogs.tsx";
 /** The cumulative token totals the stats button reads. */
 type SessionTokens = SessionStats["tokens"];
 
-/** The panel one of the top-bar buttons opens, one at a time. */
-function TopPanelHost() {
-  return <div id="top-panel" class="shell-top-panel" hidden />;
+/**
+ * A panel a top-bar button opens. As a popover the browser keeps one open at
+ * a time and closes it on an outside click or Escape; it fetches its content
+ * each time it opens.
+ */
+function TopPanel({ id, src }: { id: string; src: string }) {
+  return (
+    <div
+      id={id}
+      class="shell-top-panel"
+      popover="auto"
+      hx-get={src}
+      hx-trigger="toggle[newState=='open']"
+      hx-swap="innerHTML"
+    />
+  );
 }
 
 function TopBar({
@@ -144,18 +157,10 @@ function TopBar({
               type="button"
               class="shell-top-bar-tab"
               data-top-bar-tab
-              data-top-panel="system"
+              popovertarget="system-panel"
               data-panel-loaded={panels?.system === true ? "true" : undefined}
-              aria-pressed="false"
               title="System prompt"
               aria-label="System prompt"
-              hx-get={
-                sessionId === undefined
-                  ? "/panels/system"
-                  : `/sessions/${sessionId}/system-prompt`
-              }
-              hx-target="#top-panel"
-              hx-swap="innerHTML"
             >
               {/* pi-web tints both icons with the accent once the session has
                 told it what they hold, and leaves them dim until then
@@ -170,18 +175,10 @@ function TopBar({
               type="button"
               class="shell-top-bar-tab"
               data-top-bar-tab
-              data-top-panel="tools"
+              popovertarget="tools-panel"
               data-panel-loaded={panels?.tools === true ? "true" : undefined}
-              aria-pressed="false"
               title="Tool definitions"
               aria-label="Tool definitions"
-              hx-get={
-                sessionId === undefined
-                  ? "/panels/tools"
-                  : `/sessions/${sessionId}/tools`
-              }
-              hx-target="#top-panel"
-              hx-swap="innerHTML"
             >
               <span data-panel-icon class="shell-panel-icon">
                 <WrenchIcon />
@@ -192,7 +189,6 @@ function TopBar({
         )}
         {sessionId === undefined || inspectionOnly ? null : (
           <SessionStatsButton
-            sessionId={sessionId}
             {...(usage === undefined ? {} : { usage })}
             {...(tokens === undefined ? {} : { tokens })}
           />
@@ -241,7 +237,29 @@ function TopBar({
         >
           <PanelRightIcon />
         </button>
-        <TopPanelHost />
+        {inspectionOnly ? null : (
+          <>
+            <TopPanel
+              id="system-panel"
+              src={
+                sessionId === undefined
+                  ? "/panels/system"
+                  : `/sessions/${sessionId}/system-prompt`
+              }
+            />
+            <TopPanel
+              id="tools-panel"
+              src={
+                sessionId === undefined
+                  ? "/panels/tools"
+                  : `/sessions/${sessionId}/tools`
+              }
+            />
+          </>
+        )}
+        {sessionId === undefined || inspectionOnly ? null : (
+          <TopPanel id="stats-panel" src={`/sessions/${sessionId}/stats`} />
+        )}
       </div>
       {/* pi-web gives the phone its own full-width warning row under the bar
           (AppShell.tsx); only one of the two is ever visible. */}
@@ -258,11 +276,9 @@ function TopBar({
  * numbers in the hover text (ui-map 2.3).
  */
 function SessionStatsButton({
-  sessionId,
   usage,
   tokens,
 }: {
-  sessionId: string;
   usage?: ContextUsage;
   tokens?: SessionTokens;
 }) {
@@ -282,13 +298,9 @@ function SessionStatsButton({
       type="button"
       id="stats-trigger"
       class="shell-session-stats mobile-session-stats"
-      data-top-panel="stats"
-      aria-pressed="false"
+      popovertarget="stats-panel"
       title={parts.length === 0 ? "Session info" : parts.join("  |  ")}
       aria-label="Session info"
-      hx-get={`/sessions/${sessionId}/stats`}
-      hx-target="#top-panel"
-      hx-swap="innerHTML"
     >
       {tokens !== undefined && tokens.input > 0 ? (
         <span class="mobile-session-stat-io">

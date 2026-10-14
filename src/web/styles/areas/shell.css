@@ -777,6 +777,7 @@
 .shell-top-bar {
   flex-shrink: 0;
   background: var(--bg-panel);
+  anchor-name: --top-bar;
 }
 
 .shell-top-bar-row,
@@ -805,14 +806,23 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* The System, Tools and Session info popovers span the bar they open from,
+   which is the centre column, never the sidebar. The bar starts at the top of
+   the page, so its height is how far down they start. */
 .shell-top-panel {
-  position: fixed;
-  left: 0;
-  top: calc(36px + env(safe-area-inset-top));
-  width: 100%;
-  max-height: calc(100dvh - 36px);
+  position-anchor: --top-bar;
+  inset: auto;
+  top: anchor(bottom);
+  left: anchor(left);
+  right: anchor(right);
+  width: auto;
+  max-height: calc(100dvh - anchor-size(height));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
   overflow-y: auto;
-  z-index: var(--layer-session-info);
 }
 
 .shell-icon-button {
@@ -881,7 +891,7 @@
   display: flex;
   color: var(--text-dim);
 }
-[data-top-panel][data-panel-loaded] .shell-panel-icon {
+[data-panel-loaded] .shell-panel-icon {
   color: var(--accent);
 }
 
@@ -939,7 +949,10 @@
 a.shell-top-bar-tab:hover {
   background: var(--bg-hover);
 }
-[data-top-panel][aria-pressed="true"] {
+/* The tab whose panel is open. */
+.shell-top-bar:has(#system-panel:popover-open) [popovertarget="system-panel"],
+.shell-top-bar:has(#tools-panel:popover-open) [popovertarget="tools-panel"],
+.shell-top-bar:has(#stats-panel:popover-open) [popovertarget="stats-panel"] {
   background: var(--bg-selected);
   border-top-color: var(--accent);
   color: var(--text);

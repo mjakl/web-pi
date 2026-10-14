@@ -94,11 +94,6 @@ function mountSidebarResize(handle: HTMLElement, signal: AbortSignal): void {
 }
 
 /**
- * System, Tools and Session info share one host under the top bar, and only
- * one is open at a time. A second click on the open button closes it, which
- * has to happen before htmx sees the click and fetches the panel again.
- */
-/**
  * The narrow-phone toolbar: the three tabs live behind the "more" button and
  * slide in over the bar, as pi-web's `mobileToolbarMoreOpen` does.
  */
@@ -125,105 +120,48 @@ function mountMobileToolbar(button: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-function mountTopPanels(host: HTMLElement, signal: AbortSignal): void {
-  const bar = document.getElementById("top-bar");
-  if (!bar) return;
-  const buttons = [
-    ...document.querySelectorAll<HTMLElement>("[data-top-panel]"),
-  ];
-  // The host is fixed, so it has to be told where the bar is: it spans the
-  // bar exactly, which is the centre column, never the sidebar.
-  const place = (): void => {
-    // Every scroll in the page lands here; a hidden host has nothing to place.
-    if (host.hidden) return;
-    const box = bar.getBoundingClientRect();
-    host.style.top = `${String(box.bottom)}px`;
-    host.style.left = `${String(box.left)}px`;
-    host.style.width = `${String(box.width)}px`;
-    host.style.maxHeight = `calc(100dvh - ${String(box.bottom)}px)`;
-  };
-  const observer = new ResizeObserver(place);
-  observer.observe(bar);
-  signal.addEventListener(
-    "abort",
-    () => {
-      observer.disconnect();
-    },
-    { once: true },
-  );
-  addEventListener("scroll", place, { capture: true, signal });
-  const paint = (open: string): void => {
-    host.hidden = open === "";
-    if (open !== "") place();
-    for (const button of buttons) {
-      const active = button.dataset["topPanel"] === open;
-      button.setAttribute("aria-pressed", String(active));
-    }
-  };
-  const close = (): void => {
-    host.replaceChildren();
-    paint("");
-  };
-  close();
-  // What a panel answered decides its icon's colour, as the session state
-  // does in pi-web: a prompt or an active tool tints the tab's icon.
-  host.addEventListener(
-    "htmx:after:settle",
-    () => {
-      const open = buttons.find(
-        (button) => button.getAttribute("aria-pressed") === "true",
-      );
-      if (!open) return;
-      const loaded =
-        host.querySelector(".system-prompt-text, .tool-definitions-item") !==
-        null;
-      open.toggleAttribute("data-panel-loaded", loaded);
-    },
-    { signal },
-  );
+/**
+ * System, Tools and Session info are popovers that fetch their content as
+ * they open. Closing one empties it, so the next opening never shows the last
+ * answer, and what a panel answered tints its tab's icon, as the session
+ * state does in pi-web: a prompt or an active tool.
+ */
+function setUpTopPanels(): void {
+  // Popover toggle events do not bubble.
   document.addEventListener(
-    "click",
+    "toggle",
     (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const button = target.closest<HTMLElement>("[data-top-panel]");
-      if (!button) {
-        // A click anywhere else dismisses the panel, as a popover would.
-        if (!host.hidden && !host.contains(target)) close();
-        return;
-      }
-      if (button.getAttribute("aria-pressed") === "true") {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-        return;
-      }
-      paint(button.dataset["topPanel"] ?? "");
+      const panel = event.target;
+      if (
+        panel instanceof HTMLElement &&
+        panel.matches(".shell-top-panel") &&
+        event.newState === "closed"
+      )
+        panel.replaceChildren();
     },
-    { capture: true, signal },
+    true,
   );
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key !== "Escape" || host.hidden) return;
-      // Handled, or the shortcut would stop the turn as well.
-      event.preventDefault();
-      close();
-    },
-    { signal },
-  );
+  document.addEventListener("htmx:after:settle", (event) => {
+    const panel =
+      event.target instanceof Element
+        ? event.target.closest(".shell-top-panel")
+        : null;
+    if (!panel) return;
+    const loaded =
+      panel.querySelector(".system-prompt-text, .tool-definitions-item") !==
+      null;
+    document
+      .querySelector(`[popovertarget="${panel.id}"]`)
+      ?.toggleAttribute("data-panel-loaded", loaded);
+  });
 }
 
 /**
- * What Escape closes before it may stop the turn. The browser closes a
- * dialog or popover only after the key's listeners have run, and a panel
- * mounted after the shortcuts hears the key after them.
+ * What Escape closes before it may stop the turn: the browser closes a dialog
+ * or popover only after the key's listeners have run, so it is still open.
  */
 function somethingOpen(): boolean {
-  return (
-    dialogOpen() ||
-    document.querySelector("#top-panel:not([hidden]), :popover-open") !== null
-  );
+  return dialogOpen() || document.querySelector(":popover-open") !== null;
 }
 
 function setUpShortcuts(): void {
@@ -403,7 +341,7 @@ export function setUpShell(): void {
   });
   setUpRegion(".sidebar-resize-handle", mountSidebarResize);
   setUpRegion("#mobile-toolbar-more", mountMobileToolbar);
-  setUpRegion("#top-panel", mountTopPanels);
+  setUpTopPanels();
   setUpShortcuts();
   setUpToasts();
   setUpViewport();

@@ -320,6 +320,10 @@ Project resources can run local code. Extensions, skills, and other
 trust-requiring project resources stay dormant until you trust the project.
 Trust only repositories you control or have reviewed.
 
+A remote image in a conversation message shows as a "Load image" button naming
+its host, and loads only when you click it: an image URL can carry data a prompt
+injection put there. File previews load remote images as usual.
+
 File-content access goes through the server's allowed-root policy. The folder
 picker can list other readable directory names; selecting a folder grants access
 to it for the server process. This file boundary does not sandbox agent tools.

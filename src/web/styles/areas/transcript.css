@@ -1839,6 +1839,42 @@ button.tool-output-link {
   max-width: min(100%, 720px);
   max-height: 520px;
 }
+/* A remote image in a message, until the reader loads it: a chip like the
+   written files', naming what it would load. */
+.markdown-remote-image-load {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  height: 28px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-size: var(--text-sm);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.markdown-remote-image-load:hover {
+  background: var(--bg-hover);
+}
+.markdown-remote-image-action {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.markdown-remote-image-alt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown-remote-image-host {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
 
 /* ── Code blocks ────────────────────────────────────────────────────────
    react-syntax-highlighter writes the gutter's metrics inline; only its

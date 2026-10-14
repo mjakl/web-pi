@@ -13,7 +13,10 @@ export type MarkdownOptions = {
   cwd?: string;
   /** Opens local paths in the file panel and serves local images. */
   sessionId?: string;
-  /** File previews render fully; messages retain the oversized-source fallback. */
+  /**
+   * File previews render fully and load remote images; messages keep the
+   * oversized-source fallback and load a remote image only on a click.
+   */
   filePreview?: boolean;
 };
 
@@ -43,6 +46,35 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   if (bytes >= 1024) return `${String(Math.round(bytes / 1024))} KB`;
   return `${String(bytes)} B`;
+}
+
+/**
+ * A remote image in a message waits for the reader. A prompt injection can
+ * put data into an image URL, and drawing the message would send it; the
+ * button names the host instead, and client/markdown-links.ts loads the
+ * image on a click.
+ */
+function remoteImage(
+  href: string,
+  alt: string,
+  title: string | undefined,
+): string {
+  let host: string;
+  try {
+    host = new URL(href).host;
+  } catch {
+    return escapeHtml(alt);
+  }
+  const titled = title === undefined ? "" : ` data-title="${attribute(title)}"`;
+  const named =
+    alt === ""
+      ? ""
+      : ` <span class="markdown-remote-image-alt">${escapeHtml(alt)}</span>`;
+  return (
+    `<span class="markdown-remote-image"><button type="button" class="markdown-remote-image-load" data-remote-image="${attribute(href)}" data-alt="${attribute(alt)}"${titled} title="${attribute(href)}">` +
+    `<span class="markdown-remote-image-action">Load image</span>${named}` +
+    ` <span class="markdown-remote-image-host">${escapeHtml(host)}</span></button></span>`
+  );
 }
 
 /** pi-web's CodeBlock (§4.5): a language header, copy button and tinted body. */
@@ -144,6 +176,8 @@ function markedFor(options: MarkdownOptions): Marked {
       image({ href, text, title }: Tokens.Image) {
         const alt = attribute(text);
         if (/^https?:/i.test(href)) {
+          if (options.filePreview !== true)
+            return remoteImage(href, text, title ?? undefined);
           const titleAttribute =
             title === null || title === undefined
               ? ""

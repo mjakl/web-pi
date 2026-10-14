@@ -79,6 +79,107 @@ describe("renderMarkdown", () => {
     }
   });
 
+  it.each([
+    {
+      name: "a remote image in a file preview loads, quotes kept in its attributes",
+      markdown: '![say "hi"](https://img.test/p.png "a \\"title\\"")',
+      options: { filePreview: true },
+      image: {
+        src: "https://img.test/p.png",
+        alt: 'say "hi"',
+        title: 'a "title"',
+      },
+      button: null,
+    },
+    {
+      name: "a remote image in a message waits behind a button, quotes kept in its attributes",
+      markdown:
+        '![say "hi"](https://img.test/p.png?data=secret "a \\"title\\"")',
+      options: {},
+      image: null,
+      button: {
+        remote: "https://img.test/p.png?data=secret",
+        alt: 'say "hi"',
+        title: 'a "title"',
+        file: null,
+        text: 'Load image say "hi" img.test',
+      },
+    },
+    {
+      name: "a javascript: image is its text",
+      markdown: "![run](javascript:alert(1))",
+      options: {},
+      image: null,
+      button: null,
+    },
+    {
+      name: "a data: image is its text, in a file preview too",
+      markdown: "![pixel](data:image/png;base64,AAAA)",
+      options: { filePreview: true },
+      image: null,
+      button: null,
+    },
+    {
+      name: "a local image with a session shows through the raw file route",
+      markdown: "![shot](shot.png)",
+      options: { cwd: "/repo", sessionId: "s1" },
+      image: {
+        src: "/files/raw?path=%2Frepo%2Fshot.png&session=s1",
+        alt: "shot",
+        title: null,
+      },
+      button: {
+        remote: null,
+        alt: null,
+        title: null,
+        file: "/repo/shot.png",
+        text: "",
+      },
+    },
+    {
+      name: "a local image without a session is a file link",
+      markdown: "![shot](shot.png)",
+      options: { cwd: "/repo" },
+      image: null,
+      button: {
+        remote: null,
+        alt: null,
+        title: null,
+        file: "/repo/shot.png",
+        text: "shot",
+      },
+    },
+  ])("renders $name", async ({ markdown, options, image, button }) => {
+    const window = new Window();
+    try {
+      const { body } = window.document;
+      body.innerHTML = renderMarkdown(markdown, options);
+      const img = body.querySelector("img");
+      expect(
+        img && {
+          src: img.getAttribute("src"),
+          alt: img.getAttribute("alt"),
+          title: img.getAttribute("title"),
+        },
+      ).toEqual(image);
+      const control = body.querySelector("button");
+      expect(
+        control && {
+          remote: control.getAttribute("data-remote-image"),
+          alt: control.getAttribute("data-alt"),
+          title: control.getAttribute("data-title"),
+          file: control.getAttribute("data-file-path"),
+          text: control.textContent.replaceAll(/\s+/g, " ").trim(),
+        },
+      ).toEqual(button);
+      if (!image && !button) {
+        expect(body.textContent.trim()).toBe(markdown.slice(2).split("]")[0]);
+      }
+    } finally {
+      await window.happyDOM.close();
+    }
+  });
+
   it("leaves a single tilde alone and keeps double-tilde strikethrough", () => {
     const html = renderMarkdown("~10~20 and ~~gone~~");
     expect(html).toContain("~10~20");

@@ -84,3 +84,26 @@ describe("Markdown web links", () => {
     expect(document.body.innerHTML).toBe(before);
   });
 });
+
+describe("remote Markdown images", () => {
+  it("loads the image only when the reader clicks its button", () => {
+    mount(
+      renderMarkdown(
+        '![say "hi"](https://img.test/p.png?data=secret "A title")',
+      ),
+    );
+    setUpTranscript();
+    expect(document.querySelector("img")).toBeNull();
+    const holder = query(".markdown-remote-image");
+    query("[data-remote-image]").click();
+    const image = holder.querySelector("img");
+    expect(image?.getAttribute("src")).toBe(
+      "https://img.test/p.png?data=secret",
+    );
+    expect(image?.alt).toBe('say "hi"');
+    expect(image?.title).toBe("A title");
+    expect(holder.querySelector("button")).toBeNull();
+    // The message is settled, so a later morph keeps what the reader loaded.
+    expect(holder.hasAttribute("hx-morph-skip")).toBe(true);
+  });
+});

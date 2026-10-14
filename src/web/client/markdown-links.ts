@@ -10,7 +10,30 @@ function updateLinks(root: Element): void {
   }
 }
 
+/**
+ * Puts a message's remote image in place of the button that names it, which
+ * is the first request for it. Morphs leave the loaded image alone: the
+ * message it belongs to does not change.
+ */
+function loadRemoteImage(event: Event): void {
+  const target = event.target;
+  const button =
+    target instanceof Element
+      ? target.closest<HTMLElement>("[data-remote-image]")
+      : null;
+  const holder = button?.parentElement;
+  if (!button || !holder) return;
+  const image = document.createElement("img");
+  image.src = button.dataset["remoteImage"] ?? "";
+  image.alt = button.dataset["alt"] ?? "";
+  const title = button.dataset["title"];
+  if (title !== undefined) image.title = title;
+  holder.setAttribute("hx-morph-skip", "");
+  button.replaceWith(image);
+}
+
 export function setUpMarkdownLinks(): void {
+  document.addEventListener("click", loadRemoteImage);
   updateLinks(document.body);
   document.addEventListener("htmx:after:process", (event) => {
     if (event.target instanceof Element) updateLinks(event.target);

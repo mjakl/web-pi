@@ -23,7 +23,7 @@ update-pi:
 
 # DEV: Report the Pi installed in this checkout
 doctor:
-    pnpm exec tsx scripts/doctor.ts
+    node scripts/doctor.ts
 
 # DEV: Serve the sources on port 30143, restarting on source and asset changes
 dev:
@@ -63,22 +63,22 @@ screenshots: build
 
 # TEST: Real-browser settings layout against the isolated screenshot fixture
 settings-scroll url:
-    node --import tsx scripts/check-settings-scroll.ts '{{url}}'
+    node scripts/check-settings-scroll.ts '{{url}}'
 
 # TEST: Real-browser composer growth and controls against the isolated fixture
 composer-layout url:
-    node --import tsx scripts/check-composer-layout.ts '{{url}}'
+    node scripts/check-composer-layout.ts '{{url}}'
 
 # TEST: Real-browser style scale checks and captures against the isolated fixture
 style-scale url output="dist/style-scale":
-    node --import tsx scripts/check-style-scale.ts '{{url}}' '{{output}}'
+    node scripts/check-style-scale.ts '{{url}}' '{{output}}'
 
 # LINT: Formatting, lint, and types
 lint: typecheck
     pnpm exec oxfmt --check .
     pnpm exec oxlint .
     pnpm exec stylelint "src/web/styles/**/*.css"
-    node --import tsx scripts/check-doc-path-references.ts
+    node scripts/check-doc-path-references.ts
 
 # LINT: Apply lint and format fixes
 fix:

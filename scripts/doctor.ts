@@ -1,4 +1,4 @@
-import { resolveBundledPi } from "@/pi-version.ts";
+import { resolveBundledPi } from "../src/pi-version.ts";
 
 try {
   const pi = resolveBundledPi();

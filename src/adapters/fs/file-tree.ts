@@ -14,14 +14,16 @@ const run = promisify(execFile);
 // The browser filters the first MAX_FILES paths on its own and asks the
 // server about the rest, which searches the whole listing up to the hard
 // caps. Git is asked once per folder, and the answer and its prepared search
-// are reused for ten seconds.
+// are reused for ten seconds. Once searched, a listing of 120,000 paths holds
+// about 170 MB, so only two folders are kept, and an expired listing is
+// dropped the next time any folder is listed.
 const MAX_FILES = 5000;
 const GIT_HARD_CAP = 200_000;
 const WALK_HARD_CAP = 50_000;
 const MAX_WALK_DEPTH = 8;
 const MAX_CHILDREN = 20;
 const CACHE_TTL_MS = 10_000;
-const CACHE_MAX_ENTRIES = 20;
+const CACHE_MAX_ENTRIES = 2;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
 /** A NUL byte this close to the start marks a binary file, as for Git. */
 const BINARY_SNIFF_BYTES = 8192;
@@ -135,10 +137,14 @@ export function createFileTree(): Files {
   }
 
   function listing(cwd: string): Promise<Listing> {
+    const now = Date.now();
+    for (const [folder, kept] of cache) {
+      if (kept.expiresAt <= now) cache.delete(folder);
+    }
     const hit = cache.get(cwd);
-    if (hit && hit.expiresAt > Date.now()) return hit.listing;
+    if (hit) return hit.listing;
     const loaded = load(cwd);
-    cache.set(cwd, { expiresAt: Date.now() + CACHE_TTL_MS, listing: loaded });
+    cache.set(cwd, { expiresAt: now + CACHE_TTL_MS, listing: loaded });
     loaded.catch(() => cache.delete(cwd));
     while (cache.size > CACHE_MAX_ENTRIES) {
       const oldest = cache.keys().next().value;

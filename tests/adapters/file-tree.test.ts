@@ -77,6 +77,30 @@ describe("file tree", () => {
     }
   });
 
+  it("keeps the listings of the two folders searched last", async () => {
+    const folder = (name: string) => mkdtemp(join(tmpdir(), `web-pi-${name}-`));
+    const [first, second, third] = await Promise.all([
+      folder("first"),
+      folder("second"),
+      folder("third"),
+    ]);
+    try {
+      const files = createFileTree();
+      for (const listed of [first, second, third]) await files.index(listed);
+      // A file added since: a kept listing does not know it yet.
+      for (const listed of [first, second, third])
+        await writeFile(join(listed, "added.txt"), "");
+      const sees = async (listed: string) =>
+        (await files.search(listed, "added", 20)).length > 0;
+      expect(await sees(third)).toBe(false);
+      // The third folder released the first one's listing.
+      expect(await sees(first)).toBe(true);
+    } finally {
+      for (const listed of [first, second, third])
+        await rm(listed, { recursive: true, force: true });
+    }
+  });
+
   it("completes immediate children by prefix, directories first", async () => {
     const files = createFileTree();
     const children = await files.children("./src/", root);

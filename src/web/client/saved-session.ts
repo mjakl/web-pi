@@ -109,6 +109,9 @@ export function setUpSavedSession(): void {
         if (kind === "changed") {
           const text = await response.text();
           if (!current()) return;
+          const contentLeaf = decodeURIComponent(
+            response.headers.get("X-Web-Pi-Content-Leaf") ?? "",
+          );
           const log = owner.querySelector("#log");
           log?.dispatchEvent(new Event("web-pi:saved-before"));
           await htmx().swap({
@@ -117,14 +120,20 @@ export function setUpSavedSession(): void {
             text,
             swap: "none",
           });
-          log?.dispatchEvent(new Event("web-pi:saved-after"));
+          // A star, a rename or a model change rewrites the file too, but
+          // only a moved content leaf is something new to read.
+          log?.dispatchEvent(
+            new CustomEvent("web-pi:saved-after", {
+              detail: {
+                content: contentLeaf !== owner.dataset["savedContentLeaf"],
+              },
+            }),
+          );
           if (!available() || controller.signal.aborted) return;
           owner.dataset["savedLeaf"] = decodeURIComponent(
             response.headers.get("X-Web-Pi-Leaf") ?? "",
           );
-          owner.dataset["savedContentLeaf"] = decodeURIComponent(
-            response.headers.get("X-Web-Pi-Content-Leaf") ?? "",
-          );
+          owner.dataset["savedContentLeaf"] = contentLeaf;
         }
         // An unavailable stamp acknowledges the check, not a new branch/history.
         if (kind === "changed" || kind === "unavailable") {

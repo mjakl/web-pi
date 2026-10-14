@@ -189,12 +189,13 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   );
   view.addEventListener(
     "web-pi:saved-after",
-    () => {
+    (event) => {
       if (!follow) {
         if (savedAnchor?.entry.isConnected)
           view.scrollTop +=
             savedAnchor.entry.getBoundingClientRect().top - savedAnchor.top;
-        newMessages = true;
+        if ((event as CustomEvent<{ content: boolean }>).detail.content)
+          newMessages = true;
       } else view.scrollTop = view.scrollHeight;
       savedAnchor = undefined;
       sync();

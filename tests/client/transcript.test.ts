@@ -113,7 +113,9 @@ describe("saved transcript updates", () => {
     readingTop = 190;
     setGeometry(view, { scrollHeight: 2400 });
     htmxEvent(byId("messages"), "htmx:after:settle");
-    view.dispatchEvent(new Event("web-pi:saved-after"));
+    view.dispatchEvent(
+      new CustomEvent("web-pi:saved-after", { detail: { content: true } }),
+    );
     expect(view.scrollTop).toBe(1160);
     expect(byId("jump-to-latest").hidden).toBe(false);
     expect(query("[data-new-messages]").hidden).toBe(false);
@@ -125,6 +127,27 @@ describe("saved transcript updates", () => {
     view.dispatchEvent(new Event("scroll"));
     expect(byId("jump-to-latest").hidden).toBe(true);
     expect(query("[data-new-messages]").hidden).toBe(true);
+  });
+
+  it("keeps a detached reader's place without a label when nothing new was said", async () => {
+    const view = await load('<div id="entry-reading">Reading this</div>');
+    view.scrollTop = 1000;
+    view.dispatchEvent(new Event("scroll"));
+    let readingTop = 30;
+    vi.spyOn(byId("entry-reading"), "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(0, readingTop, 600, 100),
+    );
+    view.dispatchEvent(new Event("web-pi:saved-before"));
+    readingTop = 50;
+    view.dispatchEvent(
+      new CustomEvent("web-pi:saved-after", { detail: { content: false } }),
+    );
+    expect(view.scrollTop).toBe(1020);
+    expect(byId("jump-to-latest").hidden).toBe(false);
+    expect(query("[data-new-messages]").hidden).toBe(true);
+    expect(byId("jump-to-latest").getAttribute("aria-label")).toBe(
+      "Jump to latest",
+    );
   });
 
   it("follows saved additions at the tail without advertising unread messages", async () => {

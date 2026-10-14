@@ -219,6 +219,36 @@ describe("saved session polling", () => {
     expect(byId("turn-older").textContent).toBe("Earlier history");
   });
 
+  it.each([
+    ["content%202", true],
+    ["content-1", false],
+  ])(
+    "tells the log whether an update with content leaf %s brought new content",
+    async (contentLeaf, content) => {
+      const { fetch, owner } = await page();
+      fetch.mockResolvedValueOnce(
+        response(
+          "changed",
+          {
+            "X-Web-Pi-Revision": "stamp%202",
+            "X-Web-Pi-Leaf": "leaf%202",
+            "X-Web-Pi-Content-Leaf": contentLeaf,
+          },
+          "<div></div>",
+        ),
+      );
+      const updates: unknown[] = [];
+      byId("log").addEventListener("web-pi:saved-after", (event) => {
+        updates.push((event as CustomEvent).detail);
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(updates).toEqual([{ content }]);
+      expect(owner.dataset["savedContentLeaf"]).toBe(
+        decodeURIComponent(contentLeaf),
+      );
+    },
+  );
+
   it("acknowledges unavailable revisions without replacing the branch or history", async () => {
     const { fetch, swap } = await page();
     fetch.mockResolvedValueOnce(

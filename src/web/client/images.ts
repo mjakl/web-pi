@@ -1,4 +1,5 @@
 import { imageLimitError, MAX_IMAGES } from "@core/composer";
+import { draftChanged, onDraftChange, openDraft } from "./drafts.ts";
 import { showToast } from "./toasts.ts";
 import {
   ATTACHMENT_REMOVE_ICON,
@@ -55,58 +56,31 @@ export type Attachments = {
   submitted(): () => void;
 };
 
-type ImageDraft = {
-  files: File[];
-  pending: number;
-  generation: number;
-  changed: Set<() => void>;
-};
-const imageDrafts = new Map<string, ImageDraft>();
-
+/** The draft's images: in this page's memory, so navigation keeps them. */
 export function setUpImages(
   changed: () => void,
   owner: ParentNode = document,
   signal?: AbortSignal,
-  storageKey?: string,
+  key?: string,
   restored = false,
 ): Attachments {
-  let key = storageKey;
   const input = owner.querySelector<HTMLInputElement>("#image-input");
   const previews = owner.querySelector<HTMLElement>("#image-previews");
-  const draft = (key === undefined ? undefined : imageDrafts.get(key)) ?? {
-    files: [],
-    pending: 0,
-    generation: 0,
-    changed: new Set<() => void>(),
-  };
-  if (key !== undefined) imageDrafts.set(key, draft);
+  const draft = openDraft(key);
   if (restored) {
-    draft.files.length = 0;
+    draft.images.length = 0;
     draft.pending = 0;
     draft.generation += 1;
   }
-  document.body.addEventListener(
-    "web-pi:session-created",
-    (event) => {
-      const detail = (event as CustomEvent<{ cwd?: string; id?: string }>)
-        .detail;
-      if (!detail?.id || key !== `new:${detail.cwd ?? ""}`) return;
-      imageDrafts.delete(key);
-      key = detail.id;
-      imageDrafts.set(key, draft);
-    },
-    { signal },
-  );
-  const attached = draft.files;
+  const attached = draft.images;
   let initializing = true;
-  draft.changed.add(paint);
+  onDraftChange(draft, "images", paint, signal);
   const notify = () => {
-    for (const paint of draft.changed) paint();
+    draftChanged(draft, "images");
   };
   signal?.addEventListener(
     "abort",
     () => {
-      draft.changed.delete(paint);
       for (const image of previews?.querySelectorAll("img") ?? [])
         URL.revokeObjectURL(image.src);
     },

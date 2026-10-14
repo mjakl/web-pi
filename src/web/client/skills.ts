@@ -1,43 +1,16 @@
 import type { SkillSelection } from "@core/ports";
 import { skillSelections, uniqueSkills } from "@core/skill-prompt";
-import { draftKey } from "./drafts.ts";
+import {
+  draftChanged,
+  draftKey,
+  onDraftChange,
+  openDraft,
+  saveDraft,
+  saveDraftLater,
+} from "./drafts.ts";
 
-type SkillDraft = {
-  key: string;
-  selections: SkillSelection[];
-  revision: number;
-  membership: Map<string, number>;
-  timer?: ReturnType<typeof setTimeout>;
-  changed: Set<() => void>;
-};
-const drafts = new Map<string, SkillDraft>();
-const PREFIX = "web-pi:draft-skills:";
-
-function parse(value: string | undefined | null): SkillSelection[] {
+function parse(value: string | undefined): SkillSelection[] {
   return skillSelections(value ?? "[]") ?? [];
-}
-
-function read(key: string): SkillSelection[] {
-  try {
-    return parse(localStorage.getItem(PREFIX + key));
-  } catch {
-    return [];
-  }
-}
-function flush(draft: SkillDraft): void {
-  clearTimeout(draft.timer);
-  draft.timer = undefined;
-  try {
-    if (draft.selections.length === 0)
-      localStorage.removeItem(PREFIX + draft.key);
-    else
-      localStorage.setItem(
-        PREFIX + draft.key,
-        JSON.stringify(draft.selections),
-      );
-  } catch {
-    /* Storage may be unavailable; the in-memory draft remains. */
-  }
 }
 
 export type SkillDrafts = {
@@ -46,7 +19,10 @@ export type SkillDrafts = {
   restore(skills: SkillSelection[]): void;
 };
 
-/** Selection drafts are independent of text drafts; each selected identity has its own submission ownership. */
+/**
+ * The draft's selected skills, cleared independently of its text: each
+ * selected identity has its own submission ownership.
+ */
 export function setUpSkills(
   form: HTMLElement,
   changed: () => void,
@@ -59,32 +35,19 @@ export function setUpSkills(
   const results = form.querySelector<HTMLElement>("#skills-results");
   const trigger = form.querySelector<HTMLElement>("#skills-trigger");
   const selector = form.querySelector<HTMLElement>("#skills-selector");
-  let key = draftKey(
-    form.dataset["sessionId"] ?? null,
-    form.dataset["cwd"] ?? null,
+  const draft = openDraft(
+    draftKey(form.dataset["sessionId"] ?? null, form.dataset["cwd"] ?? null),
   );
-  const draft = drafts.get(key) ?? {
-    key,
-    selections: read(key),
-    revision: 0,
-    membership: new Map<string, number>(),
-    changed: new Set<() => void>(),
-  };
-  for (const skill of draft.selections) {
-    if (!draft.membership.has(skill.id))
-      draft.membership.set(skill.id, ++draft.revision);
-  }
-  drafts.set(key, draft);
   const restored =
     form.querySelector<HTMLTextAreaElement>("#composer-text")?.dataset[
       "restoredSkills"
     ];
   if (restored !== undefined) {
-    draft.selections = parse(restored);
+    draft.skills = parse(restored);
     draft.membership = new Map(
-      draft.selections.map((skill) => [skill.id, ++draft.revision]),
+      draft.skills.map((skill) => [skill.id, ++draft.revision]),
     );
-    flush(draft);
+    saveDraft(draft);
   }
 
   function rows(): HTMLElement[] {
@@ -94,9 +57,9 @@ export function setUpSkills(
   }
   function paint(): void {
     if (signal.aborted) return;
-    if (field) field.value = JSON.stringify(draft.selections);
-    const title = draft.selections.length
-      ? `Skills (${String(draft.selections.length)})`
+    if (field) field.value = JSON.stringify(draft.skills);
+    const title = draft.skills.length
+      ? `Skills (${String(draft.skills.length)})`
       : "Skills";
     if (label) label.textContent = title;
     trigger?.setAttribute("aria-label", title);
@@ -105,7 +68,7 @@ export function setUpSkills(
     ) ?? [])
       old.remove();
     const known = new Set(rows().map((row) => row.dataset["skillId"]));
-    for (const skill of draft.selections) {
+    for (const skill of draft.skills) {
       if (known.has(skill.id)) continue;
       const row = document.createElement("button");
       row.type = "button";
@@ -130,7 +93,7 @@ export function setUpSkills(
     const needle = filter?.value.trim().toLocaleLowerCase() ?? "";
     let shown = 0;
     for (const row of rows()) {
-      const selected = draft.selections.some(
+      const selected = draft.skills.some(
         (skill) => skill.id === row.dataset["skillId"],
       );
       row.setAttribute("aria-selected", String(selected));
@@ -157,9 +120,6 @@ export function setUpSkills(
       results?.append(none);
     }
   }
-  function notify(): void {
-    for (const listener of draft.changed) listener();
-  }
   function replace(skills: SkillSelection[], newOwnership = false): void {
     const next = uniqueSkills(skills);
     const membership = new Map<string, number>();
@@ -170,53 +130,19 @@ export function setUpSkills(
           ? ++draft.revision
           : (draft.membership.get(skill.id) ?? ++draft.revision),
       );
-    draft.selections = next;
+    draft.skills = next;
     draft.membership = membership;
-    clearTimeout(draft.timer);
-    draft.timer = setTimeout(() => {
-      flush(draft);
-    }, 300);
-    notify();
+    saveDraftLater(draft);
+    draftChanged(draft, "skills");
   }
-  const update = (): void => {
-    paint();
-    changed();
-  };
-  draft.changed.add(update);
-  signal.addEventListener(
-    "abort",
+  onDraftChange(
+    draft,
+    "skills",
     () => {
-      flush(draft);
-      draft.changed.delete(update);
+      paint();
+      changed();
     },
-    { once: true },
-  );
-  addEventListener(
-    "pagehide",
-    () => {
-      flush(draft);
-    },
-    { signal },
-  );
-  document.body.addEventListener(
-    "web-pi:session-created",
-    (event) => {
-      const detail = (event as CustomEvent<{ cwd?: string; id?: string }>)
-        .detail;
-      if (!detail?.id || key !== draftKey(null, detail.cwd ?? null)) return;
-      flush(draft);
-      try {
-        localStorage.removeItem(PREFIX + key);
-      } catch {
-        /* Private storage. */
-      }
-      drafts.delete(key);
-      key = detail.id;
-      draft.key = key;
-      drafts.set(key, draft);
-      flush(draft);
-    },
-    { signal },
+    signal,
   );
 
   async function load(): Promise<void> {
@@ -294,11 +220,11 @@ export function setUpSkills(
       const row = event.target.closest<HTMLElement>("[data-skill-id]");
       if (!row || !results.contains(row)) return;
       const id = row.dataset["skillId"] ?? "";
-      const existing = draft.selections.find((skill) => skill.id === id);
+      const existing = draft.skills.find((skill) => skill.id === id);
       replace(
         existing
-          ? draft.selections.filter((skill) => skill.id !== id)
-          : [...draft.selections, { id, name: row.dataset["skillName"] ?? "" }],
+          ? draft.skills.filter((skill) => skill.id !== id)
+          : [...draft.skills, { id, name: row.dataset["skillName"] ?? "" }],
       );
     },
     { signal },
@@ -345,16 +271,16 @@ export function setUpSkills(
   drain();
   paint();
   return {
-    count: () => draft.selections.length,
+    count: () => draft.skills.length,
     submitted() {
       const sent = new Map(draft.membership);
       return () => {
-        const remaining = draft.selections.filter(
+        const remaining = draft.skills.filter(
           (skill) => sent.get(skill.id) !== draft.membership.get(skill.id),
         );
-        if (remaining.length === draft.selections.length) return;
+        if (remaining.length === draft.skills.length) return;
         replace(remaining);
-        flush(draft);
+        saveDraft(draft);
       };
     },
     restore(skills) {

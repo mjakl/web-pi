@@ -23,6 +23,9 @@ function loadRemoteImage(event: Event): void {
       : null;
   const holder = button?.parentElement;
   if (!button || !holder) return;
+  // A linked image, such as a badge, puts the button inside the link: the
+  // click loads the image and must not follow the link as well.
+  event.preventDefault();
   const image = document.createElement("img");
   image.src = button.dataset["remoteImage"] ?? "";
   image.alt = button.dataset["alt"] ?? "";

@@ -106,4 +106,30 @@ describe("remote Markdown images", () => {
     // The message is settled, so a later morph keeps what the reader loaded.
     expect(holder.hasAttribute("hx-morph-skip")).toBe(true);
   });
+
+  it("loads a linked image without following its link", () => {
+    mount(
+      renderMarkdown(
+        `[![build](https://img.test/badge.png)](${location.origin}/elsewhere)`,
+      ),
+    );
+    setUpTranscript();
+    let followed: boolean | undefined;
+    // Suppress happy-dom's simulated navigation only after application handlers.
+    window.addEventListener(
+      "click",
+      (event) => {
+        followed = !event.defaultPrevented;
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    query("[data-remote-image]").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(followed).toBe(false);
+    expect(query("a img").getAttribute("src")).toBe(
+      "https://img.test/badge.png",
+    );
+  });
 });

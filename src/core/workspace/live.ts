@@ -42,6 +42,7 @@ export function liveUseCases({
   deps,
   entriesOf,
   folderAvailable,
+  refreshRoots,
   requireFolder,
   requireWritableSession,
   slashMenu,
@@ -103,6 +104,7 @@ export function liveUseCases({
         throw new Error(unavailableFolderMessage(cwd));
       }
       const live = await deps.runtime.open({ cwd, ...startup });
+      refreshRoots();
       return live.id;
     },
 

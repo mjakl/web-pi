@@ -4,6 +4,7 @@ import {
   type SlashCommand,
 } from "@core/composer";
 import {
+  directoryWithin,
   FileAccessError,
   isAbsolutePath,
   parentPath,
@@ -271,7 +272,9 @@ export function createShared(deps: WorkspaceDeps) {
   // One policy for every file route: lexical containment against the roots
   // this request may reach, then the same check on the resolved path. The
   // cheap roots (the open session's folder and its repository) are tried
-  // first; the full set costs a pass over every session header.
+  // first, then every session's folder, which costs a pass over every
+  // session header, and only when no folder holds the path the repositories
+  // they sit in, which may run Git.
 
   async function projectRootOf(cwd: string): Promise<string | undefined> {
     return deps.projects.resolve(cwd).then(
@@ -295,13 +298,23 @@ export function createShared(deps: WorkspaceDeps) {
     return roots;
   }
 
-  /** Every session's working folder, and the repository each sits in. */
-  async function everyRoot(): Promise<string[]> {
-    const cwds = [
-      ...new Set((await deps.sessions.list()).map((session) => session.cwd)),
-    ];
-    const roots = await Promise.all(cwds.map(projectRootOf));
-    return [...cwds, ...roots.filter((root) => root !== undefined)];
+  // Concurrent requests share one listing of these, reused for a few
+  // seconds because opening one file sends several requests. Creating a
+  // session or choosing a folder starts a fresh one, so a new project is not
+  // refused in the meantime.
+  const everyFolder = sharedFor(FALLBACK_ROOTS_MS, async () => [
+    ...new Set((await deps.sessions.list()).map((session) => session.cwd)),
+  ]);
+  const everyRepository = sharedFor(FALLBACK_ROOTS_MS, async () => {
+    const roots = await Promise.all(
+      (await everyFolder.get()).map(projectRootOf),
+    );
+    return roots.filter((root) => root !== undefined);
+  });
+
+  function refreshRoots(): void {
+    everyFolder.refresh();
+    everyRepository.refresh();
   }
 
   async function sessionReferences(id: string, path: string): Promise<boolean> {
@@ -333,8 +346,22 @@ export function createShared(deps: WorkspaceDeps) {
     if (!isAbsolutePath(path)) {
       throw new FileAccessError("Path must be absolute", 400);
     }
-    const roots = await nearRoots(options.sessionId, options.sessionCwd);
-    if (!withinAny(roots, path)) roots.push(...(await everyRoot()));
+    const roots = new Set(
+      await nearRoots(options.sessionId, options.sessionCwd),
+    );
+    // A path the request's own roots hold never widens to the others.
+    const wider = withinAny(roots, path)
+      ? []
+      : [everyFolder.get, everyRepository.get];
+    async function widen(): Promise<boolean> {
+      const next = wider.shift();
+      if (next === undefined) return false;
+      for (const root of await next()) roots.add(root);
+      return true;
+    }
+    while (!withinAny(roots, path)) {
+      if (!(await widen())) break;
+    }
     let referenced = false;
     if (!withinAny(roots, path)) {
       if (options.listing === true || options.sessionId === undefined) {
@@ -350,21 +377,32 @@ export function createShared(deps: WorkspaceDeps) {
     if (options.listing === true && info !== undefined && !info.isDirectory) {
       throw new FileAccessError("Not a directory", 400);
     }
-    if (!referenced) {
-      // The lexical check proved the spelling; this proves the file.
-      const real = await deps.files.realpath(
-        info === undefined ? parentPath(path) : path,
-      );
-      if (real === undefined) throw new FileAccessError("Not found", 404);
-      const resolved = await Promise.all(
-        roots.map((root) => deps.files.realpath(root)),
-      );
-      const known = resolved.filter((root) => root !== undefined);
-      if (!withinAny(known, real)) {
-        throw new FileAccessError("Access denied", 403);
+    if (referenced) return info;
+    // The lexical check proved the spelling; this proves the file.
+    const real = await deps.files.realpath(
+      info === undefined ? parentPath(path) : path,
+    );
+    if (real === undefined) throw new FileAccessError("Not found", 404);
+    // Each root is resolved once, the ones the path's spelling matched first,
+    // and the rest only if those do not hold the file.
+    const asked = new Set<string>();
+    const known: string[] = [];
+    const holds = async (candidates: string[]): Promise<boolean> => {
+      const fresh = candidates.filter((root) => !asked.has(root));
+      for (const root of fresh) asked.add(root);
+      for (const root of await Promise.all(
+        fresh.map((root) => deps.files.realpath(root)),
+      )) {
+        if (root !== undefined) known.push(root);
       }
-    }
-    return info;
+      return withinAny(known, real);
+    };
+    if (await holds([...roots].filter((root) => directoryWithin(root, path))))
+      return info;
+    do {
+      if (await holds([...roots])) return info;
+    } while (await widen());
+    throw new FileAccessError("Access denied", 403);
   }
 
   return {
@@ -381,6 +419,34 @@ export function createShared(deps: WorkspaceDeps) {
     entriesOf,
     cwdOf,
     projectRootOf,
+    refreshRoots,
     authorize,
+  };
+}
+
+/** How long every session's folders and repositories are reused. */
+const FALLBACK_ROOTS_MS = 5_000;
+
+/** One computation shared by concurrent callers and reused for `ms` after it settles. */
+function sharedFor<T>(ms: number, compute: () => Promise<T>) {
+  let kept: { value: Promise<T>; until: number } | undefined;
+  return {
+    get: (): Promise<T> => {
+      if (kept && Date.now() < kept.until) return kept.value;
+      const entry = { value: compute(), until: Number.POSITIVE_INFINITY };
+      kept = entry;
+      entry.value.then(
+        () => {
+          entry.until = Date.now() + ms;
+        },
+        () => {
+          if (kept === entry) kept = undefined;
+        },
+      );
+      return entry.value;
+    },
+    refresh: (): void => {
+      kept = undefined;
+    },
   };
 }

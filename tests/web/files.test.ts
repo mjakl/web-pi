@@ -876,3 +876,126 @@ describe("workspace validation", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("files in other sessions' folders", () => {
+  let home = "";
+  const folder = (name: string) => join(home, name);
+  const session = (id: string, cwd: string) => ({
+    summary: {
+      id,
+      cwd,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      modifiedAt: "2026-09-01T00:00:00.000Z",
+      fileSize: 2,
+    },
+    entries: [userEntry(`${id}-u`, null, "question")],
+  });
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), "web-pi-other-folders-"));
+    for (const name of ["own", "other", "main", "wt", "late", "pick", "out"])
+      await mkdir(folder(name));
+    await writeFile(join(folder("other"), "one.txt"), "one\n");
+    await writeFile(join(folder("main"), "two.txt"), "two\n");
+    await writeFile(join(folder("late"), "three.txt"), "three\n");
+    await writeFile(join(folder("out"), "secret.txt"), "secret\n");
+    await symlink(folder("out"), join(folder("other"), "escape"));
+  });
+
+  afterAll(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  function otherApp() {
+    const world = createFakeWorld({
+      sessions: [
+        session("s1", folder("own")),
+        session("s2", folder("other")),
+        session("s3", folder("wt")),
+      ],
+      // wt is a linked worktree of the checkout in main.
+      projects: (cwd) => ({
+        root: cwd === folder("wt") ? folder("main") : cwd,
+        branch: null,
+        isWorktree: cwd === folder("wt"),
+        isTopLevel: true,
+      }),
+    });
+    const list = vi.spyOn(world.sessions, "list");
+    const resolve = vi.spyOn(world.projects, "resolve");
+    const app = createWebApp({
+      workspace: createWorkspace(world),
+      staticRoot: "/nonexistent",
+      defaultCwd: folder("own"),
+    });
+    const view = async (path: string) =>
+      (
+        await app.request(
+          `/files/view?session=s1&path=${encodeURIComponent(path)}`,
+        )
+      ).status;
+    return { app, world, list, resolve, view };
+  }
+
+  it("reads another session's folder and repository, and nothing beyond", async () => {
+    const { app, view } = otherApp();
+    expect(await view(join(folder("other"), "one.txt"))).toBe(200);
+    expect(await view(join(folder("main"), "two.txt"))).toBe(200);
+    expect(await view(join(folder("out"), "secret.txt"))).toBe(403);
+    expect(await view(join(folder("other"), "escape", "secret.txt"))).toBe(403);
+    const listed = await app.request(
+      `/files/tree?session=s1&path=${encodeURIComponent(folder("other"))}`,
+    );
+    expect(listed.status).toBe(200);
+  });
+
+  it("shares one listing and asks for repositories only when no folder holds the file", async () => {
+    const { list, resolve, view } = otherApp();
+    const one = join(folder("other"), "one.txt");
+    expect(await Promise.all([view(one), view(one)])).toEqual([200, 200]);
+    expect(await view(one)).toBe(200);
+    expect(list).toHaveBeenCalledOnce();
+    // Only the session's own folder had its repository looked up.
+    expect(new Set(resolve.mock.calls.map(([cwd]) => cwd))).toEqual(
+      new Set([folder("own")]),
+    );
+    expect(await view(join(folder("main"), "two.txt"))).toBe(200);
+    expect(resolve).toHaveBeenCalledWith(folder("wt"));
+  });
+
+  it("lists the folders again for a new session, a chosen folder, or after a few seconds", async () => {
+    const { app, world, list, view } = otherApp();
+    const three = join(folder("late"), "three.txt");
+    expect(await view(join(folder("other"), "one.txt"))).toBe(200);
+    // A session another process started in a new folder.
+    world.store.set("s4", session("s4", folder("late")));
+    expect(await view(three)).toBe(403);
+    const created = new FormData();
+    created.set("cwd", folder("own"));
+    created.set("text", "/name Draft");
+    await app.request("/sessions", { method: "POST", body: created });
+    expect(await view(three)).toBe(200);
+    expect(list).toHaveBeenCalledTimes(2);
+
+    world.store.delete("s4");
+    const chosen = new FormData();
+    chosen.set("cwd", folder("pick"));
+    await app.request("/workspaces/validate", {
+      method: "POST",
+      body: chosen,
+    });
+    expect(await view(three)).toBe(403);
+    expect(list).toHaveBeenCalledTimes(3);
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      world.store.set("s4", session("s4", folder("late")));
+      expect(await view(three)).toBe(403);
+      vi.setSystemTime(Date.now() + 6_000);
+      expect(await view(three)).toBe(200);
+      expect(list).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

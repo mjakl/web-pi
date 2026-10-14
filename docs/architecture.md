@@ -781,13 +781,15 @@ composition root and the only importer of Pi adapters.
   resolved roots. The roots are the open session's folder and the repository it
   belongs to, plus the folders a reader validated through
   `POST /workspaces/validate` (in memory, forgotten on restart, as in pi-web); a
-  path outside those widens the search to every session's folder before it is
-  refused. The one exception is a file the session's transcript literally names
-  (`referencesPath`): the agent already showed its contents, so it may be read —
-  but never listed, because naming a file does not open its folder. Failures
-  carry the status the route sends (400, 403, 404, 413). Shell-output captures
-  need both a `<tmpdir>/pi-bash-*.log` name and a persisted `bashExecution`
-  entry in that session that references the file.
+  path outside those widens the search to every session's folder, and then to
+  the repositories those sit in, before it is refused. Concurrent requests share
+  that list, which is reused for five seconds and rebuilt when web-pi creates a
+  session or validates a folder. The one exception is a file the session's
+  transcript literally names (`referencesPath`): the agent already showed its
+  contents, so it may be read — but never listed, because naming a file does not
+  open its folder. Failures carry the status the route sends (400, 403, 404,
+  413). Shell-output captures need both a `<tmpdir>/pi-bash-*.log` name and a
+  persisted `bashExecution` entry in that session that references the file.
 - **The file panel is server-rendered; the browser keeps only the tabs.** Each
   directory is fetched when it is opened (`hx-get` per node), the changes list
   and the tree re-render when a turn settles (`settled from:body`), and the

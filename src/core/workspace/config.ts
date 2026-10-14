@@ -22,6 +22,7 @@ export function configUseCases({
   inspectionOnly,
   modelsFor,
   projectRootOf,
+  refreshRoots,
   slashMenu,
   validatedRoots,
 }: Shared) {
@@ -65,6 +66,7 @@ export function configUseCases({
     validatedRoots.add(cwd);
     const projectRoot = (await projectRootOf(cwd)) ?? cwd;
     validatedRoots.add(projectRoot);
+    refreshRoots();
     return { cwd, projectRoot };
   }
 

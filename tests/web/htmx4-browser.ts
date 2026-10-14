@@ -24,6 +24,8 @@ export type Transport = (request: Request) => Promise<Response> | Response;
 /**
  * Separate JS realm: no tests/client/setup.ts and no fake HTMX object. The
  * page closes itself when the test finishes, after any afterEach hook.
+ * Resolves once htmx has processed the page; its streams may still be
+ * connecting, so a test that needs one connected waits for that itself.
  */
 export async function htmxBrowser(
   markup: string,

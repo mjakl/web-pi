@@ -8,8 +8,9 @@ import { FileAccessError } from "@core/path-access";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { skillSelections } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
-import type { SidebarView, Workspace } from "@core/workspace";
+import type { SessionView, SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
+import type { SessionPage } from "@web/views/SessionPage";
 import type { honoFactory } from "@web/hono";
 import type { Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -41,6 +42,11 @@ export type RouteContext = {
   remember: (c: Context, name: string, value: string) => void;
   newCwd: (c: Context) => string;
   currentCwd: (c: Context) => Promise<string>;
+  /** A session page, with the trust status its top bar shows. */
+  sessionPage: (
+    view: SessionView,
+    props: Omit<Parameters<typeof SessionPage>[0], "view" | "trust">,
+  ) => Promise<ReturnType<typeof SessionPage>>;
   page: (
     c: Context,
     id: string,

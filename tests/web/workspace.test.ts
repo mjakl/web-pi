@@ -370,6 +370,34 @@ describe("project trust", () => {
     expect(dialog).toContain("Project resources can run local code.");
   });
 
+  it.each([
+    ["rewind", "u1"],
+    ["navigate", "a1"],
+    ["fork", "a1"],
+  ])(
+    "keeps the badge on the page a %s to %s draws",
+    async (action, entryId) => {
+      const { app } = testApp({ trustRequired: [repo] });
+      const res = await app.request(`/sessions/s1/${action}`, {
+        ...form({ entryId }),
+        headers: { "HX-Request": "true" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("Restricted mode");
+    },
+  );
+
+  it("keeps the badge under the settings dialog", async () => {
+    const { app } = testApp({ trustRequired: [repo] });
+    const page = await (
+      await app.request("/settings?section=general", {
+        headers: { cookie: "web-pi-session=s1" },
+      })
+    ).text();
+    expect(page).toContain('class="settings-dialog"');
+    expect(page).toContain("Restricted mode");
+  });
+
   it("grants trust and asks the page to reload", async () => {
     const { app } = testApp({ trustRequired: [repo] });
     const res = await app.request("/workspaces/trust", {

@@ -1,4 +1,5 @@
 import type { ImageAttachment, SkillSelection } from "@core/ports";
+import { isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
 import { honoFactory } from "@web/hono";
@@ -65,6 +66,26 @@ export function createWebApp(deps: WebDeps) {
     );
   }
 
+  /**
+   * A session page with the trust status its top bar shows. Every render of
+   * one comes through here: a page drawn without it loses the Restricted
+   * mode badge until the next full load. A delegated session has none.
+   */
+  const sessionPage: RouteContext["sessionPage"] = async (view, props) => {
+    const trust = isSubagentSession(view.summary)
+      ? undefined
+      : await deps.workspace
+          .trustStatus(view.summary.cwd)
+          .catch(() => undefined);
+    return (
+      <SessionPage
+        {...props}
+        view={view}
+        {...(trust === undefined ? {} : { trust })}
+      />
+    );
+  };
+
   /** The whole session page, swapped into <body> after a history change. */
   async function page(
     c: Context,
@@ -83,13 +104,7 @@ export function createWebApp(deps: WebDeps) {
     }
     c.header("HX-Push-Url", `/sessions/${id}`);
     return c.render(
-      <SessionPage
-        sidebar={sidebar}
-        view={view}
-        draft={draft}
-        images={images}
-        skills={skills}
-      />,
+      await sessionPage(view, { sidebar, draft, images, skills }),
     );
   }
 
@@ -160,6 +175,7 @@ export function createWebApp(deps: WebDeps) {
     remember,
     newCwd,
     currentCwd,
+    sessionPage,
     page,
     row,
     guard,

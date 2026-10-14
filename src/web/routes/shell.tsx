@@ -5,7 +5,7 @@ import { webSettingsPatch } from "@core/web-settings";
 
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
-import { isSessionId, isSubagentSession } from "@core/sessions";
+import { isSessionId } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { Partial } from "@web/views/Partial";
 import { ExplorerSection } from "@web/views/Sidebar";
@@ -16,7 +16,7 @@ import {
 } from "@core/skills";
 import { OFFLINE_URL, manifest, offlinePage, serviceWorker } from "@web/pwa";
 import { SystemPromptPanel, ToolsPanel } from "@web/views/Panels";
-import { NewSessionPage, SessionPage } from "@web/views/SessionPage";
+import { NewSessionPage } from "@web/views/SessionPage";
 import {
   PluginsSection,
   SettingsDialog,
@@ -28,7 +28,6 @@ import {
 import { ModelSettings } from "@web/views/ModelSettings";
 import { StatsPanel } from "@web/views/Stats";
 import { TrustDialog } from "@web/views/Dialogs";
-import type { SidebarView } from "@core/workspace";
 import { type Context } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import {
@@ -48,7 +47,16 @@ import {
 } from "./shared.ts";
 
 export function shellRoutes(app: WebApp, ctx: RouteContext): void {
-  const { deps, assets, sidebarOf, remember, newCwd, currentCwd, guard } = ctx;
+  const {
+    deps,
+    assets,
+    sidebarOf,
+    remember,
+    newCwd,
+    currentCwd,
+    sessionPage,
+    guard,
+  } = ctx;
 
   // These URLs serve both documents and HTMX fragments. Neither representation
   // may be stored and reused for the other kind of request.
@@ -142,54 +150,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/panels/system", (c) => c.html(<SystemPromptPanel />));
   app.get("/panels/tools", (c) => c.html(<ToolsPanel />));
 
-  /**
-   * The workspace as the reader left it, optionally under an overlay: the
-   * open session, else the new-session view. Settings
-   * renders through this because pi-web opens it over the live workspace
-   * rather than on a page of its own (SettingsPanel.tsx).
-   */
-  async function workspacePage(
-    c: Context,
-    overlay?: unknown,
-    /** Already resolved by the caller: scanning the store twice is slow. */
-    resolved?: SidebarView,
-  ): Promise<Response> {
-    const id = currentSessionId(c);
-    const view =
-      id === undefined
-        ? undefined
-        : await deps.workspace.viewSession(id).catch(() => undefined);
-    const sidebar =
-      resolved ??
-      (await deps.workspace.sidebar(
-        id === undefined ? {} : { selectedId: id },
-      ));
-    if (view) {
-      const trust = isSubagentSession(view.summary)
-        ? undefined
-        : await deps.workspace
-            .trustStatus(view.summary.cwd)
-            .catch(() => undefined);
-      return c.render(
-        <SessionPage
-          sidebar={sidebar}
-          view={view}
-          {...(trust === undefined ? {} : { trust })}
-          {...(overlay === undefined ? {} : { overlay })}
-        />,
-      );
-    }
-    const start = await deps.workspace.newSession(await currentCwd(c));
-    return c.render(
-      <NewSessionPage
-        sidebar={sidebar}
-        view={start}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-        {...(overlay === undefined ? {} : { overlay })}
-      />,
-    );
-  }
-
   app.get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
@@ -207,19 +167,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     ]);
     if (!view) return c.notFound();
     if (!fragment) remember(c, SESSION_COOKIE, id);
-    const trust = isSubagentSession(view.summary)
-      ? undefined
-      : await deps.workspace
-          .trustStatus(view.summary.cwd)
-          .catch(() => undefined);
-    const page = (
-      <SessionPage
-        sidebar={sidebar}
-        fragment={fragment}
-        view={view}
-        {...(trust === undefined ? {} : { trust })}
-      />
-    );
+    const page = await sessionPage(view, { sidebar, fragment });
     return fragment
       ? c.html(
           <>
@@ -365,37 +313,57 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
+  /**
+   * Settings opens over the workspace as the reader left it, the open session
+   * or else the new-session view, because pi-web opens it over the live
+   * workspace rather than on a page of its own (SettingsPanel.tsx).
+   */
   app.get("/settings", async (c) => {
-    const selectedId = currentSessionId(c);
-    const sidebar = await deps.workspace.sidebar(
-      selectedId === undefined ? {} : { selectedId },
-    );
-    const cwd = await currentCwd(c);
-    const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
-    const section = resolveSection(
-      c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
-      usable !== "",
-    );
-    remember(c, SETTINGS_COOKIE, section);
-    // A section that cannot load says so; falling back to general would
-    // quietly show the wrong page under the right tab.
-    const remembered = rememberedSkill(c, usable);
-    const sections = await settingsView(section, usable, {
-      ...(selectedId ? { sessionId: selectedId } : {}),
-      ...(remembered === undefined ? {} : { selected: remembered }),
-    }).catch((error: unknown) => ({ error: errorText(error) }));
-    const back = currentSessionId(c);
-    return workspacePage(
-      c,
-      <SettingsDialog
-        section={section}
-        cwd={usable}
-        settings={deps.workspace.webSettings()}
-        back={back === undefined ? "/" : `/sessions/${back}`}
+    const id = currentSessionId(c);
+    const settingsDialog = async () => {
+      const cwd = await currentCwd(c);
+      const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
+      const section = resolveSection(
+        c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
+        usable !== "",
+      );
+      remember(c, SETTINGS_COOKIE, section);
+      // A section that cannot load says so; falling back to general would
+      // quietly show the wrong page under the right tab.
+      const remembered = rememberedSkill(c, usable);
+      const sections = await settingsView(section, usable, {
+        ...(id ? { sessionId: id } : {}),
+        ...(remembered === undefined ? {} : { selected: remembered }),
+      }).catch((error: unknown) => ({ error: errorText(error) }));
+      return {
+        cwd,
+        overlay: (
+          <SettingsDialog
+            section={section}
+            cwd={usable}
+            settings={deps.workspace.webSettings()}
+            back={id === undefined ? "/" : `/sessions/${id}`}
+            {...(deps.home === undefined ? {} : { home: deps.home })}
+            {...sections}
+          />
+        ),
+      };
+    };
+    const [sidebar, view, { cwd, overlay }] = await Promise.all([
+      sidebarOf(id),
+      id === undefined
+        ? undefined
+        : deps.workspace.viewSession(id).catch(() => undefined),
+      settingsDialog(),
+    ]);
+    if (view) return c.render(await sessionPage(view, { sidebar, overlay }));
+    return c.render(
+      <NewSessionPage
+        sidebar={sidebar}
+        view={await deps.workspace.newSession(cwd)}
         {...(deps.home === undefined ? {} : { home: deps.home })}
-        {...sections}
+        overlay={overlay}
       />,
-      sidebar,
     );
   });
 

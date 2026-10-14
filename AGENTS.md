@@ -153,7 +153,7 @@ changes follow the established Settings patterns, not a blanket redesign.
   sizes, including affected breakpoints, overflow, focus/disabled states and
   HTMX/SSE updates. Fixture screenshots need visual inspection; snapshots and
   happy-dom do not prove pixel preservation.
-- Icons come from `src/web/views/icons.tsx`, which holds every SVG pi-web draws.
+- Icons come from `src/web/views/icons.tsx`, which holds every SVG web-pi draws.
   Add one there, copied from pi-web, rather than inline in a view.
 - An HTMX swap has to replace a whole owner subtree (`.chat-transcript`,
   `.session-row`, `#file-panel`): pi-web's CSS keys on container relationships,

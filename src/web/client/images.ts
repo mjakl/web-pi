@@ -133,8 +133,8 @@ export function setUpImages(
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "composer-image-remove";
-      // views/icons.tsx #49, drawn here because the strip is built in the
-      // browser: the files never reach the server before they are sent.
+      // icons.tsx #49 as markup: the strip is built in the browser, because
+      // the files never reach the server before they are sent.
       remove.innerHTML = ATTACHMENT_REMOVE_ICON;
       remove.setAttribute("aria-label", "Remove image");
       // By identity, never by the index this closure was built with: a
@@ -327,8 +327,7 @@ function openPreview(trigger: HTMLElement, source: string): void {
   close.className = "image-preview-close";
   close.title = "Close";
   close.setAttribute("aria-label", "Close");
-  // views/icons.tsx #49 at 16px, drawn here because the dialog is built in
-  // the browser.
+  // icons.tsx #57 as markup, because the dialog is built in the browser.
   close.innerHTML = IMAGE_PREVIEW_CLOSE_ICON;
   dialog.append(image, close);
   document.body.append(dialog);

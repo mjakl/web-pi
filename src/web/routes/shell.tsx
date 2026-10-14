@@ -647,7 +647,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       });
       message = `Package ${action}d.`;
     } catch (error) {
-      message = errorText(error);
+      // A toast, because the add panel that a first install leaves has no
+      // room for the detail pane's message.
+      toastHeader(c, errorText(error));
       view = await deps.workspace.plugins(cwd);
     }
     return c.html(

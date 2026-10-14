@@ -50,6 +50,7 @@ import { createPiModelCatalog, resolveModelListing } from "./model-catalog.ts";
 import { createPiServicePreparations } from "./session-services.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
 import { resolveSnapshotEntryId } from "./session-snapshot.ts";
+import { checkSettingsErrors } from "./settings-errors.ts";
 
 /** Streaming tool arguments kept for the card; the entry holds the rest. */
 const PARTIAL_ARGUMENT_CHARS = 4096;
@@ -875,6 +876,7 @@ async function persistStartup(
   }
   if (!writes.model && writes.thinkingLevel === undefined) return;
   await settings.flush();
+  checkSettingsErrors(settings);
 }
 
 /** Abandoned drafts are shut down; a session with a file on disk is not. */
@@ -962,7 +964,16 @@ export function createPiAgentRuntime(options: {
         ? {}
         : { thinkingLevel: effective.thinkingLevel }),
     });
-    await persistStartup(settingsManager, startup, session);
+    // The session runs on the choice either way; only the default is lost.
+    const unsaved = await persistStartup(
+      settingsManager,
+      startup,
+      session,
+    ).then(
+      () => undefined,
+      (error: unknown) =>
+        `Could not save this choice as Pi's default: ${error instanceof Error ? error.message : String(error)}`,
+    );
     const id = session.sessionId;
     const shellPath = settingsManager.getShellPath();
     const wrapper = new PiLiveSession(
@@ -984,6 +995,7 @@ export function createPiAgentRuntime(options: {
         announce({ type: "stopped", sessionId: id });
       },
     );
+    if (unsaved) wrapper.ui.context.notify(unsaved, "warning");
     let idle: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
       if (idle) clearTimeout(idle);

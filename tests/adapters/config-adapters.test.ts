@@ -4,7 +4,7 @@ import { createPiProjectTrust } from "@adapters/pi/project-trust";
 import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiSkills } from "@adapters/pi/skills";
 import { SkillFrontmatterError } from "@core/skill-toggle";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -282,6 +282,35 @@ describe("extension packages", () => {
     expect((enabled as { packages: unknown[] }).packages).toEqual([
       "npm:@acme/pi-plugin",
     ]);
+  });
+
+  it("fails a package action whose settings Pi could not save", async () => {
+    const plugin = join(temp.root, "plugin");
+    await mkdir(plugin);
+    const settings = join(agentDir, "settings.json");
+    await writeFile(settings, "{");
+    const packages = createPiPackages({ agentDir });
+    const install = { cwd: project, scope: "user" as const, source: plugin };
+    await expect(packages.run("install", install)).rejects.toThrow(
+      "global settings:",
+    );
+    expect(await readFile(settings, "utf8")).toBe("{");
+
+    await writeSettings("global", { packages: [plugin] });
+    await chmod(settings, 0o444);
+    await expect(packages.run("disable", install)).rejects.toThrow(
+      /global settings: .*EACCES/,
+    );
+  });
+
+  it("says when there is no package to remove", async () => {
+    await expect(
+      createPiPackages({ agentDir }).run("remove", {
+        cwd: project,
+        scope: "user",
+        source: join(temp.root, "never-added"),
+      }),
+    ).rejects.toThrow("No matching package");
   });
 
   it("refuses to touch project packages while the project is untrusted", async () => {

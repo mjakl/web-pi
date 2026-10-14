@@ -11,19 +11,7 @@ import {
   type ScopedModel,
 } from "@earendil-works/pi-coding-agent";
 import { projectTrustReloadOptions } from "./project-trust.ts";
-
-function checkErrors(settings: SettingsManager): void {
-  const errors = settings.drainErrors();
-  if (errors.length)
-    throw new Error(
-      errors
-        .map(
-          (error) =>
-            `${error.scope} settings: ${error.error.message}. Check Pi's ${error.scope} settings.json and reload Models.`,
-        )
-        .join("; "),
-    );
-}
+import { checkSettingsErrors } from "./settings-errors.ts";
 
 function patterns(value: unknown): string[] | null {
   if (value === undefined) return null;
@@ -52,7 +40,7 @@ export async function loadModelSettings(
       trust ? await trust.resolveProjectTrust() : true,
     );
   }
-  checkErrors(settings);
+  checkSettingsErrors(settings);
   patterns(settings.getGlobalSettings().enabledModels);
   patterns(settings.getProjectSettings().enabledModels);
   return settings;
@@ -94,7 +82,7 @@ export async function saveModelSettings(
   settings: SettingsManager,
   edit: ModelSettingsEdit,
 ): Promise<void> {
-  checkErrors(settings);
+  checkSettingsErrors(settings);
   const original = patterns(settings.getGlobalSettings().enabledModels);
   if (JSON.stringify(original) !== JSON.stringify(edit.patterns)) {
     throw new Error(
@@ -188,5 +176,5 @@ export async function saveModelSettings(
   }
   settings.setEnabledModels(next);
   await settings.flush();
-  checkErrors(settings);
+  checkSettingsErrors(settings);
 }

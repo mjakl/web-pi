@@ -535,6 +535,24 @@ describe("the settings page", () => {
     expect(enabled).toContain("Disable");
   });
 
+  it("shows a failed plugin action as an error toast", async () => {
+    const { app, world } = testApp();
+    vi.spyOn(world.packages, "run").mockRejectedValue(
+      new Error("global settings: EACCES. Check Pi's global settings.json."),
+    );
+    const res = await app.request(
+      "/settings/plugins",
+      form({ cwd: repo, action: "install", source: "./plugin", scope: "user" }),
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.headers.get("HX-Trigger") ?? "{}")).toEqual({
+      "web-pi:toast": {
+        level: "error",
+        message: "global settings: EACCES. Check Pi's global settings.json.",
+      },
+    });
+  });
+
   it("refuses an action it does not know", async () => {
     const { app } = testApp();
     const res = await app.request(

@@ -255,6 +255,24 @@ describe("opening", () => {
     expect(announced).toHaveLength(1);
   });
 
+  it("starts on the picked model when Pi cannot save it as the default", async () => {
+    h = await createHarness();
+    await writeFile(join(h.agentDir, "settings.json"), "{");
+    const session = await h.open({
+      cwd: h.cwd,
+      model: { provider: PROVIDER, modelId: MODEL_2 },
+    });
+    expect(session.snapshot().status.model?.id).toBe(MODEL_2);
+    expect(session.snapshot().status.notices).toEqual([
+      {
+        level: "warning",
+        message: expect.stringContaining(
+          "Could not save this choice as Pi's default: global settings:",
+        ) as string,
+      },
+    ]);
+  });
+
   it("resumes a persisted session and coalesces concurrent opens", async () => {
     h = await createHarness();
     const first = await h.open();

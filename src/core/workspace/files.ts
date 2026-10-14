@@ -1,7 +1,7 @@
 import { AT_RESULT_LIMIT, type FileEntry } from "@core/composer";
 import { fileKind, languageOf } from "@core/file-types";
 import { directoryWithin, FileAccessError, samePath } from "@core/path-access";
-import type { DirEntry, GitChangeFile, GitStatus } from "@core/ports";
+import type { DirEntry, FileStat, GitChangeFile, GitStatus } from "@core/ports";
 import type { Shared } from "./deps.ts";
 import type { FileScope, FileView } from "./views.ts";
 
@@ -107,13 +107,26 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
     async fileView(scope: FileScope, path: string): Promise<FileView> {
       const { sessionId } = scope;
       const cwd = await viewCwd(scope);
-      const info = await authorize(path, {
-        sessionId,
-        sessionCwd: cwd,
-        allowMissing: true,
-      });
+      let info: FileStat | undefined;
+      let missing: FileAccessError | undefined;
+      try {
+        info = await authorize(path, {
+          sessionId,
+          sessionCwd: cwd,
+          allowMissing: true,
+        });
+      } catch (error) {
+        // A file deleted together with its folder has no parent left to
+        // resolve. Git listing it as deleted in the folder this request
+        // already authorized is proof enough to show its diff.
+        if (!(error instanceof FileAccessError) || error.status !== 404) {
+          throw error;
+        }
+        missing = error;
+      }
       const status = cwd === "" ? null : await deps.git.status(cwd);
       const change = status ? changeFor(status, path) : undefined;
+      if (missing && change?.status !== "D") throw missing;
       if (info === undefined) {
         if (!change) throw new FileAccessError("Not found", 404);
         const diff = await deps.git.diff(cwd, change);

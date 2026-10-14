@@ -78,6 +78,9 @@ beforeAll(async () => {
   );
   await writeFile(join(repo, "large.png"), PNG);
   await truncate(join(repo, "large.png"), 10 * 1024 * 1024 + 1);
+  // Committed, then deleted together with its folder below.
+  await mkdir(join(repo, "gone"));
+  await writeFile(join(repo, "gone", "old.ts"), "export const old = 1;\n");
   git("init", "-q", "-b", "main");
   git("config", "user.email", "test@example.com");
   git("config", "user.name", "Test");
@@ -85,6 +88,7 @@ beforeAll(async () => {
   git("commit", "-qm", "first");
   await writeFile(join(repo, "src", "main.ts"), "const a = 2;\nexport {};\n");
   await writeFile(join(repo, "fresh.txt"), "new\n");
+  await rm(join(repo, "gone"), { recursive: true });
 
   await writeFile(
     join(repo, "report.docx"),
@@ -159,7 +163,7 @@ describe("explorer", () => {
     expect(html).toContain("file-explorer-change-row");
     expect(html).toMatch(/>[1-9]\d* files</);
     expect(html).toContain(">+2<");
-    expect(html).toContain(">-1<");
+    expect(html).toContain(">-2<");
     expect(html).toContain(">src/main.ts<");
     expect(html).toContain('title="Modified"');
     expect(html).toContain('title="Untracked"');
@@ -461,6 +465,21 @@ describe("viewer", () => {
     expect(html).toContain("const a = 2;");
     // pi-web renders no @@ headers; the collapsed spans say what was skipped.
     expect(html).not.toContain("@@");
+  });
+
+  it("opens a file deleted with its folder at its diff, and nothing outside", async () => {
+    const view = (path: string) =>
+      app.request(`/files/view?session=s1&path=${encodeURIComponent(path)}`);
+    const res = await view(join(repo, "gone", "old.ts"));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-mode="diff"');
+    expect(html).toContain(">Deleted<");
+    expect(html).toContain('class="file-diff-line is-removed"');
+    expect(html).toContain("export const old = 1;");
+    // Git's word is only taken for what it lists, and never outside the roots.
+    expect((await view(join(repo, "never", "there.ts"))).status).toBe(404);
+    expect((await view(join(outside, "gone", "old.ts"))).status).toBe(403);
   });
 
   it("falls back to source when the requested diff does not exist", async () => {

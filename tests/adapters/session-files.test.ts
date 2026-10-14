@@ -670,7 +670,10 @@ describe("HTML export", () => {
       timestamp: 3,
     });
     manager.appendMessage(answer("other answer"));
-    const exported = await exportSessionHtml(fileOf(manager));
+    const exported = await exportSessionHtml(
+      fileOf(manager),
+      join(root, "export.html"),
+    );
     expect(exported.filename).toMatch(/^pi-session-.*\.html$/);
 
     const window = new Window({

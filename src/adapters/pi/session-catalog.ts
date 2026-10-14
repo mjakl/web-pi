@@ -650,15 +650,16 @@ export function createPiSessionCatalog(options: {
       if (!snapshot || snapshot.header.id !== id)
         throw new Error("Session not found");
       // The CLI exporter opens a writable SessionManager. Give it a temporary
-      // snapshot so inspection cannot repair or migrate the producer's file.
-      const directory = await mkdtemp(join(tmpdir(), "web-pi-export-source-"));
+      // snapshot so inspection cannot repair or migrate the producer's file,
+      // in a private folder that also takes the page it writes.
+      const directory = await mkdtemp(join(tmpdir(), "web-pi-export-"));
       try {
         const input = join(directory, basename(filePath));
         const content = [snapshot.header, ...snapshot.entries]
           .map((entry) => JSON.stringify(entry))
           .join("\n");
         await writeFile(input, `${content}\n`);
-        return await exportSessionHtml(input);
+        return await exportSessionHtml(input, join(directory, "export.html"));
       } finally {
         await rm(directory, { recursive: true, force: true });
       }

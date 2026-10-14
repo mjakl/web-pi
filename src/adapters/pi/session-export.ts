@@ -1,8 +1,6 @@
 import { resolveBundledPi } from "@/pi-version";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -100,30 +98,25 @@ export function patchExportHtml(html: string): {
   return { html: patched, missed };
 }
 
+/** `output` belongs in a private folder: the CLI writes it world-readable. */
 export async function exportSessionHtml(
   filePath: string,
+  output: string,
 ): Promise<{ html: string; filename: string }> {
-  const directory = join(tmpdir(), "web-pi-export");
-  mkdirSync(directory, { recursive: true });
-  const output = join(directory, `${randomUUID()}.html`);
-  try {
-    await run(process.execPath, [cliPath(), "--export", filePath, output], {
-      timeout: 60_000,
-      maxBuffer: 1024 * 1024,
-      env: { ...process.env, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
-    });
-    const { html, missed } = patchExportHtml(readFileSync(output, "utf8"));
-    if (missed.length > 0) {
-      // Only very deep sessions notice; serving the page beats failing it.
-      process.stderr.write(
-        `[web-pi] exported HTML kept recursive ${missed.join(", ")}\n`,
-      );
-    }
-    return {
-      html,
-      filename: `pi-session-${basename(filePath, ".jsonl")}.html`,
-    };
-  } finally {
-    rmSync(output, { force: true });
+  await run(process.execPath, [cliPath(), "--export", filePath, output], {
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+  });
+  const { html, missed } = patchExportHtml(await readFile(output, "utf8"));
+  if (missed.length > 0) {
+    // Only very deep sessions notice; serving the page beats failing it.
+    process.stderr.write(
+      `[web-pi] exported HTML kept recursive ${missed.join(", ")}\n`,
+    );
   }
+  return {
+    html,
+    filename: `pi-session-${basename(filePath, ".jsonl")}.html`,
+  };
 }

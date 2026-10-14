@@ -23,6 +23,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Set by a test that needs the system temporary folder to itself.
+const temporary = vi.hoisted(() => ({ dir: "" }));
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  return { ...os, tmpdir: () => temporary.dir || os.tmpdir() };
+});
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return { ...actual, createReadStream: vi.fn(actual.createReadStream) };
@@ -642,9 +648,18 @@ describe("non-writing catalog snapshots", () => {
     age(file);
     const before = diskState(file);
     const catalog = createPiSessionCatalog({ agentDir: root });
-    const exported = await catalog.exportHtml("exported-child");
-    expect(exported.html).toContain("<!DOCTYPE html>");
-    expect(exported.filename).toContain("exported-child");
+    temporary.dir = join(root, "tmp");
+    fs.mkdirSync(temporary.dir);
+    try {
+      const exported = await catalog.exportHtml("exported-child");
+      expect(exported.html).toContain("<!DOCTYPE html>");
+      expect(exported.filename).toContain("exported-child");
+      // The page is written into the export's own private folder, which
+      // goes with it, never into a shared one other accounts can read.
+      expect(readdirSync(temporary.dir)).toEqual([]);
+    } finally {
+      temporary.dir = "";
+    }
     expect(diskState(file)).toEqual(before);
   });
 });

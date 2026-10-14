@@ -246,6 +246,8 @@ export async function createHarness(
     extensions?: InlineExtension[];
     settings?: Record<string, unknown>;
     bashOperations?: BashOperations;
+    /** Pi's own local shell backend instead of refusing every command. */
+    localShell?: boolean;
     draftIdleMs?: number;
   } = {},
 ) {
@@ -298,12 +300,14 @@ export async function createHarness(
     agentDir,
     catalog,
     extensions: [provider, ...(options.extensions ?? [])],
-    bashOperations: options.bashOperations ?? {
-      exec: () =>
-        Promise.reject(
-          new Error("Unexpected shell execution in an offline test"),
-        ),
-    },
+    bashOperations: options.localShell
+      ? undefined
+      : (options.bashOperations ?? {
+          exec: () =>
+            Promise.reject(
+              new Error("Unexpected shell execution in an offline test"),
+            ),
+        }),
     ...(options.draftIdleMs === undefined
       ? {}
       : { draftIdleMs: options.draftIdleMs }),

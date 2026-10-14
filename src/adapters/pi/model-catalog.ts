@@ -1,8 +1,20 @@
 import {
+  type Api,
   clampThinkingLevel,
   getSupportedThinkingLevels,
+  type Model,
 } from "@earendil-works/pi-ai";
-import type { ModelCatalog, ModelListing, ModelOption } from "@core/ports";
+import {
+  initialModel,
+  initialThinking,
+  type StartupChoice,
+} from "@core/models";
+import type {
+  ModelCatalog,
+  ModelListing,
+  ModelOption,
+  ThinkingLevel,
+} from "@core/ports";
 import {
   type AgentSessionServices,
   type ModelRuntime,
@@ -54,6 +66,43 @@ export async function resolveModelListing(
     ...(entry.thinkingLevel === undefined ? {} : { pin: entry.thinkingLevel }),
   }));
   return { models: scoped, warnings, ...preferred };
+}
+
+/**
+ * The model and reasoning level a new session starts on: the reader's choice,
+ * else Pi's preferred or first model in scope. Pi's cycling scope supplies
+ * defaults and reasoning pins, not an allowlist for deliberate web choices.
+ */
+export async function startupModel(
+  runtime: ModelRuntime,
+  settings: SettingsManager,
+  startup: StartupChoice,
+): Promise<{ model?: Model<Api>; thinkingLevel?: ThinkingLevel }> {
+  const listing = await resolveModelListing(runtime, settings);
+  const requested = startup.model;
+  const selected = requested
+    ? (await resolveModelListing(runtime, settings, true)).models.find(
+        (model) =>
+          model.provider === requested.provider &&
+          model.id === requested.modelId,
+      )
+    : initialModel(listing.models, listing.preferred);
+  if (requested && !selected) {
+    throw new Error(
+      `Model is not available: ${requested.provider}/${requested.modelId}`,
+    );
+  }
+  const scoped = listing.models.find(
+    (model) =>
+      model.provider === selected?.provider && model.id === selected.id,
+  );
+  const thinkingLevel =
+    startup.thinkingLevel ?? initialThinking(scoped ?? selected);
+  const model = selected && runtime.getModel(selected.provider, selected.id);
+  return {
+    ...(model ? { model } : {}),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+  };
 }
 
 export function serviceDiagnostics(services: AgentSessionServices): string[] {

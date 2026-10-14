@@ -396,6 +396,45 @@ describe("session commands", () => {
     expect(session.snapshot().turnStart).toBe(session.snapshot().branch.length);
   });
 
+  it("runs !cmd in the shell a reload picked up, as the agent's bash does", async () => {
+    // Shells that do not exist: nothing is spawned, and the error names the
+    // shell Pi looked for.
+    const settings = (shellPath: string) => ({
+      defaultProvider: PROVIDER,
+      defaultModel: MODEL_ID,
+      shellPath,
+    });
+    h = await createHarness({
+      localShell: true,
+      settings: settings("/nonexistent/first-shell"),
+    });
+    const session = await h.open();
+    await writeFile(
+      join(h.agentDir, "settings.json"),
+      JSON.stringify(settings("/nonexistent/second-shell")),
+    );
+    await session.reload();
+    let done = next(session, "turn_done");
+    await session.runBash("true", true);
+    await done;
+    h.script((turn) => {
+      turn.toolCall("bash", { command: "true" });
+      turn.done();
+    }, reply("done"));
+    done = next(session, "turn_done");
+    await session.prompt("run it");
+    await done;
+    const failures = [
+      JSON.stringify(h.calls[1]?.context.messages.at(-1)),
+      ...session.snapshot().status.notices.map((notice) => notice.message),
+    ];
+    expect(failures).toHaveLength(2);
+    for (const failure of failures) {
+      expect(failure).toContain("/nonexistent/second-shell");
+      expect(failure).not.toContain("first-shell");
+    }
+  });
+
   it("lists commands from extensions, prompts, and skills, and the tools", async () => {
     h = await createHarness({
       extensions: [

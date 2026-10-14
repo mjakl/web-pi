@@ -19,12 +19,7 @@ import type {
   ThinkingLevel,
 } from "@core/ports";
 import type { DialogAnswer } from "@core/extension-ui";
-import {
-  initialModel,
-  initialThinking,
-  startupWrites,
-  type StartupChoice,
-} from "@core/models";
+import { startupWrites, type StartupChoice } from "@core/models";
 import { createCompletionTracker } from "@core/turn-completion";
 import { toolParameters } from "@core/tools";
 import { toolProgress } from "@core/transcript";
@@ -46,7 +41,7 @@ import {
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { createProjectBashOperations } from "./bash-env.ts";
 import { createExtensionUi } from "./extension-ui.ts";
-import { createPiModelCatalog, resolveModelListing } from "./model-catalog.ts";
+import { createPiModelCatalog, startupModel } from "./model-catalog.ts";
 import { createPiServicePreparations } from "./session-services.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
 import { resolveSnapshotEntryId } from "./session-snapshot.ts";
@@ -109,17 +104,14 @@ class PiLiveSession implements LiveSession {
   readonly services: AgentSessionServices;
   private readonly invalidatePreparation: () => void;
   private readonly inner: AgentSession;
-  private readonly agentDir: string;
-  private readonly shellPath: string | undefined;
-  private readonly bashOperations: BashOperations | undefined;
+  private readonly shellOperations: () => BashOperations;
   private readonly onStop: () => void;
 
   constructor(
     inner: AgentSession,
     options: {
-      agentDir: string;
-      shellPath?: string;
-      bashOperations?: BashOperations;
+      /** Asked for each command, so it can follow the current settings. */
+      shellOperations: () => BashOperations;
       queuedImages: Map<string, ImageAttachment[]>;
       services: AgentSessionServices;
       invalidatePreparation: () => void;
@@ -129,10 +121,8 @@ class PiLiveSession implements LiveSession {
     this.inner = inner;
     this.services = options.services;
     this.invalidatePreparation = options.invalidatePreparation;
-    this.agentDir = options.agentDir;
     this.queuedImages = options.queuedImages;
-    this.shellPath = options.shellPath;
-    this.bashOperations = options.bashOperations;
+    this.shellOperations = options.shellOperations;
     this.onStop = onStop;
     this.id = inner.sessionId;
     this.turnStart = inner.sessionManager.getBranch().length;
@@ -756,12 +746,7 @@ class PiLiveSession implements LiveSession {
     }
     if (!command.trim())
       return Promise.reject(new Error("Type a shell command first."));
-    const operations =
-      this.bashOperations ??
-      createProjectBashOperations({
-        agentDir: this.agentDir,
-        ...(this.shellPath === undefined ? {} : { shellPath: this.shellPath }),
-      });
+    const operations = this.shellOperations();
     this.turnStart = this.inner.sessionManager.getBranch().length;
     this.bash = { command, output: "" };
     // executeBash has no SDK preflight callback. Validation and reserving the
@@ -917,59 +902,15 @@ export function createPiAgentRuntime(options: {
     const { services, queuedImages } = await preparations.claim(cwd);
     const settingsManager = services.settingsManager;
     await settingsManager.reload();
-    // Pi's cycling scope supplies defaults and reasoning pins, not an allowlist
-    // for deliberate web choices. Existing transcripts retain SDK restoration.
-    let effective: StartupChoice = {};
-    if (manager.buildSessionContext().messages.length === 0) {
-      const listing = await resolveModelListing(
-        services.modelRuntime,
-        settingsManager,
-      );
-      const requested = startup.model;
-      const selected = requested
-        ? (
-            await resolveModelListing(
-              services.modelRuntime,
-              settingsManager,
-              true,
-            )
-          ).models.find(
-            (model) =>
-              model.provider === requested.provider &&
-              model.id === requested.modelId,
-          )
-        : initialModel(listing.models, listing.preferred);
-      if (requested && !selected) {
-        throw new Error(
-          `Model is not available: ${requested.provider}/${requested.modelId}`,
-        );
-      }
-      const scoped = listing.models.find(
-        (model) =>
-          model.provider === selected?.provider && model.id === selected.id,
-      );
-      const thinkingLevel =
-        startup.thinkingLevel ?? initialThinking(scoped ?? selected);
-      effective = {
-        ...(selected
-          ? { model: { provider: selected.provider, modelId: selected.id } }
-          : {}),
-        ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-      };
-    }
-    const wanted = effective.model
-      ? services.modelRuntime.getModel(
-          effective.model.provider,
-          effective.model.modelId,
-        )
-      : undefined;
+    // An existing transcript keeps the SDK's own restoration.
+    const choice =
+      manager.buildSessionContext().messages.length === 0
+        ? await startupModel(services.modelRuntime, settingsManager, startup)
+        : {};
     const { session } = await createAgentSessionFromServices({
       services,
       sessionManager: manager,
-      ...(wanted ? { model: wanted } : {}),
-      ...(effective.thinkingLevel === undefined
-        ? {}
-        : { thinkingLevel: effective.thinkingLevel }),
+      ...choice,
     });
     // The session runs on the choice either way; only the default is lost.
     const unsaved = await persistStartup(
@@ -982,20 +923,22 @@ export function createPiAgentRuntime(options: {
         `Could not save this choice as Pi's default: ${error instanceof Error ? error.message : String(error)}`,
     );
     const id = session.sessionId;
-    const shellPath = settingsManager.getShellPath();
     const wrapper = new PiLiveSession(
       session,
       {
-        agentDir: options.agentDir,
         services,
         invalidatePreparation: () => {
           preparations.invalidate(cwd);
         },
         queuedImages,
-        ...(shellPath === undefined ? {} : { shellPath }),
-        ...(options.bashOperations
-          ? { bashOperations: options.bashOperations }
-          : {}),
+        // `/reload` re-reads the settings, and the agent's bash tool with
+        // them; `!cmd` reads the shell path when it runs, so both agree.
+        shellOperations: () =>
+          options.bashOperations ??
+          createProjectBashOperations({
+            agentDir: options.agentDir,
+            shellPath: settingsManager.getShellPath(),
+          }),
       },
       () => {
         live.delete(id);

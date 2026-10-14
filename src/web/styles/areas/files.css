@@ -447,11 +447,14 @@
   min-height: 0;
   background: var(--bg-panel);
 }
+/* A previewed page renders as in a light browser tab: white unless it
+   chooses its own colours, whatever the app's theme. */
 .file-viewer-frame {
   width: 100%;
   height: 100%;
   border: none;
-  background: var(--bg);
+  color-scheme: light;
+  background: #fff;
 }
 .markdown-file-preview-shell {
   padding: var(--space-12) var(--space-16);

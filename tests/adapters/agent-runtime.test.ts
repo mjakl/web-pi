@@ -604,3 +604,80 @@ describe("stopping", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("a stop already in progress", () => {
+  // The stopping runtime still writes: late tool results, and what its
+  // extensions append on session_shutdown. Its shutdown is held until the
+  // workspace asks it to stop too, so a command that did not wait for the
+  // stop would run first.
+  async function stoppingSession(prompts: string[]) {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", async () => {
+            await shutdown.wait;
+            pi.appendEntry("last-word", {});
+          });
+        },
+      ],
+    });
+    const workspace = createWorkspace({
+      ...createFakeWorld(),
+      runtime: h.runtime,
+      sessions: h.catalog,
+    });
+    const session = await h.open();
+    for (const text of prompts) {
+      h.script(reply(`${text} answer`));
+      const done = next(session, "turn_done");
+      await session.prompt(text);
+      await done;
+    }
+    const stopping = session.stop();
+    session.stop = () => {
+      shutdown.open();
+      return stopping;
+    };
+    /** Runs the command, then lets a stop it never waited for finish. */
+    const during = async (command: Promise<unknown>): Promise<void> => {
+      try {
+        await command;
+      } finally {
+        shutdown.open();
+        await stopping;
+      }
+    };
+    return { workspace, session, during };
+  }
+
+  it("deletes the file only once the stop has finished writing", async () => {
+    const { workspace, session, during } = await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    await during(workspace.remove(session.id));
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("rewinds only once the stop has finished writing", async () => {
+    const { workspace, session, during } = await stoppingSession([
+      "first",
+      "second",
+    ]);
+    const second = session
+      .snapshot()
+      .branch.filter(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      )[1];
+    if (!second) throw new Error("Missing fixture prompt");
+    await during(workspace.rewind(session.id, second.id));
+    const resumed = h.runtime.get(session.id);
+    if (!resumed) throw new Error("Rewind left the session inactive");
+    expect(messages(resumed)).toEqual(["user:first", "assistant:first answer"]);
+  });
+
+  it("stops a draft that is already stopping instead of refusing it", async () => {
+    const { workspace, session, during } = await stoppingSession([]);
+    await during(workspace.stop(session.id));
+    expect(h.runtime.live()).toEqual([]);
+  });
+});

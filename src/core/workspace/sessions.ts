@@ -53,6 +53,7 @@ export function sessionUseCases({
   deps,
   decorate,
   entriesOf,
+  heldRuntime,
   modelsFor,
   requireFolder,
   requireWritableSession,
@@ -380,9 +381,10 @@ export function sessionUseCases({
     }
   }
 
+  /** Resolves once nothing writes the file, also when a stop was under way. */
   async function stop(id: string): Promise<void> {
     await requireWritableSession(id);
-    await deps.runtime.get(id)?.stop();
+    await heldRuntime(id)?.stop();
   }
 
   /** A live session owns its file; only a stopped one is edited on disk. */

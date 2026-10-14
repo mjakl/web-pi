@@ -127,6 +127,15 @@ export function createShared(deps: WorkspaceDeps) {
     });
   }
 
+  /**
+   * The runtime this process holds for a session, including one that is
+   * still stopping and writing its last entries, which `get` no longer
+   * returns.
+   */
+  function heldRuntime(id: string): LiveSession | undefined {
+    return deps.runtime.live().find((live) => live.id === id);
+  }
+
   /** Classify from persisted origin, never from a possibly unrelated runtime. */
   async function inspectionOnly(id: string): Promise<boolean> {
     if (id.startsWith("subagent.")) return true;
@@ -137,7 +146,7 @@ export function createShared(deps: WorkspaceDeps) {
     if (stored.kind === "unavailable") return true;
     // Existing runtimes passed writable admission or were created fresh. Their
     // snapshot is conversation state, not the authority for source ownership.
-    return deps.runtime.get(id) === undefined;
+    return heldRuntime(id) === undefined;
   }
 
   /**
@@ -146,7 +155,7 @@ export function createShared(deps: WorkspaceDeps) {
    * one, the persisted origin decides, never the runtime's own snapshot.
    */
   async function ownedRuntime(id: string): Promise<LiveSession | undefined> {
-    if (!deps.runtime.live().some((live) => live.id === id)) return undefined;
+    if (heldRuntime(id) === undefined) return undefined;
     return (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
   }
 
@@ -411,6 +420,7 @@ export function createShared(deps: WorkspaceDeps) {
     modelsFor,
     decorate,
     requireFolder,
+    heldRuntime,
     inspectionOnly,
     ownedRuntime,
     requireWritableSession,

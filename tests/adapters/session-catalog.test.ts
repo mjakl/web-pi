@@ -169,6 +169,24 @@ describe("catalog delegation discovery", () => {
     });
   });
 
+  it("lists an appended file's new size and a replaced file's new header", async () => {
+    const manager = makeSession("kept");
+    const file = fileOf(manager);
+    const catalog = createPiSessionCatalog({ agentDir: root });
+    const before = (await catalog.list())[0];
+    manager.appendSessionInfo("Appended");
+    expect((await catalog.list())[0]?.fileSize).toBeGreaterThan(
+      before?.fileSize ?? Number.POSITIVE_INFINITY,
+    );
+    const replacement = `${file}.replacement`;
+    writeFileSync(
+      replacement,
+      readFileSync(file, "utf8").replace(cwd, "/repo/moved"),
+    );
+    renameSync(replacement, file);
+    expect((await catalog.list())[0]?.cwd).toBe("/repo/moved");
+  });
+
   it("deletes an ordinary parent without rewriting delegated or legacy fork children", async () => {
     const parent = makeSession("parent");
     const child = makeSession("child", fileOf(parent));

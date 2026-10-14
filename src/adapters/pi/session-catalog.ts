@@ -16,13 +16,16 @@ import {
   type SessionRowMetadata,
   type SessionSummary,
 } from "@core/sessions";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type {
+  SessionEntry,
+  SessionHeader,
+} from "@earendil-works/pi-coding-agent";
 import {
   buildSessionContext,
   estimateTokens,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { createReadStream } from "node:fs";
+import { createReadStream, type Stats } from "node:fs";
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -52,6 +55,8 @@ const METADATA_CACHE_MAX = 4096;
 
 type Row = { summary: SessionSummary; metadata: SessionRowMetadata };
 
+type ParsedHeader = { dev: number; ino: number; header: SessionHeader };
+
 type Header = {
   id: string;
   cwd: string;
@@ -71,10 +76,7 @@ function cacheFile<T>(cache: Map<string, T>, filePath: string, value: T): void {
   cache.set(filePath, value);
 }
 
-function readHeader(filePath: string): Header | undefined {
-  const read = readSessionHeader(filePath);
-  if (!read) return undefined;
-  const { header, info } = read;
+function headerOf(header: SessionHeader, info: Stats): Header {
   return {
     id: header.id,
     cwd: header.cwd,
@@ -87,6 +89,11 @@ function readHeader(filePath: string): Header | undefined {
     fileSize: info.size,
     stamp: fileStamp(info),
   };
+}
+
+function readHeader(filePath: string): Header | undefined {
+  const read = readSessionHeader(filePath);
+  return read && headerOf(read.header, read.info);
 }
 
 /**
@@ -260,6 +267,10 @@ export function createPiSessionCatalog(options: {
     return read;
   }
 
+  // Pi and web-pi only append to a session file or replace it whole, and
+  // Pi's in-place migration keeps a header's identity, so a header parsed
+  // once stays right while its file keeps its inode.
+  let parsed = new Map<string, ParsedHeader>();
   let pendingInventory: ReturnType<typeof readInventory> | undefined;
 
   function inventory() {
@@ -297,10 +308,26 @@ export function createPiSessionCatalog(options: {
         }
       }),
     );
-    for (const filePath of listed.flat()) {
+    const found = listed.flat();
+    // A refresh stats every file asynchronously and reads a header only for
+    // a new or replaced file, so a large store does not block the event loop.
+    const stats = await Promise.all(
+      found.map((filePath) => stat(filePath).catch(() => undefined)),
+    );
+    const seen = new Map<string, ParsedHeader>();
+    for (const [index, filePath] of found.entries()) {
       try {
-        const header = readHeader(filePath);
-        if (!header) continue;
+        let info = stats[index];
+        if (!info) continue;
+        let known = parsed.get(filePath);
+        if (known?.dev !== info.dev || known.ino !== info.ino) {
+          const read = readSessionHeader(filePath);
+          if (!read) continue;
+          info = read.info;
+          known = { dev: info.dev, ino: info.ino, header: read.header };
+        }
+        seen.set(filePath, known);
+        const header = headerOf(known.header, info);
         paths.set(header.id, filePath);
         idByPath.set(pathKey(filePath), header.id);
         if (header.parentSession !== undefined) {
@@ -321,6 +348,7 @@ export function createPiSessionCatalog(options: {
         // Unreadable or concurrently removed files are left out.
       }
     }
+    parsed = seen;
     return files.map(({ header, summary }) => {
       const parentId = idByPath.get(parents.get(summary.id) ?? "");
       return {

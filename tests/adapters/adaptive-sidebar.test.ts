@@ -667,7 +667,8 @@ it("measures cold, warm, changed and later-page discovery for 15000 real files w
   expect(later.actualEofBytes).toBeGreaterThan(0);
   expect(changedRefresh.actualEofBytes).toBeLessThan(cold.actualEofBytes);
   expect(cold.headerReads).toBe(15000);
-  expect(warm.headerReads).toBe(15000);
+  // A header is parsed once per file; a refresh only stats it.
+  expect(warm.headerReads).toBe(0);
   if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
     process.stdout.write(
       `Adaptive sidebar I/O: ${JSON.stringify({

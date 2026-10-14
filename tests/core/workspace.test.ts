@@ -56,6 +56,16 @@ describe("workspace over the fake runtime", () => {
     expect(Math.round(after?.usage.percent ?? 0)).toBe(2);
   });
 
+  it("measures context against the shared warning threshold", async () => {
+    const world = createFakeWorld({ delayMs: 2, reply: () => "one two three" });
+    const workspace = createWorkspace(world);
+    const id = await sendFirst(workspace, "/tmp/project", "hi");
+    await waitForIdle(workspace, id);
+    world.webSettings.update({ warnTokens: 1000 });
+    expect((await workspace.viewSession(id))?.usage.level).toBe("warn");
+    expect((await workspace.sessionStats(id))?.usage.level).toBe("warn");
+  });
+
   it("lists sessions globally and derives directory choices separately", async () => {
     const world = createFakeWorld({ delayMs: 2 });
     const workspace = createWorkspace(world);

@@ -41,7 +41,6 @@ export type RouteContext = {
   remember: (c: Context, name: string, value: string) => void;
   newCwd: (c: Context) => string;
   currentCwd: (c: Context) => Promise<string>;
-  warnTokens: (c: Context) => { warnTokens: number };
   page: (
     c: Context,
     id: string,

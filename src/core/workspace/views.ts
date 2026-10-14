@@ -32,8 +32,6 @@ export type ViewOptions = {
   before?: string;
   /** Widen the page until this entry is part of it. */
   through?: string;
-  /** The reader's context-warning threshold, in tokens. */
-  warnTokens?: number;
 };
 
 export type SavedObservation = {

@@ -53,7 +53,7 @@ import {
 type Fragment = Parameters<typeof html>[0];
 
 export function composerRoutes(app: WebApp, ctx: RouteContext): void {
-  const { deps, renderIntervalMs, warnTokens, guard } = ctx;
+  const { deps, renderIntervalMs, guard } = ctx;
 
   for (const action of [
     "prompt",
@@ -359,7 +359,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/sessions/:id/model-selector", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const view = await deps.workspace.viewSession(id, warnTokens(c));
+    const view = await deps.workspace.viewSession(id);
     return view
       ? c.html(<ModelSelector pick={modelPick(view)} />)
       : c.notFound();
@@ -387,7 +387,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         return c.text(error.message, 403);
       return c.text(errorText(error), 400);
     }
-    const view = await deps.workspace.viewSession(id, warnTokens(c));
+    const view = await deps.workspace.viewSession(id);
     if (!view) return c.notFound();
     return c.html(<ModelSelector pick={modelPick(view)} />);
   });
@@ -495,7 +495,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
             // A missing saved window must not consume notices before its
             // fallback can render them. The next frame consumes a valid handoff.
             consumePending: !savedHandoff,
-            ...warnTokens(c),
             ...(savedHandoff
               ? through === undefined
                 ? {}
@@ -515,7 +514,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           resetHandoff = true;
           view = await deps.workspace.viewSession(id, {
             consumePending: true,
-            ...warnTokens(c),
           });
         }
         if (aborted) return;

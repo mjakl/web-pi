@@ -126,9 +126,7 @@ export function sessionUseCases({
         contextWindow: status.model?.contextWindow,
         estimated:
           reported === null ? fallback !== null : status.contextTokensEstimated,
-        ...(options.warnTokens === undefined
-          ? {}
-          : { warnTokens: options.warnTokens }),
+        warnTokens: deps.webSettings.get().warnTokens,
       }),
       models: models.models,
       modelWarnings: models.warnings,
@@ -518,10 +516,7 @@ export function sessionUseCases({
       return pageOf(options);
     },
 
-    async sessionStats(
-      id: string,
-      options: { warnTokens?: number } = {},
-    ): Promise<
+    async sessionStats(id: string): Promise<
       | {
           summary: SessionSummary;
           stats: SessionStats;
@@ -533,7 +528,7 @@ export function sessionUseCases({
       // the one context-usage number the whole page shows.
       const [stored, view] = await Promise.all([
         entriesOf(id),
-        viewSession(id, options),
+        viewSession(id),
       ]);
       if (!stored || !view) return undefined;
       return {

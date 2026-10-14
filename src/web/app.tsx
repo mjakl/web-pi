@@ -65,10 +65,6 @@ export function createWebApp(deps: WebDeps) {
     );
   }
 
-  function warnTokens(): { warnTokens: number } {
-    return { warnTokens: deps.workspace.webSettings().warnTokens };
-  }
-
   /** The whole session page, swapped into <body> after a history change. */
   async function page(
     c: Context,
@@ -79,7 +75,7 @@ export function createWebApp(deps: WebDeps) {
   ): Promise<Response> {
     const [sidebar, view] = await Promise.all([
       sidebarOf(id),
-      deps.workspace.viewSession(id, warnTokens()),
+      deps.workspace.viewSession(id),
     ]);
     if (!view) return c.notFound();
     if (!c.req.header("HX-Request")) {
@@ -165,7 +161,6 @@ export function createWebApp(deps: WebDeps) {
     remember,
     newCwd,
     currentCwd,
-    warnTokens,
     page,
     row,
     guard,

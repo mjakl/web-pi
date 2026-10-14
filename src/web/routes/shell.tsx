@@ -48,16 +48,7 @@ import {
 } from "./shared.ts";
 
 export function shellRoutes(app: WebApp, ctx: RouteContext): void {
-  const {
-    deps,
-    assets,
-    sidebarOf,
-    remember,
-    newCwd,
-    currentCwd,
-    warnTokens,
-    guard,
-  } = ctx;
+  const { deps, assets, sidebarOf, remember, newCwd, currentCwd, guard } = ctx;
 
   // These URLs serve both documents and HTMX fragments. Neither representation
   // may be stored and reused for the other kind of request.
@@ -167,9 +158,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     const view =
       id === undefined
         ? undefined
-        : await deps.workspace
-            .viewSession(id, warnTokens(c))
-            .catch(() => undefined);
+        : await deps.workspace.viewSession(id).catch(() => undefined);
     const sidebar =
       resolved ??
       (await deps.workspace.sidebar(
@@ -211,7 +200,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         ? {}
         : { leaf: c.req.query("leaf") }),
       ...(through === undefined ? {} : { through }),
-      ...warnTokens(c),
     };
     const fragment = c.req.header("HX-Target") === "div#session-region";
     const [sidebar, view] = await Promise.all([
@@ -247,7 +235,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/sessions/:id/stats", async (c) => {
     const id = c.req.param("id");
     if (!isSessionId(id)) return c.notFound();
-    const found = await deps.workspace.sessionStats(id, warnTokens(c));
+    const found = await deps.workspace.sessionStats(id);
     if (!found) return c.notFound();
     return c.html(<StatsPanel {...found} />);
   });

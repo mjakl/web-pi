@@ -689,7 +689,9 @@ export function setUpFiles(): void {
       setOpen(!isOpen());
       return;
     }
-    if (target.closest("#file-panel-close")) {
+    // Between 641 and 959px the panel overlays the conversation, and the
+    // dimmed backdrop over it closes the panel, as pi-web's does.
+    if (target.closest("#file-panel-close, .right-panel-overlay-backdrop")) {
       setOpen(false);
       return;
     }

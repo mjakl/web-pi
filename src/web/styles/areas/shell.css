@@ -119,7 +119,8 @@
     pointer-events: none;
     transition: opacity 0.2s ease;
   }
-  .right-panel-overlay-backdrop.is-open {
+  /* files.ts writes the panel's state on body; a click here closes it. */
+  body[data-file-panel="open"] .right-panel-overlay-backdrop {
     opacity: 1;
     pointer-events: auto;
   }

@@ -252,6 +252,17 @@ describe("file panel replacement", () => {
     expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
       true,
     );
+    // Where the panel overlays the conversation, its backdrop closes it.
+    click(byId("file-panel-toggle"));
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div class="right-panel-overlay-backdrop"></div>',
+    );
+    click(query(".right-panel-overlay-backdrop"));
+    expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
+      true,
+    );
+    expect(document.body.dataset["filePanel"]).toBe("closed");
     const link = document.createElement("a");
     link.dataset["filePath"] = "new.ts";
     document.body.append(link);

@@ -596,7 +596,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
               (!view.resetTranscript || savedHandoff) ? (
                 <Rail view={view} oob />
               ) : null}
-              <Status view={view} model={modelChanged} oob partial />
+              <Status view={view} model={modelChanged} oob />
             </>,
           ),
         });

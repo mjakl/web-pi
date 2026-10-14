@@ -1,8 +1,4 @@
-import {
-  formatCompactCount,
-  formatContextTooltip,
-  formatContextUsage,
-} from "@core/context-usage";
+import { formatCompactCount, formatContextTooltip } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
@@ -281,8 +277,6 @@ function SessionStatsButton({
   }
   const context = usage === undefined ? "" : formatContextTooltip(usage);
   if (context !== "") parts.push(context);
-  const readout = usage === undefined ? "" : formatContextUsage(usage);
-  const empty = readout === "" && (tokens === undefined || tokens.input === 0);
   return (
     <button
       type="button"
@@ -316,7 +310,7 @@ function SessionStatsButton({
       ) : null}
       <ContextReadout
         {...(usage === undefined ? {} : { usage })}
-        empty={empty}
+        {...(tokens === undefined ? {} : { tokens })}
       />
     </button>
   );

@@ -2,6 +2,7 @@ import { Partial } from "@web/views/Partial";
 import { formatContextUsage } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { LiveStatus } from "@core/ports";
+import type { SessionStats } from "@core/session-entries";
 import { displaySkillPrompt } from "@core/skill-prompt";
 import type { SessionView } from "@core/workspace";
 import { ModelSelector, ModelScopeWarning, modelPick } from "./Composer.tsx";
@@ -27,22 +28,21 @@ import {
  */
 export function ContextReadout({
   usage,
+  tokens,
   oob,
-  empty,
 }: {
   usage?: ContextUsage;
+  /** The session's token totals, which the stats button shows beside it. */
+  tokens?: SessionStats["tokens"];
   oob?: boolean;
-  /**
-   * Nothing else in the stats button has a value, so the readout names what
-   * the button opens. False keeps the element (the stream swaps it by id)
-   * but silent, because the token groups beside it already say something.
-   */
-  empty?: boolean;
 }) {
   const text = usage ? formatContextUsage(usage) : "";
   const swap = oob === true ? { "hx-swap-oob": "true" } : {};
   if (!usage || text === "") {
-    return empty === false ? (
+    // With nothing to measure, the readout names what the button opens,
+    // unless the token totals beside it already say something. Silent, it
+    // stays in the page: the stream swaps it by id.
+    return tokens !== undefined && tokens.input > 0 ? (
       <span id="context-readout" hidden {...swap} />
     ) : (
       <span id="context-readout" class="shell-context-empty" {...swap}>
@@ -191,21 +191,20 @@ function QueuePanel({
 }
 
 /**
- * Everything that changes while a session runs. `model` asks for the toolbar's
- * selector out of band, which the stream sends only when the model or the
- * levels actually changed: it is a whole subtree, and a turn re-renders ten
- * times a second.
+ * Everything that changes while a session runs. `oob` renders it as a stream
+ * update: the body as a `#status` partial, with the context readout and the
+ * compact button out of band. `model` adds the toolbar's selector, which the
+ * stream sends only when the model or the levels actually changed: it is a
+ * whole subtree, and a turn re-renders ten times a second.
  */
 export function Status({
   view,
   model,
   oob,
-  partial,
 }: {
   view: SessionView;
   model?: boolean;
   oob?: boolean;
-  partial?: boolean;
 }) {
   const { status, summary } = view;
   const body = (
@@ -243,24 +242,19 @@ export function Status({
       ) : null}
     </>
   );
+  if (oob !== true) return body;
   return (
     <>
-      {partial === true ? <Partial target="#status">{body}</Partial> : body}
-      {oob === true ? (
-        <>
-          <ContextReadout usage={view.usage} oob />
-          <CompactButton
-            sessionId={summary.id}
-            usage={view.usage}
-            oob
-            disabled={compactDisabled(view)}
-            compacting={status?.compacting ?? false}
-          />
-        </>
-      ) : null}
-      {oob === true && model === true ? (
-        <ModelSelector pick={modelPick(view)} oob />
-      ) : null}
+      <Partial target="#status">{body}</Partial>
+      <ContextReadout usage={view.usage} tokens={view.tokens} oob />
+      <CompactButton
+        sessionId={summary.id}
+        usage={view.usage}
+        oob
+        disabled={compactDisabled(view)}
+        compacting={status?.compacting ?? false}
+      />
+      {model === true ? <ModelSelector pick={modelPick(view)} oob /> : null}
     </>
   );
 }

@@ -78,7 +78,7 @@ export function LiveRecovery({ view }: { view: SessionView }) {
       data-leaf={view.liveRecovery.leaf ?? ""}
       data-content-leaf={view.liveRecovery.contentLeaf ?? ""}
     >
-      <Status view={stopped} oob partial />
+      <Status view={stopped} oob />
       <Partial target="#shelf" swap="outerHTML">
         <ShelfBody status={null} />
       </Partial>

@@ -9,6 +9,7 @@ import { createWebApp } from "@web/app";
 import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
 import { until } from "#/adapters/pi-harness";
+import { rawFrames, streamingFixture } from "#/web/fixtures/streaming";
 import { parseHtml, required } from "#/web/helpers";
 
 function renderedHtml(html: string): string {
@@ -2061,6 +2062,29 @@ describe("phase 8 fixes", () => {
     await reader.cancel();
     expect(received).toMatch(/id="context-compact"[^>]*hx-swap-oob/);
     expect(received).toMatch(/id="context-compact"[^>]*data-warning/);
+  });
+
+  it("renders the readout alike on the page and in the stream when the model has no window", async () => {
+    const f = await streamingFixture();
+    f.finish("an answer that used tokens", false);
+    const model = required(f.snapshot.status.model);
+    f.update({
+      status: { ...f.snapshot.status, model: { ...model, contextWindow: 0 } },
+    });
+    const readout = (html: string) =>
+      required(parseHtml(html).querySelector("#context-readout"));
+    const page = readout(
+      await (await f.app.request(`/sessions/${f.id}`)).text(),
+    );
+    const frame = await (await rawFrames(f))();
+    const streamed = readout(
+      frame.replaceAll(/^data: /gm, "").replace(/^id: .*$/m, ""),
+    );
+    // The token totals beside it already say something, on both paths.
+    for (const element of [page, streamed]) {
+      expect(element.hasAttribute("hidden")).toBe(true);
+      expect(element.textContent).toBe("");
+    }
   });
 
   it("lists what a subagent run was given, and its progress while it runs", async () => {

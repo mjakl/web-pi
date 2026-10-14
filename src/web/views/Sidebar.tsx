@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import {
   isSubagentSession,
   relativeTime,
@@ -20,7 +21,6 @@ import {
   StarIcon,
   StoppedRingIcon,
 } from "./icons.tsx";
-import { baseName } from "./Workspace.tsx";
 
 // The sidebar: pi-web's header block, session rows and the explorer below
 // them (components/SessionSidebar.tsx, SessionItem.tsx). The explorer's own

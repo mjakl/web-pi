@@ -5,6 +5,7 @@
 
 import { imageLimitError } from "@core/composer";
 import { SESSION_COOKIE } from "@core/cookies";
+import { baseName } from "@core/file-types";
 import { FileAccessError } from "@core/path-access";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { skillSelections } from "@core/skill-prompt";
@@ -234,7 +235,7 @@ export function fileFailure(c: Context, error: unknown): Response {
 
 /** A file name safe in a header, plus the encoded form for everyone else. */
 export function disposition(path: string, attachment: boolean): string {
-  const name = path.split(/[\\/]/).pop() ?? "download";
+  const name = baseName(path);
   const ascii = name.replaceAll(/[^\x20-\x7E]/g, "_").replaceAll('"', "");
   const kind = attachment ? "attachment" : "inline";
   return `${kind}; filename="${ascii === "" ? "download" : ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;

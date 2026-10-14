@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import type { ProjectEntry } from "@core/sessions";
 import { shortPath } from "@core/workspaces";
 import {
@@ -162,16 +163,6 @@ export function DirectoryPicker(props: {
     >
       <BrowsePane {...props} />
     </dialog>
-  );
-}
-
-/** The last path segment, which is what pi-web labels a project with. */
-export function baseName(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .pop() ?? path
   );
 }
 

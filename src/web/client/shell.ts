@@ -3,6 +3,7 @@
 // document title. Everything here belongs to the shell area; the sidebar's
 // own behaviour is in sidebar.ts.
 
+import { baseName } from "@core/file-types";
 import { setUpRegion } from "./lifecycle.ts";
 import { abortTurn } from "./composer.ts";
 import { dialogOpen, setUpDialogs } from "./dialogs.ts";
@@ -35,9 +36,8 @@ function setUpTitle(): void {
   const opened =
     displayedSessionId() !== "" ||
     new URLSearchParams(location.search).has("cwd");
-  const name = displayedCwd().split(/[\\/]/).filter(Boolean).pop();
-  document.title =
-    name === undefined || !opened ? "web-pi" : `${name} - web-pi`;
+  const name = baseName(displayedCwd());
+  document.title = name === "" || !opened ? "web-pi" : `${name} - web-pi`;
 }
 
 export function closeMobileSidebar(): void {

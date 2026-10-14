@@ -108,8 +108,12 @@ const LANGUAGE = byExtension({
   zsh: "bash",
 });
 
+/**
+ * The last segment of a path. A trailing separator still names its folder,
+ * so `/repo/src/` is `src`; a root has no segment and is empty.
+ */
 export function baseName(path: string): string {
-  const parts = path.replaceAll("\\", "/").split("/");
+  const parts = path.replaceAll("\\", "/").replace(/\/+$/, "").split("/");
   return parts.at(-1) ?? path;
 }
 

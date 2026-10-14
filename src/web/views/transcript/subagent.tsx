@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import type {
   SubagentCall,
   SubagentRun,
@@ -71,10 +72,7 @@ function SubagentBody({
 }) {
   const model = run?.model ?? call.model;
   const cwd = run?.cwd ?? call.cwd ?? actions?.cwd;
-  const folder =
-    cwd === undefined
-      ? undefined
-      : (cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd);
+  const folder = cwd === undefined ? undefined : baseName(cwd) || cwd;
   return (
     <div class="subagent-body">
       <div class="subagent-meta">

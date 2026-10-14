@@ -1,4 +1,5 @@
 import {
+  baseName,
   catppuccinIcon,
   extensionOf,
   fileKind,
@@ -8,6 +9,17 @@ import {
   mimeOf,
 } from "@core/file-types";
 import { describe, expect, it } from "vitest";
+
+describe("baseName", () => {
+  it("names the last segment, a folder's even with a trailing separator", () => {
+    expect(baseName("/repo/src/main.ts")).toBe("main.ts");
+    expect(baseName("C:\\repo\\src")).toBe("src");
+    expect(baseName("/repo/src/")).toBe("src");
+    expect(baseName("C:\\repo\\src\\\\")).toBe("src");
+    expect(baseName("main.ts")).toBe("main.ts");
+    expect(baseName("/")).toBe("");
+  });
+});
 
 describe("languageOf", () => {
   it("recognises the special file names before any extension", () => {

@@ -5,6 +5,7 @@ import {
   toolFilePath,
   isEditToolName,
   isWriteToolName,
+  PAGE_SIZE,
   pageItems,
   timestampedEntries,
 } from "@core/turns";
@@ -346,62 +347,70 @@ describe("pageItems", () => {
     user("u3"),
     assistant("a3", [text("three")]),
   ];
+  /** Twice as many cards as one page holds: u0, a0, … u49, a49. */
+  const long = Array.from({ length: PAGE_SIZE }, (_, index) => [
+    user(`u${String(index)}`),
+    assistant(`a${String(index)}`, [text(String(index))]),
+  ]).flat();
 
   it("takes the plain tail, mid-turn or not", () => {
-    const page = pageItems(items, { tail: 3 });
-    expect(page.items.map((item) => item.entryId)).toEqual(["a2", "u3", "a3"]);
+    const page = pageItems(long.slice(0, -1));
+    expect(page.items).toHaveLength(PAGE_SIZE);
+    expect(page.oldestId).toBe("a24");
+    expect(page.items.at(-1)?.entryId).toBe("u49");
     expect(page.hasMore).toBe(true);
-    expect(page.oldestId).toBe("a2");
   });
 
   it("counts the tail in entries when the branch is given", () => {
-    // a1 stands for two entries, its call and the result, so five entries
-    // back is four cards where counting cards would have shown five.
-    const page = pageItems(items, {
-      tail: 5,
-      entryIds: ["u1", "a1", "a1r", "u2", "a2", "u3", "a3"],
-    });
-    expect(page.items.map((item) => item.entryId)).toEqual([
-      "u2",
-      "a2",
-      "u3",
-      "a3",
-    ]);
+    // Every answer stands for two entries, its call and the result, so a page
+    // of entries holds fewer cards than counting cards would have shown.
+    const entryIds = long.flatMap((item) =>
+      item.kind === "assistant"
+        ? [item.entryId, `${item.entryId}r`]
+        : [item.entryId],
+    );
+    const page = pageItems(long, { entryIds });
+    expect(page.oldestId).toBe("u33");
+    expect(page.items).toHaveLength(34);
     expect(page.hasMore).toBe(true);
   });
 
   it("never widens a tail past its size on a session with one long turn", () => {
-    const long = [
+    const turn = [
       user("u1"),
-      ...Array.from({ length: 40 }, (_, i) =>
-        assistant(`a${String(i)}`, [text(String(i))]),
+      ...Array.from({ length: PAGE_SIZE + 10 }, (_, index) =>
+        assistant(`a${String(index)}`, [text(String(index))]),
       ),
     ];
-    const page = pageItems(long, { tail: 5 });
-    expect(page.items).toHaveLength(5);
+    const page = pageItems(turn);
+    expect(page.items).toHaveLength(PAGE_SIZE);
     expect(page.hasMore).toBe(true);
   });
 
   it("pages backwards from an entry already on screen", () => {
-    const page = pageItems(items, { tail: 2, before: "u2" });
+    const page = pageItems(items, { before: "u2" });
     expect(page.items.map((item) => item.entryId)).toEqual(["u1", "a1"]);
     expect(page.hasMore).toBe(false);
   });
 
   it("widens the page until the requested entry is on it", () => {
-    const page = pageItems(items, { tail: 1, through: "a1" });
+    const page = pageItems(long, { through: "a1" });
     expect(page.items[0]?.entryId).toBe("a1");
+    expect(page.hasMore).toBe(true);
   });
 
   it("reconciles after an invisible raw entry without applying the backwards tail limit", () => {
     const entryIds = ["u1", "a1", "result1", "u2", "a2", "u3", "a3"];
     expect(
-      pageItems(items, { after: "result1", entryIds, tail: 1 }).items.map(
+      pageItems(items, { after: "result1", entryIds }).items.map(
         (item) => item.entryId,
       ),
     ).toEqual(["u2", "a2", "u3", "a3"]);
     expect(pageItems(items, { after: "a3", entryIds }).items).toEqual([]);
     expect(pageItems(items, { after: "", entryIds }).items).toEqual(items);
+    expect(pageItems(long, { after: "u0" }).items).toHaveLength(
+      long.length - 1,
+    );
   });
 
   it("refuses an entry that is not on this branch", () => {
@@ -409,10 +418,10 @@ describe("pageItems", () => {
   });
 
   it("marks a missing settled cursor as a bounded replacement, including an empty branch", () => {
-    expect(pageItems(items, { after: "gone", tail: 2 })).toEqual({
-      items: items.slice(-2),
+    expect(pageItems(long, { after: "gone" })).toEqual({
+      items: long.slice(-PAGE_SIZE),
       hasMore: true,
-      oldestId: "u3",
+      oldestId: "u25",
       reset: true,
     });
     expect(pageItems([], { after: "gone" })).toEqual({

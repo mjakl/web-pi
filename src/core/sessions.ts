@@ -64,15 +64,6 @@ export function isSubagentSession(summary: SessionSummary): boolean {
   return summary.inspectionOnly === true || summary.id.startsWith("subagent.");
 }
 
-/** Sidebar order: working sessions first, then live ones, then by age. */
-export function compareSessions(a: SessionSummary, b: SessionSummary): number {
-  const rank = (session: SessionSummary) =>
-    session.running ? 0 : session.live ? 1 : 2;
-  return (
-    rank(a) - rank(b) || b.modifiedAt.localeCompare(a.modifiedAt) //
-  );
-}
-
 /** One entry per project, newest first; the selector lists these. */
 export function recentProjects(
   sessions: readonly SessionSummary[],

@@ -6,7 +6,6 @@ import {
   projectTranscript,
   toolPreview,
   toolProgress,
-  transcriptTitle,
 } from "@core/transcript";
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -287,9 +286,6 @@ describe("projectTranscript", () => {
     expect(item?.kind === "user" && item.command).toBe(
       "/skill:testing run the unit tests",
     );
-    expect(transcriptTitle(transcript)).toBe(
-      "/skill:testing run the unit tests",
-    );
   });
 
   it("splits the file sections out of a compaction summary", () => {
@@ -348,7 +344,6 @@ describe("projectTranscript", () => {
     expect(transcript.items.map((item) => item.kind)).toEqual(["user", "note"]);
     const note = transcript.items[1];
     expect(note?.kind === "note" && note.details).toBe('{\n  "a": 1\n}');
-    expect(transcriptTitle(transcript)).toBe("hi");
   });
 
   it("ignores usage of aborted messages for context accounting", () => {

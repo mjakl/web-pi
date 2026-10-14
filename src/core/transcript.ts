@@ -6,7 +6,6 @@ import {
   recoverSkillPrompt,
   skillCommand,
 } from "./skill-prompt.ts";
-export { skillCommand } from "./skill-prompt.ts";
 
 // The conversation as the UI shows it: one item per visible entry on the
 // active branch, each carrying the blocks it renders. Tool results are folded
@@ -757,15 +756,4 @@ export function deferThinking(items: readonly TranscriptItem[]): void {
       block.text = "";
     }
   }
-}
-
-/** Plain text of the first user message, for titles and previews. */
-export function transcriptTitle(
-  transcript: Transcript,
-  maxLength = 80,
-): string {
-  const first = transcript.items.find((item) => item.kind === "user");
-  if (!first) return "";
-  const line = collapse(first.command ?? first.text);
-  return line.length > maxLength ? `${line.slice(0, maxLength - 1)}…` : line;
 }

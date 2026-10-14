@@ -224,7 +224,6 @@ it.each([false, true])(
     expect(latest?.leaf).toBe((await h.catalog.read(f.id))?.entries[4]?.id);
     expect(latest?.leaf).not.toBe(f.latest.id);
     const through = await f.workspace.viewSession(f.id, {
-      tail: 1,
       through: f.question.id,
     });
     expect(

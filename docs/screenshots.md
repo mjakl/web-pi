@@ -48,8 +48,8 @@ agent-browser snapshot -i
 ```
 
 Set dark appearance through Settings → General. This changes the fixture's
-shared in-memory settings, not your real Pi agent directory. Theme is no longer
-read from localStorage; use the same General controls for scripted captures.
+shared in-memory settings, not your real Pi agent directory. Appearance is a
+server setting, so scripted captures use the same General controls.
 
 Refresh the accessibility snapshot after navigation and lazy row loading, then
 use the current references. Wait for fonts, requested file content, syntax
@@ -94,7 +94,9 @@ Capture these states:
 Use `agent-browser close` when finished and stop the fixture. Do not commit
 browser profiles, cookies, HAR files, or temporary session data. Relative
 timestamps and font rendering can vary by capture date and browser; this is a
-reproducible scenario fixture, not a pixel-comparison test suite.
+reproducible scenario fixture, not a pixel-comparison test suite. Inspect new
+images yourself: the documentation check and `just smoke` only confirm that the
+image links resolve.
 
 ## Settings scroll regression
 
@@ -131,18 +133,3 @@ clipped or covered. At mobile widths it also opens the overflow menu. Captures
 go to `dist/composer-layout/` for visual inspection. This opt-in check replaces
 CSS source-declaration assertions; it is not part of `just qa` or CI and does
 not simulate a physical keyboard or prove layout in other browser engines.
-
-## Verification record
-
-The committed images were visually inspected after capture with local headless
-Chromium **147** on **6 October 2026**. They show the current Hono diff,
-rail/stars, structured subagent result, nested inspection-only conversations,
-multi-skill picker, release commands in light mode, and mobile composer. Desktop
-captures use 1440 × 1000; mobile uses 390 × 844. No public listener or external
-provider was used. These captures do not establish minimum-version Firefox,
-Safari, Edge, or physical-device compatibility.
-
-`just smoke` verifies that the documentation and image links in the installed
-README and docs resolve after packing and consumer installation. It also checks
-both product license notices. Visual content is checked by inspecting the
-images, not by those file-presence assertions.

@@ -34,40 +34,25 @@
   480px boundary would also hide the level and narrow the buttons from 401 to
   480px, which is not pixel-neutral, so it stays at 400px.
 
-## Reproduce the visual comparison
+## Check a style change
 
-Use the isolated fixture described in [Screenshots](screenshots.md). It adds a
-`/sessions/scale` session with long code and a compaction marker. No provider,
-credentials or real agent state is used. Capture output belongs in ignored
-`dist/`, not in the published README images.
-
-Start `just screenshots` and use its ephemeral loopback URL in another terminal:
+The style check drives the isolated fixture described in
+[Screenshots](screenshots.md), whose `/sessions/scale` session adds long code
+and a compaction marker. No provider, credentials or real agent state is used.
+Start `just screenshots` and use its loopback URL in another terminal:
 
 ```bash
 just style-scale http://127.0.0.1:<port> dist/style-scale-after
 just settings-scroll http://127.0.0.1:<port>
-cp -R dist/settings-scroll dist/style-scale-after-settings
 ```
 
-For the pre-token baseline, start a fresh fixture, then replace only its built
-CSS before opening the browser. These commands use the same browser targets as
-`just build-css` and leave source files unchanged:
-
-```bash
-mkdir -p dist/style-scale-baseline
-git archive fc391d6 src/web/styles | tar -x -C dist/style-scale-baseline
-pnpm exec esbuild dist/style-scale-baseline/src/web/styles/index.css \
-  --bundle --minify --target=chrome125,edge125,firefox147,safari26 \
-  '--external:/static/*' --outfile=static/app.css
-just style-scale http://127.0.0.1:<port> dist/style-scale-before
-just settings-scroll http://127.0.0.1:<port>
-cp -R dist/settings-scroll dist/style-scale-before-settings
-```
-
-Stop that fixture before capturing the changed version. `just screenshots`
-rebuilds current assets and resets fictional sessions, including the one turn
-sent by the check. Do not run before and after captures concurrently against one
-fixture.
+`just style-scale` writes its captures to the folder it is given;
+`just settings-scroll` always writes to `dist/settings-scroll/`, so copy that
+folder aside before the next run. Captures belong in the ignored `dist/`, not in
+the README images. For a before-and-after comparison, capture the base revision
+the same way from a separate worktree. Start a fresh fixture for every capture
+and never run two captures against one fixture: the style check sends a turn to
+the fixture's fictional sessions.
 
 The style check captures both themes, desktop/mobile conversations, the model
 popover, a subagent result, file panels, compaction, the mobile sidebar menu and
@@ -89,22 +74,3 @@ These checks do not claim coverage of a long chain of full-page navigations.
 Inspect the PNGs side by side. Passing geometry assertions does not establish
 visual quality or pixel preservation. Browser emulation does not establish
 physical-device, installed-PWA, or minimum-version cross-browser compatibility.
-
-## Verification record
-
-On 2026-09-14, local Chromium 153.0.8010.36 captured 49 style scenarios and 12
-Settings states for both the baseline CSS at `fc391d6` and the migrated CSS. All
-geometry checks passed. All 61 pairs were visually inspected in comparison
-sheets, with full-resolution inspection of representative conversation,
-compaction and subagent states. No visual correction was needed.
-
-The compact file toolbar stays usable between 381 and 480px. Compaction remains
-readable on both sides of 480px and at the old 520px boundary. The existing
-960px resize case still squeezes the conversation when retaining a wide file
-panel; this change deliberately does not alter panel-width policy. Fake-turn
-timestamps differ between captures.
-
-Supplementary mobile inspection covered the session-info overlay and slash
-completion with reduced motion enabled. Coarse-pointer hardware, physical
-keyboards on phones, installed-PWA safe areas, and other browser engines were
-not exercised.

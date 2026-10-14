@@ -15,7 +15,8 @@ Usage: web-pi [options]
   --version          show the web-pi and Pi versions
 
 Environment: WEB_PI_HOST, WEB_PI_PORT, WEB_PI_RUNTIME, WEB_PI_DEFAULT_CWD,
-PI_CODING_AGENT_DIR, HTTP_PROXY, HTTPS_PROXY, NO_PROXY.
+WEB_PI_NOTIFICATION_GRACE_PERIOD, PI_CODING_AGENT_DIR, HTTP_PROXY, HTTPS_PROXY,
+NO_PROXY.
 `;
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);

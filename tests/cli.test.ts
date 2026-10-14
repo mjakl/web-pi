@@ -1,6 +1,7 @@
 import { parseOptions } from "@/cli";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { type AddressInfo, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -31,7 +32,7 @@ describe("web-pi flags", () => {
   });
 
   it.each([
-    ["--help", /Usage: web-pi \[options\]/],
+    ["--help", /Usage: web-pi \[options\][^]*WEB_PI_NOTIFICATION_GRACE_PERIOD/],
     ["--version", /^web-pi \d+\.\d+\.\d+\npi \d+\.\d+\.\d+\n$/],
   ])(
     "executes %s without a system Pi or starting the app",
@@ -129,6 +130,46 @@ describe("web-pi flags", () => {
       ).rejects.toThrow(/WEB_PI_NOTIFICATION_GRACE_PERIOD/);
       expect(await readdir(home)).toEqual([]);
     } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("explains a busy port instead of crashing with a stack trace", async () => {
+    const home = await mkdtemp(join(tmpdir(), "web-pi-port-cli-"));
+    const blocker = createServer();
+    await new Promise<void>((resolve) => {
+      blocker.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = blocker.address() as AddressInfo;
+    try {
+      await expect(
+        promisify(execFile)(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "src/dev.ts",
+            "--runtime",
+            "fake",
+            "--port",
+            String(port),
+          ],
+          {
+            timeout: 5000,
+            env: {
+              PATH: "",
+              HOME: home,
+              PI_CODING_AGENT_DIR: join(home, "agent"),
+            },
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: `web-pi: port ${String(port)} is already in use\n`,
+      });
+      expect(await readdir(home)).toEqual([]);
+    } finally {
+      blocker.close();
       await rm(home, { recursive: true, force: true });
     }
   });

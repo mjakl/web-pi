@@ -27,10 +27,25 @@ const server = serve(
   },
 );
 
+function shutdown(code: number): void {
+  dispose();
+  server.close();
+  process.exitCode = code;
+  setTimeout(() => process.exit(code), 2000).unref();
+}
+
+// Unhandled, a failed listen (a busy port, say) crashes with a stack trace.
+server.on("error", (error: NodeJS.ErrnoException) => {
+  const reason =
+    error.code === "EADDRINUSE"
+      ? `port ${String(config.port)} is already in use`
+      : error.message;
+  process.stderr.write(`web-pi: ${reason}\n`);
+  shutdown(1);
+});
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    dispose();
-    server.close();
-    setTimeout(() => process.exit(0), 2000).unref();
+    shutdown(0);
   });
 }

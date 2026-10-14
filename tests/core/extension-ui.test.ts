@@ -1,6 +1,7 @@
 import {
   answerConfirmed,
   answerText,
+  closesIn,
   createCustomUiHost,
   createDialogHost,
   type FrameComponent,
@@ -98,6 +99,22 @@ describe("dialog host", () => {
     expect(host.pending()).toBeNull();
   });
 
+  it("never reuses an id, even in another session's host", () => {
+    const ids = new Set<string>();
+    for (const host of [createDialogHost(), createDialogHost()]) {
+      void host.ask({ method: "input", title: "One" });
+      ids.add(host.pending()?.id ?? "");
+      void host.ask({ method: "input", title: "Two" });
+      ids.add(host.pending()?.id ?? "");
+    }
+    expect(ids.size).toBe(4);
+  });
+
+  it("says how long until a timeout, never below zero", () => {
+    expect(closesIn(31_400, 1_000)).toBe("Closes in 30s if unanswered.");
+    expect(closesIn(1_000, 5_000)).toBe("Closes in 0s if unanswered.");
+  });
+
   it("reports every change so the session can re-render", () => {
     const changed = vi.fn();
     const host = createDialogHost(changed);
@@ -127,6 +144,14 @@ describe("custom UI host", () => {
     expect(host.frame()).toEqual({ id, lines: ["count 0"] });
     host.input(id, "+");
     expect(host.frame()?.lines).toEqual(["count 1"]);
+  });
+
+  it("never reuses an id, even in another session's host", () => {
+    const ids = [createCustomUiHost(), createCustomUiHost()].flatMap((host) => [
+      host.open(counter(), 40),
+      host.open(counter(), 40),
+    ]);
+    expect(new Set(ids).size).toBe(4);
   });
 
   it("ignores input for a closed UI and disposes on close", () => {

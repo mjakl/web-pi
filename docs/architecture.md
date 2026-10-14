@@ -658,8 +658,9 @@ composition root and the only importer of Pi adapters.
   the shelf. Keystrokes go back as terminal bytes (`src/core/terminal-input.ts`,
   shared by the client bundle), percent-encoded rather than multipart, because a
   lone carriage return — which is what Enter sends — does not survive a
-  multipart parser. Closing is Ctrl+C: a pi-tui component has no close command
-  to receive.
+  multipart parser. A panel sends one keystroke request at a time, so the
+  component sees the keys in the order they were typed. Closing is Ctrl+C: a
+  pi-tui component has no close command to receive.
 - **Push enrollment is manual and belongs to this browser.** General prepares
   worker registration/activation and the public key before enabling Subscribe.
   The click calls `pushManager.subscribe` directly with `userVisibleOnly: true`,

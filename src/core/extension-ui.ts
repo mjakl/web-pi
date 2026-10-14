@@ -49,8 +49,6 @@ export type DialogSpec = Omit<DialogRequest, "id" | "expiresAt">;
 
 export type DialogOptions = { timeout?: number; signal?: AbortSignal };
 
-export type DialogHost = ReturnType<typeof createDialogHost>;
-
 /**
  * Pending extension dialogs. Several may wait at once — the SDK keys them by
  * id and an extension may ask twice — but only the newest is shown, so an
@@ -136,8 +134,6 @@ export type FrameComponent = {
 
 /** The frame of the custom UI that is on screen, if any. */
 export type CustomFrame = { id: string; lines: string[] };
-
-export type CustomUiHost = ReturnType<typeof createCustomUiHost>;
 
 /** A frame that failed to render still says so rather than killing the turn. */
 function renderFrame(component: FrameComponent, width: number): string[] {

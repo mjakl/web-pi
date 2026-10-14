@@ -56,6 +56,18 @@ describe("hasPreview and catppuccinIcon", () => {
   });
 });
 
+describe("an extension named like an Object property", () => {
+  it.each(["notes.constructor", "x.__proto__"])(
+    "treats %s as an unknown extension",
+    (name) => {
+      expect(fileKind(name)).toBe("text");
+      expect(mimeOf(name)).toBe("application/octet-stream");
+      expect(languageOf(name)).toBe("text");
+      expect(catppuccinIcon(name)).toBe("_file");
+    },
+  );
+});
+
 describe("formatBytes", () => {
   it("uses one decimal above a kilobyte", () => {
     expect(formatBytes(512)).toBe("512 B");

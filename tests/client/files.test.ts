@@ -60,7 +60,7 @@ function page(
 ): void {
   const session = options.session ?? "s1";
   mount(
-    `<main data-session-id="${session}">` +
+    `<main data-session-id="${session}" data-cwd="/repo/one">` +
       '<form id="composer"><textarea id="composer-text"></textarea></form>' +
       '<button type="button" id="file-panel-toggle" aria-expanded="false"></button>' +
       '<div class="panel-resize-handle right-panel-resize-handle" tabindex="0"></div>' +
@@ -70,7 +70,7 @@ function page(
       '<button type="button" id="explorer-changes-toggle" aria-pressed="false"></button>' +
       `<div id="file-tree" role="tree"${options.changes === undefined ? "" : ` data-changes="${String(options.changes)}"`}>${options.tree ?? ""}</div>` +
       "</div>" +
-      `<div id="file-panel" class="right-panel-container right-panel-closed" data-session="${session}" data-cwd="/repo/one">` +
+      '<div id="file-panel" class="right-panel-container right-panel-closed">' +
       '<div id="file-tabs" role="tablist" hidden></div>' +
       '<button type="button" id="file-panel-close"></button>' +
       '<div id="file-view" hx-sync="#file-view:replace"><div>No file open</div></div>' +
@@ -228,8 +228,8 @@ describe("file panel replacement", () => {
     const oldBody = document.body;
     const replacement = document.createElement("body");
     replacement.innerHTML = oldBody.innerHTML.replaceAll(
-      'data-session="s1"',
-      'data-session="s2"',
+      'data-session-id="s1"',
+      'data-session-id="s2"',
     );
     oldBody.replaceWith(replacement);
     htmxEvent(document.body, "htmx:after:process");
@@ -431,7 +431,6 @@ describe("opening files", () => {
     await requests[3]?.respond(viewer("c.ts"));
     expect(byId("file-view").textContent).toBe("No file open");
     expect(tabs()).toHaveLength(0);
-    expect(byId("file-panel").dataset["session"]).toBe("s2");
   });
 
   it("does not reopen a panel hidden while its file was loading", async () => {
@@ -508,6 +507,10 @@ describe("opening files", () => {
     expect(ajaxUrls()).toEqual([
       "/files/view?cwd=%2Frepo%2Fone&path=%2Frepo%2Fone%2FREADME.md&mode=preview",
     ]);
+    // The watch names the folder the same way, never an empty session.
+    expect(streams()[0]?.url).toBe(
+      "/files/watch?path=%2Frepo%2Fone%2FREADME.md&cwd=%2Frepo%2Fone",
+    );
   });
 
   it("opens anything that carries a path, at the mode it names", async () => {

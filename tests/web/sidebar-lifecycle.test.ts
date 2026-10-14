@@ -85,9 +85,6 @@ it("keeps the global list and stream across directories while explorer and new-s
   expect(b.document.querySelector("#project-select")).toBeNull();
   expect(b.document.cookie).toContain("web-pi-cwd=%2Fchosen");
   expect(
-    b.document.querySelector("#file-panel")?.getAttribute("data-cwd"),
-  ).toBe("/middle");
-  expect(
     b.document.querySelector("#file-explorer")?.getAttribute("hx-get"),
   ).toBe("/files/explorer?session=middle");
 

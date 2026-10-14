@@ -26,15 +26,15 @@ function panel(): HTMLElement | null {
   return document.getElementById("file-panel");
 }
 
-function sessionId(): string {
-  return panel()?.dataset["session"] ?? "";
-}
-
-/** Which folder the explorer is about: the open session's, or the picked one. */
+/**
+ * Which folder the files requests are about: the open session's, or the
+ * picked one. Both live on `main`, which every navigation replaces.
+ */
 function scopeQuery(): string {
-  const id = sessionId();
+  const main = document.querySelector<HTMLElement>("main");
+  const id = main?.dataset["sessionId"] ?? "";
   if (id !== "") return `session=${encodeURIComponent(id)}`;
-  return `cwd=${encodeURIComponent(panel()?.dataset["cwd"] ?? "")}`;
+  return `cwd=${encodeURIComponent(main?.dataset["cwd"] ?? "")}`;
 }
 
 /** Per-tab, in memory only: reopening web-pi starts with no tabs, as pi-web. */
@@ -337,8 +337,9 @@ function connectWatch(): void {
   if (watching === active && stream !== null) return;
   disconnectWatch();
   watching = active;
-  const query = new URLSearchParams({ path: active, session: sessionId() });
-  const source = new EventSource(`/files/watch?${query.toString()}`);
+  const source = new EventSource(
+    `/files/watch?path=${encodeURIComponent(active)}&${scopeQuery()}`,
+  );
   stream = source;
   watchController = new AbortController();
   const { signal } = watchController;

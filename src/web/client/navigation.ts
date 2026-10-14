@@ -258,10 +258,5 @@ export function setUpNavigation(): void {
     document.cookie = `web-pi-session=${encodeURIComponent(id)}; path=/; samesite=lax; max-age=${id ? "31536000" : "0"}`;
     if (!id && main.dataset["cwdAvailable"] !== "false" && main.dataset["cwd"])
       document.cookie = `web-pi-cwd=${encodeURIComponent(main.dataset["cwd"])}; path=/; samesite=lax; max-age=31536000`;
-    const panel = document.getElementById("file-panel");
-    if (panel) {
-      panel.dataset["session"] = id;
-      panel.dataset["cwd"] = main.dataset["cwd"] ?? "";
-    }
   });
 }

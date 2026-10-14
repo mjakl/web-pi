@@ -456,10 +456,7 @@ export function Shell({
         title="Resize the file panel"
         aria-label="Resize the file panel"
       />
-      <FilePanel
-        {...(activeId === undefined ? {} : { sessionId: activeId })}
-        {...(cwd === undefined ? {} : { cwd })}
-      />
+      <FilePanel />
       {overlay}
     </div>
   );
@@ -470,14 +467,9 @@ export function Shell({
  * pi-web keeps it mounted (collapsed) on every route, so the files it lists
  * come from the open session's folder, else from the folder that is picked.
  */
-function FilePanel({ sessionId, cwd }: { sessionId?: string; cwd?: string }) {
+function FilePanel() {
   return (
-    <div
-      id="file-panel"
-      class="right-panel-container right-panel-closed"
-      data-session={sessionId ?? ""}
-      data-cwd={cwd ?? ""}
-    >
+    <div id="file-panel" class="right-panel-container right-panel-closed">
       <div class="shell-file-panel-header">
         <div class="shell-file-tabs-host">
           <div id="file-tabs" class="file-tabs" role="tablist" hidden />

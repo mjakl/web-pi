@@ -1,12 +1,21 @@
 import { AT_RESULT_LIMIT, type FileEntry } from "@core/composer";
 import { fileKind, languageOf } from "@core/file-types";
 import { directoryWithin, FileAccessError, samePath } from "@core/path-access";
-import type { DirEntry, FileStat, GitChangeFile, GitStatus } from "@core/ports";
+import type {
+  DirEntry,
+  FileStat,
+  GitChangeFile,
+  GitStatus,
+  Watcher,
+} from "@core/ports";
 import type { Shared } from "./deps.ts";
 import type { FileScope, FileView } from "./views.ts";
 
 // The file panel and the `@` menu: listings, the viewer, Git changes, and
 // completion. Every path goes through `authorize` before it is touched.
+
+/** Starts watching an authorized file; the result stops it. */
+type Watch = (handlers: Parameters<Watcher["watch"]>[1]) => () => void;
 
 export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
   /**
@@ -185,19 +194,19 @@ export function fileUseCases({ deps, authorize, cwdOf }: Shared) {
       };
     },
 
-    /** Tells the viewer when the file changed under it. */
+    /**
+     * Tells the viewer when the file changed under it. Authorized before the
+     * caller opens a stream, so a refusal can still be an error status; the
+     * function it returns starts the watch.
+     */
     async watchFile(
       sessionId: string | undefined,
       path: string,
-      handlers: {
-        change(info: { mtime: number; size: number }): void;
-        error(): void;
-      },
-    ): Promise<() => void> {
+    ): Promise<Watch> {
       // A watch survives the file being deleted and written again, so a
       // missing path is not an error here.
       await authorize(path, { sessionId, allowMissing: true });
-      return deps.watcher.watch(path, handlers);
+      return (handlers) => deps.watcher.watch(path, handlers);
     },
 
     /** The explorer's search box: files of the whole listing, ranked. */

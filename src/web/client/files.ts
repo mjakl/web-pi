@@ -366,6 +366,15 @@ function connectWatch(): void {
     },
     { signal },
   );
+  // The server gave up on this file; reconnecting would only fail again.
+  source.addEventListener(
+    "watch-error",
+    () => {
+      disconnectWatch();
+      showWatching(false);
+    },
+    { signal },
+  );
 }
 
 // --- Line ranges ---------------------------------------------------------

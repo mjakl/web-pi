@@ -713,14 +713,64 @@ describe("watching", () => {
     await reader?.cancel();
   });
 
-  it("tells the viewer when it may not watch a file", async () => {
+  it("refuses a file it may not watch with a status EventSource does not retry", async () => {
     const res = await app.request(
       `/files/watch?session=s1&path=${encodeURIComponent(join(outside, "other.txt"))}`,
     );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("content-type")).not.toContain("text/event-stream");
+  });
+
+  it("ends the stream with watch-error and stops the watcher when it fails", async () => {
+    let fail = () => {};
+    let stopped = false;
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: repo,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    const failing = createWebApp({
+      workspace: createWorkspace({
+        ...world,
+        watcher: {
+          watch: (_path, handlers) => {
+            fail = () => {
+              handlers.error();
+            };
+            return () => {
+              stopped = true;
+            };
+          },
+        },
+      }),
+      staticRoot: "/nonexistent",
+      defaultCwd: repo,
+    });
+    const res = await failing.request(
+      `/files/watch?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
+    );
     const reader = res.body?.getReader();
-    const chunk = await reader?.read();
-    expect(new TextDecoder().decode(chunk?.value)).toContain("event: error");
-    await reader?.cancel();
+    if (!reader) throw new Error("No stream");
+    const decoder = new TextDecoder();
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toContain("event: connected");
+    fail();
+    let rest = "";
+    for (let chunk = await reader.read(); !chunk.done;) {
+      rest += decoder.decode(chunk.value);
+      chunk = await reader.read();
+    }
+    expect(rest).toContain("event: watch-error");
+    expect(stopped).toBe(true);
   });
 });
 

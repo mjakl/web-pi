@@ -488,6 +488,18 @@ describe("opening files", () => {
     ).toBe(false);
   });
 
+  it("stops watching a file the server gave up on", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    openFile("/repo/one/a.ts");
+    await deliver(viewer("a.ts"));
+    streams()[0]?.dispatchEvent(new Event("connected"));
+    streams()[0]?.dispatchEvent(new Event("watch-error"));
+    expect(streams()[0]?.closed).toBe(true);
+    expect(query(".file-viewer-live-label").textContent).toBe("static");
+  });
+
   it("works from the picked folder when there is no session", async () => {
     page({ session: "" });
     const { openFile, setUpFiles } = await load();

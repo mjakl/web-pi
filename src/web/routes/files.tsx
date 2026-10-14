@@ -228,10 +228,21 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
   });
 
   /** One stream per open tab: the viewer re-reads whenever the file moves. */
-  app.get("/files/watch", (c) => {
-    const sessionId = sessionParameter(c);
+  app.get("/files/watch", async (c) => {
     const path = c.req.query("path") ?? "";
+    let start: Awaited<ReturnType<typeof deps.workspace.watchFile>>;
+    try {
+      // Refused before the stream opens: EventSource reconnects to a stream
+      // that ends, but never retries an error status.
+      start = await deps.workspace.watchFile(sessionParameter(c), path);
+    } catch (error) {
+      return fileFailure(c, error);
+    }
     return streamSSE(c, async (stream) => {
+      const ended = Promise.withResolvers<undefined>();
+      stream.onAbort(() => {
+        ended.resolve(undefined);
+      });
       let queue: Promise<void> = Promise.resolve();
       const send = (event: string, data: string) => {
         queue = queue
@@ -242,45 +253,25 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
             // A closed stream ends the watch; the abort handler cleans up.
           });
       };
-      const fail = (message: string) => {
-        queue = queue
-          .then(async () => {
-            await stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ message }),
-            });
-            await stream.close();
-          })
-          .catch(() => {
-            // Already closed.
-          });
-        return queue;
-      };
-      let stop: (() => void) | undefined;
-      try {
-        stop = await deps.workspace.watchFile(sessionId, path, {
-          change(info) {
-            send("change", JSON.stringify(info));
-          },
-          error() {
-            void fail("Failed to watch file");
-          },
-        });
-      } catch (error) {
-        await fail(
-          error instanceof FileAccessError
-            ? error.message
-            : "Failed to watch file",
-        );
-        return;
-      }
-      send("connected", JSON.stringify({ path }));
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => {
-          resolve();
-        });
+      let failed = false;
+      const stop = start({
+        change(info) {
+          send("change", JSON.stringify(info));
+        },
+        // Not `error`: EventSource fires that itself while it reconnects.
+        error() {
+          failed = true;
+          send(
+            "watch-error",
+            JSON.stringify({ message: "Failed to watch file" }),
+          );
+          ended.resolve(undefined);
+        },
       });
+      if (!failed) send("connected", JSON.stringify({ path }));
+      await ended.promise;
       stop();
+      await queue;
     });
   });
 }

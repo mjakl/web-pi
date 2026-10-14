@@ -5,8 +5,9 @@ import { pathToFileURL } from "node:url";
 
 /** The repository root in a checkout, the install root in a package. */
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
-const CODING_AGENT = "@earendil-works/pi-coding-agent";
-const PI_PACKAGES = [
+export const CODING_AGENT = "@earendil-works/pi-coding-agent";
+/** The Pi packages web-pi depends on, always pinned to one version together. */
+export const PI_PACKAGES = [
   CODING_AGENT,
   "@earendil-works/pi-ai",
   "@earendil-works/pi-agent-core",

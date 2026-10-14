@@ -36,15 +36,15 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   Pi's agent directory itself and installs into the real `~/.pi/agent/skills`
   and `~/.agents/.skill-lock.json` whatever `PI_CODING_AGENT_DIR` says. Do not
   run a skill install from a test or an unattended check.
-- Pi is a local runtime dependency, not the system `pi`. Every `just build`
-  queries the stable `latest` tag and updates exact Pi dependencies and the
-  lockfile before typechecking and bundling. Keep the named Pi runtime
-  release-age exceptions in `pnpm-workspace.yaml` narrow; other dependencies
-  retain their 24-hour delay. Commit manifest and lockfile changes together.
-  `just doctor` validates ownership and versions as well as reporting the SDK.
-  Keep public startup paths behind the guarded `src/server.ts` bootstrap;
-  `src/server-runtime.ts` contains the SDK module graph. Startup must not
-  update, relink, or discover a system Pi.
+- Pi is a package-owned runtime, not the system `pi`, and every `just build`
+  refreshes it to the latest stable release; read
+  `docs/adr/0002-package-owned-pi-runtime.md` before changing that. Commit
+  `package.json` and `pnpm-lock.yaml` changes together. Keep the release-age
+  exceptions in `pnpm-workspace.yaml` to Pi's own runtime packages. Keep every
+  startup path behind the guarded `src/server.ts` bootstrap, which validates Pi
+  before `src/server-runtime.ts` loads the SDK; startup must not update, relink,
+  or discover a system Pi. `just doctor` reports the SDK and validates its
+  ownership and versions.
 - `dependencies` are only what stays external in `dist/server.js` (the Pi SDK,
   `web-push`, `undici`); everything else esbuild bundles and belongs in
   `devDependencies`. Changing either list means running `just smoke`.

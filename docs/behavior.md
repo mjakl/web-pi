@@ -1,8 +1,8 @@
-# Behavior and remaining work
+# Behavior and known gaps
 
-This is the retained behavior reference for web-pi. It replaces the six
-historical Next.js porting extracts and the completed phase plan. Current source
-and tests are authoritative; this document does not promise full pi-web parity.
+How web-pi behaves for the person using it, its limits, and the gaps it
+knowingly leaves. Where this document and the code disagree, the code and its
+tests are authoritative.
 
 ## Sessions and conversation
 
@@ -36,13 +36,14 @@ rewrite, then reactivates the session without sending the recalled request. Rail
 branch selection changes the session's active leaf and can return a prompt for
 editing; it is not read-only historical browsing.
 
-Tool cards load their settled bodies on first opening, initially limited to **16
-KiB text and 200 diff rows**, with a control to fetch the rest. Older thinking
-blocks are also deferred. Subagent calls have result, original-prompt,
-run-details, and raw-output disclosures when their structured result is
-recognized. Tool arguments are visible while streaming. Assistant headers show
-the model without live token estimates or tokens per second. Completed usage,
-session totals, cost reporting, and context accounting remain available.
+Tool cards load their settled bodies on first opening. Arguments and output show
+their first **16,384 characters** and diffs their first **200 rows**, with a
+control to fetch the rest. Older thinking blocks are also deferred. Subagent
+calls have result, original-prompt, run-details, and raw-output disclosures when
+their structured result is recognized. Tool arguments are visible while
+streaming. Assistant headers show the model, and a finished message its token
+usage; there are no live token counts or tokens-per-second figures. The session
+info panel shows the session's token totals, context usage and active time.
 
 The SSE delivery/recovery contract and context-accounting thresholds live in
 [Architecture](architecture.md). Do not introduce a second browser conversation
@@ -115,12 +116,13 @@ provider configuration and resource discovery. Skill toggles change only
 `disable-model-invocation` frontmatter. Re-enabling a disabled package loses its
 per-resource filters, matching Pi's representation.
 
-General holds shared appearance, dumb-zone threshold and completion sound, with
-defaults **auto**, **100000 tokens**, and **on**. Auto follows the current
-device's OS appearance. Saves apply across browsers; a returning page refreshes
-on focus/visibility, and live context renders use the current server threshold.
-Legacy browser preferences are ignored, not imported. Drafts, navigation and
-browser notification permission remain device-local. See
+General holds shared appearance, dumb-zone threshold, completion sound and
+system-prompt addition, with defaults **auto**, **100000 tokens**, **on** and
+the built-in note on how the interface renders Markdown. Auto follows the
+current device's OS appearance. Saves apply across browsers; a returning page
+refreshes on focus/visibility, and live context renders use the current server
+threshold. Legacy browser preferences are ignored, not imported. Drafts,
+navigation and browser notification permission remain device-local. See
 [Deployment](deployment.md#web-state-cutover-and-reset) before upgrading or
 resetting web-owned storage.
 
@@ -155,10 +157,9 @@ page is both visible and focused, on any device, in any session or Settings,
 even without push enrollment. While any page is foreground, this server
 suppresses system pushes to every subscription. After all pages leave, the first
 eligible completion starts a fixed grace-period timer measured from that
-completion, not from departure. `WEB_PI_NOTIFICATION_GRACE_PERIOD` sets whole
-minutes, default **15**; **0** restores immediate delivery while away. Accepted
-values are **0 to 35791**; empty, fractional, negative, nonnumeric and larger
-values fail startup.
+completion, not from departure. The server's operator sets its length, and zero
+means immediate delivery; see
+[Deployment](deployment.md#completion-notification-grace-period).
 
 Additional completions during the grace period coalesce without extending the
 deadline. A single completion keeps its session title and link; multiple
@@ -207,9 +208,9 @@ notification. Extension input requests retain their browser dialog and tone. The
 generated service worker caches static assets and the offline page, not session
 history or commands.
 
-## Unfinished work retained from the port
+## Known gaps
 
-These are known gaps, not work authorized by the documentation migration:
+Listing a gap here does not authorize work on it.
 
 - Git worktree discovery in the picker UI. The picker lists folders from known
   sessions only; use Custom path… for a worktree that has no session yet. See
@@ -223,12 +224,6 @@ These are known gaps, not work authorized by the documentation migration:
   minutes** idle or immediately on an explicit stop; there is no general
   live-session cap.
 
-The old plan's queue-image recall, phone-keyboard handling, streaming tool
-arguments, and subagent run details are implemented and are not outstanding
-migration requirements. Live token count and tokens-per-second displays are
-deliberately omitted.
-
-Deliberate limitations remain in [Architecture](architecture.md): attachment
-drafts do not survive reloads, UI strings are English without a locale layer,
-and terminal-only extension APIs are stubbed. No Next.js runtime, old PWA,
-translation layer, or historical porting script is needed here.
+Deliberate limitations are described in [Architecture](architecture.md):
+attachment drafts do not survive reloads, UI strings are English without a
+locale layer, and terminal-only extension APIs are stubbed.

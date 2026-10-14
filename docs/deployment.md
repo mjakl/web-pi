@@ -7,10 +7,9 @@ journal.
 ## Install
 
 Build a tarball from a checkout and install it globally, as
-[the README](../README.md) describes. The package installs its own exact Pi
-runtime; a separate system Pi and a writable package directory are not needed at
-startup. A Pi upgrade reaches web-pi through a new build and reinstall, not
-through a system Pi update.
+[the README](../README.md#install-and-run) describes. The package brings its own
+Pi ([ADR 0002](adr/0002-package-owned-pi-runtime.md)), so the service needs no
+system Pi, and a Pi upgrade reaches it only through a new build and reinstall.
 
 ## The unit
 
@@ -47,11 +46,12 @@ loginctl enable-linger "$USER"   # keep it running while you are logged out
 ## Upgrade
 
 Upgrading is a new tarball, `npm install -g`, and
-`systemctl --user restart web-pi`. Builds resolve stable latest Pi over the
-network and update `package.json` and `pnpm-lock.yaml`. Run `just ci` against
-the refreshed dependency set before installing it; this checks sources and the
+`systemctl --user restart web-pi`. Builds move Pi to its latest stable release
+and record it in `package.json` and `pnpm-lock.yaml`. Run `just ci` against the
+refreshed dependency set before installing it; this checks sources and the
 installed tarball without a model call. A failed refresh or validation is not a
-deployable upgrade. Record `web-pi --version` with deployment evidence.
+deployable upgrade. Keep a note of what `web-pi --version` reports: it names the
+web-pi and Pi versions you deployed.
 
 When a build has changed `package.json` and `pnpm-lock.yaml` and you have not
 committed them, a later `git pull` can refuse to overwrite them. The changes
@@ -66,12 +66,10 @@ pnpm install --frozen-lockfile
 
 ### Pi upgrade compatibility
 
-The eight named Pi runtime packages in `pnpm-workspace.yaml` bypass pnpm's
-24-hour release-age delay; all other dependencies retain it. This exception
-applies to `pi-coding-agent`, `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-codemode`,
-`pi-mcp`, `pi-telemetry`, and `chord` under `@earendil-works`, not the whole
-scope. Builds can therefore adopt breaking stable releases immediately. They
-fail on update/type errors rather than silently keeping a stale SDK.
+A build adopts a new stable Pi as soon as it is published, breaking changes
+included, because Pi's runtime packages are exempt from pnpm's 24-hour
+release-age delay ([ADR 0002](adr/0002-package-owned-pi-runtime.md)). It fails
+on update or type errors rather than silently keeping a stale SDK.
 
 The bundled SDK still uses the existing agent directory and does not reset or
 move sessions, credentials, settings, trust, skills or extensions. Upstream Pi
@@ -107,11 +105,9 @@ delivery. Changing the setting takes effect on the next server start; there is
 no UI preference.
 
 For example, `WEB_PI_NOTIFICATION_GRACE_PERIOD=30` delays the broadcast thirty
-minutes from the first completion. More completions do not extend that deadline,
-and any visible, focused web-pi page cancels the pending broadcast. Pending
-timers and counts live only in memory; a restart loses them without consuming
-the durable away allowance. See the
-[notification contract](behavior.md#extensions-and-notifications).
+minutes from the first completion. The
+[notification contract](behavior.md#extensions-and-notifications) describes
+which completions it collects and what cancels it.
 
 ## Running from a checkout
 
@@ -154,12 +150,14 @@ to keep them apart.
 Pi resolves the agent directory normally: `PI_CODING_AGENT_DIR` when set,
 otherwise usually `~/.pi/agent`. Current web-pi owns these standalone files:
 
-- `<agentDir>/web-pi/settings.json`: shared `warnTokens` (default **100000**,
-  positive safe integer), `theme` (**auto**, or light/dark), and `sound`
-  (**true**, or false). Auto follows each device's OS appearance. Models is not
-  stored here: Settings → Models edits Pi's global `enabledModels` in
-  `<agentDir>/settings.json`, shared with terminal Pi. Project overrides remain
-  in `.pi/settings.json` and apply only in trusted projects.
+- `<agentDir>/web-pi/settings.json`: General's shared settings, `warnTokens` (a
+  positive safe integer), `theme` (`auto`, `light` or `dark`), `sound` (`true`
+  or `false`) and `systemPromptAddition` (`null` for the built-in note, or the
+  text that replaces it). [Behavior](behavior.md#workspaces-and-configuration)
+  gives their defaults. Models is not stored here: Settings → Models edits Pi's
+  global `enabledModels` in `<agentDir>/settings.json`, shared with terminal Pi.
+  Project overrides remain in `.pi/settings.json` and apply only in trusted
+  projects.
 - `<agentDir>/web-pi/push.json`: private VAPID identity, browser subscriptions,
   and the global `awayConsumed` latch. `true` means the one away broadcast has
   been used; `false` means a foreground return has rearmed it. A legacy file

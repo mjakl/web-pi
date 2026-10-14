@@ -359,12 +359,12 @@ sidebar row summary. The catalog hands the core entries; no rule reads a file.
 
 `src/core/context-usage.ts` is the only formula: Pi's context count, the model's
 window, a percent, and the thresholds. Context is critical at **75%** of the
-model window. Below that, it warns at the shared token threshold (pi-web's "dumb
-zone", **100,000** by default). There is no percentage-based yellow warning;
-critical takes precedence over the token threshold. General saves the positive
-safe integer in `web-pi/settings.json`. Page, statistics and live-stream renders
-read the current shared value, never the old `web-pi-warn-tokens` cookie. The
-badge and compaction button use the same formula.
+model window. Below that, it warns at the shared token threshold (the "dumb
+zone" setting in General). There is no percentage-based yellow warning; critical
+takes precedence over the token threshold. General saves the positive safe
+integer in `web-pi/settings.json`. Page, statistics and live-stream renders read
+the current shared value, never the old `web-pi-warn-tokens` cookie. The badge
+and compaction button use the same formula.
 
 After compaction, Pi withholds its count until a new assistant reports valid
 usage. The runtime then estimates Pi's current rebuilt messages with the SDK's
@@ -479,28 +479,8 @@ composition root and the only importer of Pi adapters.
   ignored, not imported. Drafts, navigation, panel geometry and notification
   permission remain device-local.
 
-- **Pi is a package-owned runtime, refreshed at build time.** `just build` runs
-  `scripts/update-pi.ts`: a fresh registry query selects Pi's stable `latest`
-  tag, then pnpm installs matching exact versions of `pi-coding-agent`, `pi-ai`,
-  `pi-agent-core`, and `pi-tui` and updates the manifest and lockfile. These
-  stay external to esbuild so Pi retains its module identity, extension loader,
-  workers and assets. The build validates installed ownership and versions, then
-  typechecks against the selected SDK before emitting bundles. Registry, install
-  or type errors fail the build. The named Pi runtime release-age exceptions in
-  `pnpm-workspace.yaml` allow newly published stable Pi immediately; other
-  dependencies retain the 24-hour delay. Builds need network access and may
-  change dependency files. Installed launches use their own dependencies with no
-  system Pi lookup, update or filesystem relinking. The user's agent directory
-  stays independent of the runtime install. `src/pi-version.ts` checks direct
-  dependency paths (nested npm or isolated pnpm links), physical ownership and
-  exact manifest versions for all four packages; ordinary ancestor resolution
-  cannot supply a missing runtime. `src/server.ts` validates before importing
-  the SDK-bearing `src/server-runtime.ts`, including direct server launches.
-  Development and the installed bin go through the same guarded path.
-  Unsupported hoisted or global-store layouts fail closed; see
-  [Installation](../README.md#install-and-run). A terminal Pi can now differ in
-  version; use one writer per session and heed upstream upgrade/rollback limits
-  in [Deployment](deployment.md).
+- **Pi is a package-owned runtime, refreshed at build time.** See
+  [ADR 0002](adr/0002-package-owned-pi-runtime.md).
 - **The package ships a bundle; the checkout runs the sources.** `just build`
   bundles `src/server.ts`, `src/server-runtime.ts`, and `src/cli.ts` with
   esbuild into `dist/`, leaving only the Pi SDK, `web-push`, and `undici`
@@ -704,11 +684,11 @@ composition root and the only importer of Pi adapters.
   foreground reports. At the deadline it rechecks suppression and persists its
   latch in `web-pi/push.json` before sending to every subscription; a foreground
   return durably rearms it. Server configuration supplies the delay in minutes
-  through `WEB_PI_NOTIFICATION_GRACE_PERIOD` (default 15). Shutdown disposes the
-  notifier, cancelling pending scheduling without recalling admitted delivery.
-  Live leases and pending completions are memory-only and lost on restart. No
-  suppressed completion is queued, and delivery failures do not refund the
-  allowance. One server owns one agent directory. The
+  through `WEB_PI_NOTIFICATION_GRACE_PERIOD`. Shutdown disposes the notifier,
+  cancelling pending scheduling without recalling admitted delivery. Live leases
+  and pending completions are memory-only and lost on restart. No suppressed
+  completion is queued, and delivery failures do not refund the allowance. One
+  server owns one agent directory. The
   [behavior contract](behavior.md#extensions-and-notifications) and
   [persistence failure rules](deployment.md#push-allowance-persistence-and-failures)
   describe the best-effort and restart limits.
@@ -815,20 +795,20 @@ composition root and the only importer of Pi adapters.
   split into numbered rows and highlight.js colours a block, not a line.
 - **Completed tool bodies are fetched when opened, including in the live turn.**
   `GET /sessions/:id/entries/:entryId/tool-result/:callId` renders the
-  arguments, output and diff of an ordinary tool, cut to 16 KB of text and 200
-  diff rows, with a button for the rest. The same endpoint renders a subagent's
-  results, prompts, run details and raw payloads without truncation. The result
-  entry identifies its branch within that session, including alternate stored or
-  live branches. Body requests read folder context without consuming pending
-  notices or composer insertions. Initial pages, stored turns and every live
-  frame carry only a placeholder for these bodies. An open card fetches
-  automatically when its running call completes; closed cards wait for an
-  opening toggle. HTMX drops duplicate requests while one is pending, and a
-  failed fetch can be retried by closing and reopening the card. Loaded bodies
-  survive later live morphs without another render or transfer. Unfinished tool
-  arguments, subagent progress and partial thinking remain inline and continue
-  updating. Settlement still appends fresh stored-turn cards and clears the live
-  tail.
+  arguments, output and diff of an ordinary tool, cut to the
+  [limits in Behavior](behavior.md#sessions-and-conversation), with a button for
+  the rest. The same endpoint renders a subagent's results, prompts, run details
+  and raw payloads without truncation. The result entry identifies its branch
+  within that session, including alternate stored or live branches. Body
+  requests read folder context without consuming pending notices or composer
+  insertions. Initial pages, stored turns and every live frame carry only a
+  placeholder for these bodies. An open card fetches automatically when its
+  running call completes; closed cards wait for an opening toggle. HTMX drops
+  duplicate requests while one is pending, and a failed fetch can be retried by
+  closing and reopening the card. Loaded bodies survive later live morphs
+  without another render or transfer. Unfinished tool arguments, subagent
+  progress and partial thinking remain inline and continue updating. Settlement
+  still appends fresh stored-turn cards and clears the live tail.
 - **Project commands run in the project's environment.** See
   [ADR 0001](adr/0001-project-command-environment.md).
 - **The chosen folder is a cookie, and validating it is what grants access.**
@@ -910,17 +890,6 @@ composition root and the only importer of Pi adapters.
   source string back, so per-resource filters an entry carried do not survive
   the round trip. That is Pi's own spelling and pi-web's behaviour; the UI says
   so in the button's title rather than pretending otherwise.
-
-## Remaining work
-
-[Behavior and remaining work](behavior.md) retains the unfinished port
-requirements: ANSI in tool cards, read-only historical branch browsing, explorer
-mutations and expanded-state persistence, and a running-session cap. These are
-not part of the documentation migration.
-
-Live token count and tokens-per-second displays are deliberately omitted.
-Streaming partials and activity status remain, as do completed provider usage,
-session totals, cost reporting, and context accounting.
 
 ## Deliberately not carried over
 

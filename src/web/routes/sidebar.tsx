@@ -46,7 +46,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       <ProjectPicker
         projects={await deps.workspace.projects()}
         cwd={await currentCwd(c)}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        home={deps.home}
       />,
     ),
   );
@@ -62,12 +62,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       ...(parentId === undefined ? {} : { parentId }),
       ...(activeId === undefined ? {} : { selectedId: activeId }),
     });
-    return c.html(
-      <SessionRows
-        view={view}
-        {...(activeId === undefined ? {} : { activeId })}
-      />,
-    );
+    return c.html(<SessionRows view={view} activeId={activeId} />);
   });
 
   app.get("/sessions/:id/row", (c) => row(c, c.req.param("id")));
@@ -118,13 +113,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
         return c.body(null, 200);
       }
       const view = await sidebarOf(activeId);
-      return c.html(
-        <SessionList
-          view={view}
-          {...(activeId === undefined ? {} : { activeId })}
-          partial
-        />,
-      );
+      return c.html(<SessionList view={view} activeId={activeId} partial />);
     });
   });
 

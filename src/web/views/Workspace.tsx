@@ -253,8 +253,8 @@ export function ProjectPicker({
           <ProjectFolderGroup
             project={project}
             selected={project.folders.some((folder) => folder.path === cwd)}
-            {...(cwd === undefined ? {} : { cwd })}
-            {...(home === undefined ? {} : { home })}
+            cwd={cwd}
+            home={home}
           />
         ))}
         <div id="project-empty" class="sidebar-project-message" hidden>
@@ -316,7 +316,7 @@ function ProjectFolderGroup({
             <FolderLabel
               name={baseName(project.key)}
               path={project.key}
-              {...(home === undefined ? {} : { home })}
+              home={home}
             />
             <ProjectActivity running={project.running} />
           </summary>
@@ -326,7 +326,7 @@ function ProjectFolderGroup({
               name={baseName(folder.path)}
               current={folder.path === chosen}
               child
-              {...(home === undefined ? {} : { home })}
+              home={home}
             />
           ))}
         </details>
@@ -336,7 +336,7 @@ function ProjectFolderGroup({
           name={baseName(project.key)}
           current={only.path === chosen}
           activity={<ProjectActivity running={project.running} />}
-          {...(home === undefined ? {} : { home })}
+          home={home}
         />
       )}
     </div>
@@ -389,7 +389,7 @@ function ProjectFolderRow({
           ? "menu-item project-folder-row project-folder-child"
           : "menu-item project-folder-row"
       }
-      {...(current ? { "aria-current": "true" } : {})}
+      aria-current={current ? "true" : undefined}
       title={path}
       hx-get={`/new?${query.toString()}`}
       hx-target="#session-region"
@@ -397,11 +397,7 @@ function ProjectFolderRow({
       hx-push-url="true"
     >
       <ProjectFolderIcon />
-      <FolderLabel
-        name={name}
-        path={path}
-        {...(home === undefined ? {} : { home })}
-      />
+      <FolderLabel name={name} path={path} home={home} />
       {activity}
       {current ? <span aria-hidden="true">✓</span> : null}
     </button>

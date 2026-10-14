@@ -63,9 +63,9 @@ function RowMenu({ summary, metadata }: Row) {
       hx-post={`/sessions/${id}/${path}`}
       hx-target={target}
       hx-swap="outerHTML"
-      {...(danger === true
-        ? { "hx-confirm": "Delete this session and its transcript?" }
-        : {})}
+      hx-confirm={
+        danger === true ? "Delete this session and its transcript?" : undefined
+      }
     >
       {label}
     </button>
@@ -142,7 +142,7 @@ export function SessionRow({
       id={`row-${id}`}
       class={`session-row${selected ? " is-selected" : ""}${summary.live === true ? " is-live" : ""}${inspectionOnly ? " is-inspection" : ""}`}
       data-session-id={id}
-      {...(oob === true ? { "hx-swap-oob": "true" } : {})}
+      hx-swap-oob={oob === true ? "true" : undefined}
     >
       <a href={`/sessions/${id}`} class="session-row-link">
         {inspectionOnly ? null : <SessionIndicator summary={summary} />}
@@ -236,7 +236,7 @@ function SessionNode({
   const { summary, childCount = 0, children } = row;
   return (
     <div id={`node-${summary.id}`} class="session-node">
-      <SessionRow {...row} {...(activeId === undefined ? {} : { activeId })} />
+      <SessionRow {...row} activeId={activeId} />
       {childCount > 0 ? (
         <details
           class="session-children"
@@ -265,10 +265,7 @@ function SessionNode({
                 Loading sub-sessions…
               </div>
             ) : (
-              <SessionRows
-                view={children}
-                {...(activeId === undefined ? {} : { activeId })}
-              />
+              <SessionRows view={children} activeId={activeId} />
             )}
           </div>
         </details>
@@ -295,10 +292,7 @@ export function SessionRows({
         <div class="session-children-loading">No more sub-sessions</div>
       ) : null}
       {view.rows.map((row) => (
-        <SessionNode
-          row={row}
-          {...(activeId === undefined ? {} : { activeId })}
-        />
+        <SessionNode row={row} activeId={activeId} />
       ))}
       {view.nextOffset !== undefined ? (
         <div
@@ -329,10 +323,7 @@ export function SessionList({
       {view.rows.length === 0 && view.nextOffset === undefined ? (
         <div class="session-list-empty">No sessions found</div>
       ) : null}
-      <SessionRows
-        view={view}
-        {...(activeId === undefined ? {} : { activeId })}
-      />
+      <SessionRows view={view} activeId={activeId} />
     </>
   );
   return partial === true ? (
@@ -355,10 +346,7 @@ export function SessionNav({
   return (
     <div id="session-nav" class="sidebar-session-nav">
       <SidebarEvents />
-      <SessionList
-        view={view}
-        {...(activeId === undefined ? {} : { activeId })}
-      />
+      <SessionList view={view} activeId={activeId} />
     </div>
   );
 }
@@ -439,17 +427,11 @@ export function Sidebar({
           </div>
         </div>
       </div>
-      <SessionNav
-        view={view}
-        {...(activeId === undefined ? {} : { activeId })}
-      />
+      <SessionNav view={view} activeId={activeId} />
       {/* pi-web shows the explorer for whichever folder is selected, with or
           without a session open (AppShell.tsx L2429). */}
       {cwd === undefined || cwd === "" ? null : (
-        <ExplorerSection
-          {...(activeId === undefined ? {} : { sessionId: activeId })}
-          cwd={cwd}
-        />
+        <ExplorerSection sessionId={activeId} cwd={cwd} />
       )}
     </div>
   );

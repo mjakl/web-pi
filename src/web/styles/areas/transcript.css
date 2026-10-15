@@ -1835,7 +1835,8 @@ button.tool-output-link {
   background: none;
   cursor: zoom-in;
 }
-.markdown-file-image img {
+/* On the image, not its button: a linked image sits in the link's control. */
+.markdown-local-image {
   max-width: min(100%, 720px);
   max-height: 520px;
 }

@@ -115,7 +115,7 @@ function renderImage(
       `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}">${label}</button>`
     );
   }
-  const image = `<img src="${attribute(rawFileUrl(file, options.sessionId))}" alt="${label}" loading="lazy">`;
+  const image = `<img class="markdown-local-image" src="${attribute(rawFileUrl(file, options.sessionId))}" alt="${label}" loading="lazy">`;
   return (
     navigate?.(image) ??
     `<button type="button" class="markdown-file-image" data-file-path="${attribute(file)}" title="${attribute(file)}">${image}</button>`

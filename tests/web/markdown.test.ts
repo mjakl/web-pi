@@ -180,6 +180,25 @@ describe("renderMarkdown", () => {
     }
   });
 
+  it("gives a linked local image the class that limits a local image's size", async () => {
+    const window = new Window();
+    try {
+      const { body } = window.document;
+      body.innerHTML = renderMarkdown(
+        "![shot](shot.png) [![shot](shot.png)](notes.md)",
+        { cwd: "/repo", sessionId: "s1" },
+      );
+      const [plain, linked] = [...body.querySelectorAll("img")];
+      expect(plain?.className).toBe("markdown-local-image");
+      expect(linked?.className).toBe("markdown-local-image");
+      expect(
+        linked?.closest("[data-file-path]")?.getAttribute("data-file-path"),
+      ).toBe("/repo/notes.md");
+    } finally {
+      await window.happyDOM.close();
+    }
+  });
+
   it("leaves a single tilde alone and keeps double-tilde strikethrough", () => {
     const html = renderMarkdown("~10~20 and ~~gone~~");
     expect(html).toContain("~10~20");

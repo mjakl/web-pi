@@ -123,7 +123,7 @@ export function createPiServicePreparations(options: {
   // Retain a few recently selected folders, not one runtime per saved transcript.
   const cache = new Map<
     string,
-    { stamp: string; state: Promise<PreparedSession> }
+    { stamp: string; expiresAt: number; state: Promise<PreparedSession> }
   >();
   async function load(cwd: string): Promise<PreparedSession> {
     // Capture once: even resource reloads keep this runtime's addition stable.
@@ -224,10 +224,12 @@ export function createPiServicePreparations(options: {
       options.webSettings?.get().systemPromptAddition,
     ].join(":");
     const hit = cache.get(folder);
-    if (hit?.stamp === stamp) return hit.state;
+    // Config stamps cannot see external prompt, skill, or extension additions.
+    // Bound freshness for stopped-session menus without reloading live sessions.
+    if (hit?.stamp === stamp && Date.now() < hit.expiresAt) return hit.state;
     const state = load(folder);
     cache.delete(folder);
-    cache.set(folder, { stamp, state });
+    cache.set(folder, { stamp, expiresAt: Date.now() + 10_000, state });
     if (cache.size > 4) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);

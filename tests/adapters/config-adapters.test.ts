@@ -131,6 +131,85 @@ describe("folder commands", () => {
     ]);
   });
 
+  it("refreshes external resource edits and additions after ten seconds without opening a session", async () => {
+    const prompts = join(agentDir, "prompts");
+    const skill = join(agentDir, "skills", "tidy", "SKILL.md");
+    await mkdir(prompts, { recursive: true });
+    await mkdir(join(skill, ".."), { recursive: true });
+    await writeFile(
+      join(prompts, "review.md"),
+      "---\ndescription: Old prompt\n---\nReview\n",
+    );
+    await writeFile(
+      skill,
+      "---\nname: tidy\ndescription: Old skill\n---\nBody\n",
+    );
+    const clock = vi.spyOn(Date, "now");
+    const now = Date.now();
+    clock.mockReturnValue(now);
+    try {
+      const agent = runtime();
+      const { resources, models } = agent;
+      await models.list(project);
+      const before = await resources.commands(project);
+      expect(before).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "review",
+            description: "Old prompt",
+          }),
+          expect.objectContaining({
+            name: "skill:tidy",
+            description: "Old skill",
+          }),
+        ]),
+      );
+      await writeFile(
+        join(prompts, "review.md"),
+        "---\ndescription: Updated prompt\n---\nReview\n",
+      );
+      await writeFile(
+        skill,
+        "---\nname: tidy\ndescription: Updated skill\n---\nBody\n",
+      );
+      await writeFile(
+        join(prompts, "added.md"),
+        "---\ndescription: Added prompt\n---\nAdded\n",
+      );
+      await mkdir(join(agentDir, "extensions"), { recursive: true });
+      await writeFile(
+        join(agentDir, "extensions", "added.js"),
+        'export default (pi) => { pi.registerCommand("added-command", { description: "Added extension", handler: async () => {} }); };\n',
+      );
+      clock.mockReturnValue(now + 9_999);
+      expect(await resources.commands(project)).toEqual(before);
+      clock.mockReturnValue(now + 10_000);
+      expect(await resources.commands(project)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "review",
+            description: "Updated prompt",
+          }),
+          expect.objectContaining({
+            name: "skill:tidy",
+            description: "Updated skill",
+          }),
+          expect.objectContaining({
+            name: "added",
+            description: "Added prompt",
+          }),
+          expect.objectContaining({
+            name: "added-command",
+            description: "Added extension",
+          }),
+        ]),
+      );
+      expect(agent.live()).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("lists a skill change once a skill action drops the preparation", async () => {
     const { resources, models } = runtime();
     const skills = async () =>

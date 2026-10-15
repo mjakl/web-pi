@@ -1007,9 +1007,10 @@ export function createPiAgentRuntime(options: {
           throw new Error("Cannot reopen a session that is still stopping.");
         const filePath = await options.catalog.pathOf(target.sessionId);
         if (!filePath) throw new Error(`Unknown session ${target.sessionId}`);
-        // Pi opens a missing path as a new session in the server's cwd. A
-        // draft's prospective path is not a transcript we can resume.
-        if (!existsSync(filePath))
+        // Pi opens a missing path as a new session in the server's cwd, and
+        // writes a new session's header into an empty file. Neither a draft's
+        // prospective path nor an empty file is a transcript we can resume.
+        if (!statSync(filePath, { throwIfNoEntry: false })?.size)
           throw new Error(
             `Cannot reopen session ${target.sessionId}: no saved transcript.`,
           );

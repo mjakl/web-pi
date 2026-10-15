@@ -328,4 +328,5 @@ its symlink. See [Architecture](docs/architecture.md) for the design and
 
 [MIT](LICENSE), copyright Michael Jakl. Copied pi-web CSS, code, and adapted
 supporting material retain [pi-web's MIT notice](LICENSE.pi-web), copyright
-agegr.
+agegr. Bundled fzf retains its
+[BSD 3-Clause notice](docs/third-party-notices.md#fzf-052).

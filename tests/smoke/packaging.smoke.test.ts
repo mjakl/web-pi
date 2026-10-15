@@ -211,7 +211,7 @@ afterAll(async () => {
   if (base) rmSync(base, { recursive: true, force: true });
 });
 
-it("ships documentation link targets and both product license notices", () => {
+it("ships documentation link targets and product and bundled fzf license notices", () => {
   const installed = join(base, "consumer", "node_modules", "web-pi");
   const docs = join(installed, "docs");
   const markdown = [
@@ -240,6 +240,12 @@ it("ships documentation link targets and both product license notices", () => {
   );
   expect(readFileSync(join(installed, "LICENSE.pi-web"), "utf8")).toContain(
     "Copyright (c) 2026 agegr",
+  );
+  expect(readFileSync(join(docs, "third-party-notices.md"), "utf8")).toContain(
+    readFileSync(
+      join(repoRoot, "node_modules", "fzf", "license.txt"),
+      "utf8",
+    ).trim(),
   );
 });
 

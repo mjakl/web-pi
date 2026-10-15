@@ -227,17 +227,28 @@ export function createPiServicePreparations(options: {
     // Config stamps cannot see external prompt, skill, or extension additions.
     // Bound freshness for stopped-session menus without reloading live sessions.
     if (hit?.stamp === stamp && Date.now() < hit.expiresAt) return hit.state;
-    const state = load(folder);
+    // The ten seconds start once the load settles: a load that installs a
+    // missing package can take longer, and a second one would install it again.
+    const entry = {
+      stamp,
+      expiresAt: Number.POSITIVE_INFINITY,
+      state: load(folder),
+    };
     cache.delete(folder);
-    cache.set(folder, { stamp, expiresAt: Date.now() + 10_000, state });
+    cache.set(folder, entry);
     if (cache.size > 4) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
     }
-    void state.catch(() => {
-      if (cache.get(folder)?.state === state) cache.delete(folder);
-    });
-    return state;
+    void entry.state.then(
+      () => {
+        entry.expiresAt = Date.now() + 10_000;
+      },
+      () => {
+        if (cache.get(folder) === entry) cache.delete(folder);
+      },
+    );
+    return entry.state;
   }
   return {
     prepare: stateFor,

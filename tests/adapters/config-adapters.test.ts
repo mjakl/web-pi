@@ -210,6 +210,45 @@ describe("folder commands", () => {
     }
   });
 
+  it("starts the ten seconds once a load finishes, so a slow load runs once", async () => {
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    // Counts loads, and holds the first one open as a package install would.
+    await writeFile(
+      join(agentDir, "extensions", "slow.js"),
+      "export default async () => { globalThis.webPiLoads = (globalThis.webPiLoads ?? 0) + 1; await globalThis.webPiGate; };\n",
+    );
+    const probe = globalThis as {
+      webPiLoads?: number;
+      webPiGate?: Promise<undefined>;
+    };
+    const gate = Promise.withResolvers<undefined>();
+    probe.webPiGate = gate.promise;
+    const clock = vi.spyOn(Date, "now");
+    const now = Date.now();
+    clock.mockReturnValue(now);
+    try {
+      const { resources } = runtime();
+      const first = resources.commands(project);
+      clock.mockReturnValue(now + 10_001);
+      const second = resources.commands(project);
+      gate.resolve(undefined);
+      expect(await second).toEqual(await first);
+      expect(probe.webPiLoads).toBe(1);
+      // It finished at now + 10_001, so it serves until now + 20_001.
+      clock.mockReturnValue(now + 20_000);
+      await resources.commands(project);
+      expect(probe.webPiLoads).toBe(1);
+      clock.mockReturnValue(now + 20_001);
+      await resources.commands(project);
+      expect(probe.webPiLoads).toBe(2);
+    } finally {
+      gate.resolve(undefined);
+      clock.mockRestore();
+      delete probe.webPiLoads;
+      delete probe.webPiGate;
+    }
+  });
+
   it("lists a skill change once a skill action drops the preparation", async () => {
     const { resources, models } = runtime();
     const skills = async () =>

@@ -29,7 +29,14 @@ function showImage(button: HTMLElement, holder: Element): void {
   const title = button.dataset["title"];
   if (title !== undefined) image.title = title;
   holder.setAttribute("hx-morph-skip", "");
-  button.replaceWith(image);
+  const link = holder.querySelector<HTMLElement>("[data-remote-image-link]");
+  if (link) {
+    const focused = document.activeElement === button;
+    link.replaceChildren(image);
+    link.hidden = false;
+    button.remove();
+    if (focused) link.focus();
+  } else button.replaceWith(image);
   loadedImages.add(source);
 }
 
@@ -42,8 +49,7 @@ function loadRemoteImage(event: Event): void {
       : null;
   const holder = button?.parentElement;
   if (!button || !holder) return;
-  // A linked image, such as a badge, puts the button inside the link: the
-  // click loads the image and must not follow the link as well.
+  // Loading and navigation are sibling controls; this activation only loads.
   event.preventDefault();
   showImage(button, holder);
 }

@@ -1,7 +1,8 @@
 import { renderMarkdown } from "@web/markdown";
 import { setUpTranscript } from "@web/client/transcript";
-import { describe, expect, it } from "vitest";
-import { htmxEvent, mount, query } from "./helpers.ts";
+import { setUpFiles } from "@web/client/files";
+import { describe, expect, it, vi } from "vitest";
+import { flush, htmx, htmxEvent, mount, query } from "./helpers.ts";
 
 function anchor(): HTMLAnchorElement {
   const link = query("a");
@@ -109,7 +110,8 @@ describe("remote Markdown images", () => {
 
   it("shows an image the reader loaded again when its message renders anew", () => {
     const html = renderMarkdown(
-      "![chart](https://img.test/c.png) ![other](https://img.test/o.png)",
+      "[![chart](https://img.test/c.png)](./report.md) ![other](https://img.test/o.png)",
+      { cwd: "/repo" },
     );
     mount(`<div id="turn">${html}</div><div id="messages"></div>`);
     setUpTranscript();
@@ -121,6 +123,12 @@ describe("remote Markdown images", () => {
     expect(query("#messages img").getAttribute("src")).toBe(
       "https://img.test/c.png",
     );
+    expect(
+      query("#messages img").closest<HTMLElement>("[data-file-path]")?.dataset[
+        "filePath"
+      ],
+    ).toBe("/repo/report.md");
+    expect(query("#messages [data-remote-image-link]").hidden).toBe(false);
     // An image the reader did not load still waits for its own click.
     expect(document.querySelectorAll("#messages img")).toHaveLength(1);
     expect(query("#messages [data-remote-image]").dataset["remoteImage"]).toBe(
@@ -128,13 +136,72 @@ describe("remote Markdown images", () => {
     );
   });
 
-  it("loads a linked image without following its link", () => {
+  it.each([
+    "![chart](https://img.test/local-chart.png)",
+    "before **![chart](https://img.test/local-chart.png)** after",
+  ])(
+    "loads a local-linked image independently, then opens its file: %s",
+    async (content) => {
+      vi.stubGlobal(
+        "EventSource",
+        class extends EventTarget {
+          close() {}
+        },
+      );
+      mount(
+        `<main data-session-id="s1" data-cwd="/repo">${renderMarkdown(`[${content}](./report.md)`, { cwd: "/repo" })}<div id="file-panel"></div><div id="file-tabs"></div><div id="file-view"></div></main>`,
+      );
+      setUpFiles();
+      setUpTranscript();
+      const load = query("[data-remote-image]");
+      expect(load).toBeInstanceOf(HTMLButtonElement);
+      expect(load.closest("[data-file-path]")).toBeNull();
+      expect(document.querySelector("img")).toBeNull();
+      load.focus();
+      load.click();
+      await flush();
+      expect(htmx().ajax).not.toHaveBeenCalled();
+      const image = query(".markdown-remote-image img");
+      const link = image.closest<HTMLButtonElement>("button[data-file-path]");
+      expect(link).not.toBeNull();
+      expect(link?.hidden).toBe(false);
+      expect(document.activeElement).toBe(link);
+      expect(
+        image.parentElement?.parentElement?.hasAttribute("hx-morph-skip"),
+      ).toBe(true);
+      image.click();
+      await flush();
+      expect(htmx().ajax).toHaveBeenCalledOnce();
+      expect(htmx().ajax.mock.calls[0]?.[1]).toContain(
+        "path=%2Frepo%2Freport.md",
+      );
+    },
+  );
+
+  it("keeps multiple linked images independent and names an empty-alt destination", () => {
     mount(
       renderMarkdown(
-        `[![build](https://img.test/badge.png)](${location.origin}/elsewhere)`,
+        "[![](https://img.test/empty.png) ![other](https://img.test/other.png)](./report.md)",
+        { cwd: "/repo" },
       ),
     );
     setUpTranscript();
+    query("[data-remote-image]").click();
+    expect(document.querySelectorAll("img")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-remote-image]")).toHaveLength(1);
+    const link = query("img").closest<HTMLElement>("[data-file-path]");
+    expect(link?.getAttribute("aria-label")).toBe("./report.md");
+    expect(document.querySelectorAll("[data-file-path]")).toHaveLength(2);
+    expect(document.activeElement).not.toBe(link);
+  });
+
+  it.each([
+    ["http://localhost:3000/elsewhere", "_self"],
+    ["https://docs.test/elsewhere", "_blank"],
+  ])("loads an image linked to %s without navigating", (href, target) => {
+    mount(renderMarkdown(`[![build](https://img.test/badge.png)](${href})`));
+    setUpTranscript();
+    expect(query("[data-remote-image]").closest("a")).toBeNull();
     let followed: boolean | undefined;
     // Suppress happy-dom's simulated navigation only after application handlers.
     window.addEventListener(
@@ -152,5 +219,16 @@ describe("remote Markdown images", () => {
     expect(query("a img").getAttribute("src")).toBe(
       "https://img.test/badge.png",
     );
+    expect(anchor().target).toBe(target);
+    expect(anchor().getAttribute("href")).toBe(href);
+    window.addEventListener(
+      "click",
+      (event) => {
+        expect(event.defaultPrevented).toBe(false);
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    query("a img").click();
   });
 });

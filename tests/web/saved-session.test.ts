@@ -363,35 +363,45 @@ it("keeps coloured code through a saved update instead of colouring it again", a
   ).toBe("1");
 });
 
-it("keeps a remote image the reader loaded through a saved update", async () => {
-  const f = fixture(false, [
-    userEntry("u1", null, "Show me the chart"),
-    assistantEntry("a1", "u1", "![chart](https://img.test/chart.png)", 100),
-  ]);
-  const browser = await htmxBrowser(
-    await (await f.app.request(`/sessions/${f.id}`)).text(),
-    (request) => f.app.request(request),
-    { clock: true },
-  );
-  const { document } = browser;
-  expect(document.querySelector("#entry-a1 img")).toBeNull();
-  required(
-    document.querySelector<HTMLElement>("#entry-a1 [data-remote-image]"),
-  ).click();
-  const image = required(document.querySelector("#entry-a1 img"));
-  f.stored.entries.push(
-    userEntry("u2", "a1", "Thanks"),
-    assistantEntry("a2", "u2", "You are welcome", 100),
-  );
-  const refreshed = nextEvent(
-    required(document.querySelector("#log")),
-    "web-pi:saved-after",
-  );
-  await browser.advanceTime(2000);
-  await refreshed;
-  expect(document.querySelector("#entry-a2")).not.toBeNull();
-  expect(document.querySelector("#entry-a1 img")).toBe(image);
-});
+it.each([
+  "![chart](https://img.test/chart.png)",
+  "[![chart](https://img.test/chart.png)](./report.md)",
+  "[![chart](https://img.test/chart.png)](https://docs.test/report)",
+])(
+  "keeps a loaded remote image and its link through a saved update: %s",
+  async (markdown) => {
+    const f = fixture(false, [
+      userEntry("u1", null, "Show me the chart"),
+      assistantEntry("a1", "u1", markdown, 100),
+    ]);
+    const browser = await htmxBrowser(
+      await (await f.app.request(`/sessions/${f.id}`)).text(),
+      (request) => f.app.request(request),
+      { clock: true },
+    );
+    const { document } = browser;
+    expect(document.querySelector("#entry-a1 img")).toBeNull();
+    required(
+      document.querySelector<HTMLElement>("#entry-a1 [data-remote-image]"),
+    ).click();
+    const image = required(document.querySelector("#entry-a1 img"));
+    const navigation = image.closest("[data-file-path], a");
+    if (markdown.startsWith("[")) expect(navigation).not.toBeNull();
+    f.stored.entries.push(
+      userEntry("u2", "a1", "Thanks"),
+      assistantEntry("a2", "u2", "You are welcome", 100),
+    );
+    const refreshed = nextEvent(
+      required(document.querySelector("#log")),
+      "web-pi:saved-after",
+    );
+    await browser.advanceTime(2000);
+    await refreshed;
+    expect(document.querySelector("#entry-a2")).not.toBeNull();
+    expect(document.querySelector("#entry-a1 img")).toBe(image);
+    expect(image.closest("[data-file-path], a")).toBe(navigation);
+  },
+);
 
 it("uses fresh streams for repeated ownership and resumes saved observation after each stop", async () => {
   const f = fixture(false, [userEntry("u1", null, "Saved question")]);

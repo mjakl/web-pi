@@ -1,9 +1,21 @@
-import { createFakeWorld, userEntry } from "@adapters/fake/index";
-import type { DialogSpec, FrameComponent } from "@core/extension-ui";
+import {
+  createFakeWorld,
+  type ScriptedStep,
+  userEntry,
+} from "@adapters/fake/index";
+import type { FrameComponent } from "@core/extension-ui";
+import type { LiveStatus } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
-import { createWebApp } from "@web/app";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import { until } from "#/adapters/pi-harness";
+import {
+  rawFrames,
+  renderStart,
+  streamingFixture,
+} from "#/web/fixtures/streaming";
+import { storedSession, testApp } from "#/web/fixtures/test-app";
+import { required } from "#/web/helpers";
 
 const ARROW_UP = "\u001B[A";
 
@@ -18,43 +30,16 @@ function counter(): FrameComponent {
   };
 }
 
-function testApp(
-  script: (prompt: string) => {
-    dialog?: DialogSpec;
-    custom?: FrameComponent;
-    text?: string;
-    title?: string;
-    insert?: string;
-  }[],
-) {
-  const world = createFakeWorld({
+/** The app, with `s1` holding one question; every prompt runs `script`. */
+function scriptedApp(script: (prompt: string) => ScriptedStep[]) {
+  return testApp({
     delayMs: 1,
-    sessions: [
-      {
-        summary: {
-          id: "s1",
-          cwd: "/repo/one",
-          name: "Stored one",
-          createdAt: "2026-09-01T00:00:00.000Z",
-          modifiedAt: "2026-09-02T00:00:00.000Z",
-          fileSize: 10,
-        },
-        entries: [userEntry("u1", null, "hello")],
-      },
-    ],
-    script: script as never,
+    sessions: [storedSession({}, [userEntry("u1", null, "hello")])],
+    script,
   });
-  const workspace = createWorkspace(world);
-  const app = createWebApp({
-    workspace,
-    staticRoot: "/nonexistent",
-    defaultCwd: "/repo",
-    renderIntervalMs: 1,
-  });
-  return { app, workspace, world };
 }
 
-async function send(app: ReturnType<typeof testApp>["app"], text: string) {
+async function send(app: ReturnType<typeof scriptedApp>["app"], text: string) {
   const body = new FormData();
   body.append("text", text);
   await app.request("/sessions/s1/prompt", { method: "POST", body });
@@ -62,7 +47,7 @@ async function send(app: ReturnType<typeof testApp>["app"], text: string) {
 
 /** Keystrokes reach the server the way the client bundle sends them. */
 function input(
-  app: ReturnType<typeof testApp>["app"],
+  app: ReturnType<typeof scriptedApp>["app"],
   requestId: string,
   data: string,
   sessionId = "s1",
@@ -74,12 +59,23 @@ function input(
   });
 }
 
-/** The scripted turn runs on timers; give it a tick to reach the dialog. */
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 30));
+/**
+ * The scripted turn runs on timers: wait until its status satisfies `ready`,
+ * checked now and at every event it emits. A finished turn has stopped
+ * running, and announced its completion in the same step.
+ */
+async function reached(
+  world: ReturnType<typeof scriptedApp>["world"],
+  ready: (status: LiveStatus) => boolean,
+): Promise<void> {
+  await until(required(world.runtime.get("s1")), (snapshot) =>
+    ready(snapshot.status),
+  );
 }
+const waiting = (status: LiveStatus) => status.dialog !== null;
+const finished = (status: LiveStatus) => !status.running;
 
-function status(world: ReturnType<typeof testApp>["world"]) {
+function status(world: ReturnType<typeof scriptedApp>["world"]) {
   const live = world.runtime.get("s1");
   expect(live).toBeDefined();
   return live?.snapshot().status;
@@ -87,11 +83,11 @@ function status(world: ReturnType<typeof testApp>["world"]) {
 
 describe("extension dialogs", () => {
   it("shows the pending dialog on the session page and answers it", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "select", title: "Pick one", options: ["a", "b"] } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
 
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("Pick one");
@@ -106,16 +102,16 @@ describe("extension dialogs", () => {
       body,
     });
     expect(answered.status).toBe(200);
-    await settle();
+    await reached(world, finished);
     expect(status(world)?.dialog).toBeNull();
   });
 
   it("treats a second answer for the same dialog as already closed", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
 
     const answer = () => {
@@ -129,32 +125,32 @@ describe("extension dialogs", () => {
   });
 
   it("reads a cancel as no answer at all", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "confirm", title: "Push?", message: "Sure?" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
     const body = new FormData();
     body.append("cancelled", "1");
     await app.request(`/sessions/s1/ui/${id}`, { method: "POST", body });
-    await settle();
+    await reached(world, finished);
     expect(status(world)?.dialog).toBeNull();
   });
 
   it("hands an editor's answer to the extension exactly as typed", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "editor", title: "Message" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const id = status(world)?.dialog?.id ?? "";
     const body = new FormData();
     // Leading spaces and the trailing newline are content in an editor, and
     // a select option with spaces has to match what the extension offered.
     body.append("value", "  keep\n  the newline\n");
     await app.request(`/sessions/s1/ui/${id}`, { method: "POST", body });
-    await settle();
+    await reached(world, finished);
     // (multipart normalises the line endings themselves; nothing is trimmed)
     const answered = status(world)?.notices[0]?.message ?? "";
     expect(answered).toContain('{"value":"  keep');
@@ -162,11 +158,11 @@ describe("extension dialogs", () => {
   });
 
   it("renders the editor dialog with its prefill", async () => {
-    const { app } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "editor", title: "Message", prefill: "Fix it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("<textarea");
     expect(page).toContain("Fix it");
@@ -180,11 +176,11 @@ describe("extension dialogs", () => {
   ] as const)(
     "puts the %s answer before cancel, so Enter answers",
     async (method, label) => {
-      const { app } = testApp(() => [
+      const { app, world } = scriptedApp(() => [
         { dialog: { method, title: "Name it", options: ["Local preview"] } },
       ]);
       await send(app, "go");
-      await settle();
+      await reached(world, waiting);
       const page = await (await app.request("/sessions/s1")).text();
       const form = /<form[^>]*\/ui\/[\S\s]*?<\/form>/.exec(page)?.[0] ?? "";
       expect(form).not.toBe("");
@@ -199,9 +195,9 @@ describe("extension dialogs", () => {
   );
 
   it("forwards keystrokes to the custom UI and redraws the frame", async () => {
-    const { app, world } = testApp(() => [{ custom: counter() }]);
+    const { app, world } = scriptedApp(() => [{ custom: counter() }]);
     await send(app, "go");
-    await settle();
+    await reached(world, (status) => status.custom !== null);
 
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain("count 0");
@@ -216,18 +212,51 @@ describe("extension dialogs", () => {
     expect(status(world)?.custom).toBeNull();
   });
 
+  it("streams a custom panel with its first frame once, then only the redrawn frame", async () => {
+    const f = await streamingFixture();
+    const show = (lines: string[]) => {
+      f.update({
+        status: { ...f.snapshot.status, custom: { id: "panel", lines } },
+      });
+    };
+    show(["first frame"]);
+    const next = await rawFrames(f);
+    // Starts the next render and returns what the current one wrote after
+    // its first frame.
+    const rest = async () => {
+      f.emit("activity");
+      const frames: string[] = [];
+      for (let frame = await next(); !renderStart(frame); frame = await next())
+        frames.push(frame);
+      return frames;
+    };
+    const custom = (frames: string[]) =>
+      frames.filter((frame) => frame.includes('hx-target="#custom-'));
+    expect(renderStart(await next())).toBe(true);
+    show(["second frame"]);
+    const opened = custom(await rest());
+    expect(opened).toEqual([expect.stringContaining('hx-target="#custom-ui"')]);
+    expect(opened[0]).toContain("first frame");
+    const redrawn = await rest();
+    expect(redrawn).toEqual([
+      expect.stringContaining('hx-target="#custom-frame"'),
+    ]);
+    expect(redrawn[0]).toContain("second frame");
+    expect(await rest()).toEqual([]);
+  });
+
   it("refuses input for an unknown session", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const posted = await input(app, "c1", "x", "not a session");
     expect(posted.status).toBe(404);
   });
 
   it("cancels every waiting dialog when the session is stopped", async () => {
-    const { app, world } = testApp(() => [
+    const { app, world } = scriptedApp(() => [
       { dialog: { method: "input", title: "Name it" } },
     ]);
     await send(app, "go");
-    await settle();
+    await reached(world, waiting);
     expect(status(world)?.dialog).not.toBeNull();
     await app.request("/sessions/s1/stop", { method: "POST" });
     expect(world.runtime.get("s1")).toBeUndefined();
@@ -236,22 +265,25 @@ describe("extension dialogs", () => {
 
 describe("extension page bridge", () => {
   it("shows a title an extension set, for the browser tab", async () => {
-    const { app } = testApp(() => [{ title: "Reviewing" }, { text: "done" }]);
+    const { app, world } = scriptedApp(() => [
+      { title: "Reviewing" },
+      { text: "done" },
+    ]);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     const page = await (await app.request("/sessions/s1")).text();
     expect(page).toContain('id="extension-title"');
     expect(page).toContain("Reviewing");
   });
 
   it("leaves composer text pending until a delivery view claims it", async () => {
-    const { app, workspace, world } = testApp(() => [
+    const { app, workspace, world } = scriptedApp(() => [
       { insert: "git log --oneline" },
       { text: "done" },
     ]);
     const live = await world.runtime.open({ sessionId: "s1" });
     await live.prompt("go");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await until(live, (snapshot) => snapshot.status.editorText.length > 0);
     // A sidebar row reads the same session and must not swallow it.
     await workspace.row("s1");
     expect(live.snapshot().status.editorText).toEqual(["git log --oneline"]);
@@ -270,7 +302,7 @@ describe("extension page bridge", () => {
 
 describe("installable app", () => {
   it("serves a manifest naming the icons", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const response = await app.request("/manifest.webmanifest");
     expect(response.headers.get("Content-Type")).toContain(
       "application/manifest+json",
@@ -286,7 +318,7 @@ describe("installable app", () => {
   });
 
   it("serves a root-scoped uncached worker that leaves event streams to the network", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const response = await app.request("/sw.js");
     expect(response.headers.get("Cache-Control")).toBe("no-cache");
     expect(response.headers.get("Service-Worker-Allowed")).toBe("/");
@@ -335,13 +367,13 @@ describe("installable app", () => {
   });
 
   it("serves an offline page the worker can precache", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const html = await (await app.request("/offline.html")).text();
     expect(html).toContain("web-pi is offline");
   });
 
   it("links the manifest from every page", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const html = await (await app.request("/sessions/s1")).text();
     expect(html).toContain('rel="manifest"');
     expect(html).toContain('data-sw-src="/sw.js?v=');
@@ -350,7 +382,7 @@ describe("installable app", () => {
 
 describe("web push routes", () => {
   it("accepts enrollment-independent presence and suppresses completion delivery until all pages leave", async () => {
-    const { app, world } = testApp(() => [{ text: "done" }]);
+    const { app, world } = scriptedApp(() => [{ text: "done" }]);
     world.push.subscribe({
       endpoint: "https://push.example/enrolled-device",
       keys: { p256dh: "p", auth: "a" },
@@ -366,26 +398,26 @@ describe("web push routes", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     await report("another-session-on-phone", 1, true);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
     await report("settings-with-no-enrollment", 2, false);
     await send(app, "again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
     await report("another-session-on-phone", 2, false);
     await send(app, "away");
-    await settle();
+    await reached(world, finished);
     await send(app, "still away");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(1);
     await report("restored-page", 1, false);
     await send(app, "hidden load");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(1);
     await report("restored-page", 2, true);
     await report("restored-page", 3, false);
     await send(app, "away again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toHaveLength(2);
   });
 
@@ -397,7 +429,7 @@ describe("web push routes", () => {
     { clientId: "one", sequence: 1.5, foreground: true },
     { clientId: "one", sequence: 1, foreground: "true" },
   ])("rejects malformed presence %j", async (presence) => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     expect(
       (
         await app.request("/push/presence", {
@@ -431,17 +463,17 @@ describe("web push routes", () => {
     });
     const child = await world.runtime.open({ sessionId: "subagent.child" });
     await child.prompt("go");
-    await settle();
+    await until(child, (snapshot) => !snapshot.status.running);
     expect(world.push.sent).toEqual([]);
     const root = await world.runtime.open({ sessionId: "root" });
     await root.prompt("go");
-    await settle();
+    await until(root, (snapshot) => !snapshot.status.running);
     expect(world.push.sent).toHaveLength(1);
     expect(world.push.sent[0]?.url).toBe("/sessions/root");
   });
 
   it("hands out the public key", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const body = (await (await app.request("/push/config")).json()) as {
       publicKey: string;
     };
@@ -449,7 +481,7 @@ describe("web push routes", () => {
   });
 
   it("stores a valid subscription", async () => {
-    const { app, world } = testApp(() => []);
+    const { app, world } = scriptedApp(() => []);
     const response = await app.request("/push/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -474,7 +506,7 @@ describe("web push routes", () => {
   });
 
   it("checks enrollment and deletes only a matching record, not other browsers or keys", async () => {
-    const { app, world } = testApp(() => []);
+    const { app, world } = scriptedApp(() => []);
     const one = {
       endpoint: "https://push.example/one",
       keys: { p256dh: "p", auth: "a" },
@@ -513,7 +545,7 @@ describe("web push routes", () => {
   });
 
   it("refuses a subscription without https or keys", async () => {
-    const { app } = testApp(() => []);
+    const { app } = scriptedApp(() => []);
     const bad = async (subscription: unknown) =>
       (
         await app.request("/push/subscribe", {
@@ -530,9 +562,9 @@ describe("web push routes", () => {
   });
 
   it("pushes when a run finishes, and not when nobody subscribed", async () => {
-    const { app, world } = testApp(() => [{ text: "done" }]);
+    const { app, world } = scriptedApp(() => [{ text: "done" }]);
     await send(app, "go");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent).toEqual([]);
 
     await app.request("/push/subscribe", {
@@ -547,7 +579,7 @@ describe("web push routes", () => {
       }),
     });
     await send(app, "again");
-    await settle();
+    await reached(world, finished);
     expect(world.push.sent.at(-1)).toMatchObject({
       title: "Stored one",
       body: "Task finished.",

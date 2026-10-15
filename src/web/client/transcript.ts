@@ -45,6 +45,9 @@ function atTail(view: HTMLElement): boolean {
   return isAtTail(view.scrollTop, view.clientHeight, view.scrollHeight);
 }
 
+/** Each button's pending reset, so a second click restarts it. */
+const copiedResets = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
 /**
  * pi-web swaps the label and the icon for 1.5s and turns the button accent.
  * The message button carries both states in the markup, a code-block button
@@ -57,13 +60,17 @@ async function copyText(button: HTMLElement, text: string): Promise<void> {
     return;
   }
   const label = button.querySelector("[data-copy-idle]") === null;
-  const previous = button.textContent;
   if (label) button.textContent = "Copied";
   button.dataset["copied"] = "1";
-  setTimeout(() => {
-    if (label) button.textContent = previous;
-    delete button.dataset["copied"];
-  }, COPIED_MS);
+  clearTimeout(copiedResets.get(button));
+  copiedResets.set(
+    button,
+    setTimeout(() => {
+      // A fixed label: a second click would read "Copied" back as the idle one.
+      if (label) button.textContent = "Copy";
+      delete button.dataset["copied"];
+    }, COPIED_MS),
+  );
 }
 
 function setUpCopy(): void {
@@ -182,12 +189,13 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   );
   view.addEventListener(
     "web-pi:saved-after",
-    () => {
+    (event) => {
       if (!follow) {
         if (savedAnchor?.entry.isConnected)
           view.scrollTop +=
             savedAnchor.entry.getBoundingClientRect().top - savedAnchor.top;
-        newMessages = true;
+        if ((event as CustomEvent<{ content: boolean }>).detail.content)
+          newMessages = true;
       } else view.scrollTop = view.scrollHeight;
       savedAnchor = undefined;
       sync();
@@ -231,14 +239,21 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       const appended =
         target instanceof Element &&
         view.contains(target) &&
-        (target.id === "messages" || target.id === "turn");
+        ["messages", "turn", "turn-live"].includes(target.id);
       if (anchor !== null) {
         view.scrollTop = Math.max(0, view.scrollHeight - anchor);
         anchor = null;
       } else if (follow && appended) {
         view.scrollTop = view.scrollHeight;
       }
-      if (target instanceof Element) highlightIn(target);
+      // A morph of #turn-live moves the messages that finished out of it,
+      // into an element of #turn that is not part of the swap's new content.
+      const turn =
+        target instanceof Element && target.id === "turn-live"
+          ? target.closest("#turn")
+          : null;
+      if (turn) highlightIn(turn);
+      else if (target instanceof Element) highlightIn(target);
       for (const element of settledContent(event)) highlightIn(element);
       sync();
     },

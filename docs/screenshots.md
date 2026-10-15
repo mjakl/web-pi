@@ -14,27 +14,17 @@ From a development checkout with dependencies installed:
 just screenshots
 ```
 
-The command refreshes the pinned Pi dependencies and builds the app, then runs
-`scripts/screenshot-fixture.ts`. It binds only `127.0.0.1` on an OS-assigned
-port and prints the release-session URL. Do not use the normal server or
-port 30141. Stop with Ctrl+C; the fixture removes its temporary project. A
-forced kill may leave a `web-pi-screenshots-*` directory in the system temporary
-directory, containing only fictional files.
+The command builds the stylesheet and the client script, then runs
+`scripts/screenshot-fixture.ts` from sources. It needs no network access and
+leaves `package.json` and `pnpm-lock.yaml` alone. It binds only `127.0.0.1` on
+an OS-assigned port and prints the release-session URL. Do not use the normal
+server or port 30142. Stop with Ctrl+C; the fixture removes its temporary
+project. A forced kill may leave a `web-pi-screenshots-*` directory in the
+system temporary directory, containing only fictional files.
 
 On macOS, use `TMPDIR=/private/tmp just screenshots` so the fixture and Git
 agree on the canonical project path. A symlinked temporary directory can hide
 changed files from the explorer's containment filter.
-
-For a documentation capture using the already installed runtime, build only the
-browser assets and start the same fixture directly:
-
-```bash
-just build-css build-js
-TMPDIR=/private/tmp node --import tsx scripts/screenshot-fixture.ts
-```
-
-This was the workflow used for the 6 October 2026 refresh; it does not refresh
-Pi or change the dependency manifest and lockfile.
 
 The README scenarios are `/sessions/release`, `/sessions/navigation`,
 `/sessions/tools`, and `/sessions/light`; `/sessions/review-1` shows nested
@@ -58,8 +48,8 @@ agent-browser snapshot -i
 ```
 
 Set dark appearance through Settings → General. This changes the fixture's
-shared in-memory settings, not your real Pi agent directory. Theme is no longer
-read from localStorage; use the same General controls for scripted captures.
+shared in-memory settings, not your real Pi agent directory. Appearance is a
+server setting, so scripted captures use the same General controls.
 
 Refresh the accessibility snapshot after navigation and lazy row loading, then
 use the current references. Wait for fonts, requested file content, syntax
@@ -104,7 +94,9 @@ Capture these states:
 Use `agent-browser close` when finished and stop the fixture. Do not commit
 browser profiles, cookies, HAR files, or temporary session data. Relative
 timestamps and font rendering can vary by capture date and browser; this is a
-reproducible scenario fixture, not a pixel-comparison test suite.
+reproducible scenario fixture, not a pixel-comparison test suite. Inspect new
+images yourself: the documentation check and `just smoke` only confirm that the
+image links resolve.
 
 ## Settings scroll regression
 
@@ -131,7 +123,7 @@ With the same isolated fixture and local Chromium running, check textarea growth
 and control reachability:
 
 ```bash
-node --import tsx scripts/check-composer-layout.ts http://127.0.0.1:<printed-port>
+just composer-layout http://127.0.0.1:<printed-port>
 ```
 
 The check fills but never submits a draft. In both themes at 390, 640, 641 and
@@ -141,18 +133,3 @@ clipped or covered. At mobile widths it also opens the overflow menu. Captures
 go to `dist/composer-layout/` for visual inspection. This opt-in check replaces
 CSS source-declaration assertions; it is not part of `just qa` or CI and does
 not simulate a physical keyboard or prove layout in other browser engines.
-
-## Verification record
-
-The committed images were visually inspected after capture with local headless
-Chromium **147** on **6 October 2026**. They show the current Hono diff,
-rail/stars, structured subagent result, nested inspection-only conversations,
-multi-skill picker, release commands in light mode, and mobile composer. Desktop
-captures use 1440 × 1000; mobile uses 390 × 844. No public listener or external
-provider was used. These captures do not establish minimum-version Firefox,
-Safari, Edge, or physical-device compatibility.
-
-`just smoke` verifies that the documentation and image links in the installed
-README and docs resolve after packing and consumer installation. It also checks
-both product license notices. Visual content is checked by inspecting the
-images, not by those file-presence assertions.

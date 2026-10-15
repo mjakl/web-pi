@@ -17,7 +17,7 @@ are shared across browsers. Browsing saved history does not start an agent.
 
 [Install and run](#install-and-run) ·
 [Explore the interface](#explore-the-interface) ·
-[Migration and deployment](docs/deployment.md)
+[Run it as a service](docs/deployment.md)
 
 ![The current dark workspace: project-first session cards, a starred answer, Git diff, and follow-up draft](docs/images/file-diff.png)
 
@@ -49,9 +49,8 @@ branch changes the active path; fork a request when you want a separate
 conversation. Fork and rewind restore its text and images for editing. Rewind
 removes later entries.
 
-Stars use `web-pi:star` entries. Old `pi-web:star` metadata is not read, so
-those answers must be starred again. See
-[the clean-cut naming change](docs/deployment.md#clean-cut-naming).
+Answers starred in pi-web are not recognized and must be starred again; see
+[Behavior](docs/behavior.md#sessions-and-conversation).
 
 ![Starred release decisions and the desktop conversation rail](docs/images/session-navigation.png)
 
@@ -127,9 +126,9 @@ _This is browser emulation, not a physical-device test. Read
 - **Keyboard access.** Ctrl/⌘ + 1–0 opens the first ten visible sessions when
   focus is outside a form field. Hold the modifier to reveal the row shortcuts.
   Up/Down in an empty composer recalls that conversation's requests.
-- **Context in view.** Inspect tokens, context, active time and estimated live
-  tokens per second. Set the context-warning threshold, compact when needed, and
-  inspect the system prompt or tool definitions from the session header.
+- **Context in view.** Inspect token counts, context usage and active time. Set
+  the context-warning threshold, compact when needed, and inspect the system
+  prompt or tool definitions from the session header.
 - **Load detail when needed.** Older history pages backwards. Settled tool
   bodies and older reasoning load when opened; large outputs offer a control to
   fetch the rest. Live tool arguments appear while streaming.
@@ -145,39 +144,32 @@ _This is browser emulation, not a physical-device test. Read
 
 Session actions also include activate, stop, rename, export, fork, clone,
 delete, rewind and branch navigation. The [behavior reference](docs/behavior.md)
-describes their boundaries and the remaining gaps.
+describes their boundaries and the known gaps.
 
 web-pi does not manage Git worktrees or branches, configure provider accounts,
 add a separate subagent runtime, or update itself through the browser. Configure
 providers in the Pi terminal. The SDK resolves credentials for live sessions;
 web-pi has no credential-management page.
 
-This repository now contains the Hono implementation. The previous Next.js
-application, its documentation, and its history remain at
+The previous Next.js application, pi-web, with its documentation and history,
+remains at
 [`archive/nextjs-final`](https://github.com/mjakl/web-pi/tree/archive/nextjs-final).
-The import preserves both Git histories, including web-pi's performance work.
-
-This implementation reuses the visual design and applicable behavior of that
-Next.js application, a fork of [agegr/pi-web](https://github.com/agegr/pi-web).
-It is not a promise of complete feature or API parity.
-[Behavior and limitations](docs/behavior.md) describes what is retained and what
-remains unfinished.
+web-pi reuses its visual design and much of its behavior, without promising
+feature or API parity; pi-web itself is a fork of
+[agegr/pi-web](https://github.com/agegr/pi-web).
 
 ## Install and run
 
 Use **Node 24 or newer**. web-pi installs its own Pi runtime; no system `pi` is
 required or changed. Configure provider credentials in the existing Pi agent
 directory before starting real turns. If you use terminal Pi for login, it
-continues to share those credentials. Windows is not currently supported.
+continues to share those credentials. Windows is not currently supported. web-pi
+does not require `pi-server`.
 
-Every `just build` queries the npm registry for Pi's stable `latest` release,
-updates the exact local `pi-coding-agent`, `pi-ai`, `pi-agent-core`, and
-`pi-tui` dependencies and lockfile, then typechecks and bundles web-pi. Builds
-require network access and fail if the required update or typecheck fails. The
-named Pi runtime packages are exempt from pnpm's 24-hour release-age delay;
-other dependencies retain that delay. This follows new stable Pi releases
-immediately, including upstream breaking changes. web-pi does not require
-`pi-server`.
+Every `just build` moves web-pi's Pi to the latest stable release and records
+that version in `package.json` and `pnpm-lock.yaml`, so builds need network
+access and can pick up breaking Pi changes as soon as they are released.
+[ADR 0002](docs/adr/0002-package-owned-pi-runtime.md) records why.
 
 web-pi is not on npm. From a checkout, install the development tools and build a
 tarball:
@@ -192,13 +184,11 @@ npm install -g --ignore-scripts ./web-pi-0.1.0.tgz
 web-pi                         # http://127.0.0.1:30142
 ```
 
-The tarball declares the exact Pi runtime version used for its build. Installing
-it installs that runtime and its dependencies; startup performs no update or
-relink and needs no writable package directory. `web-pi --version` reports the
-installed web-pi and Pi versions. To upgrade Pi, rebuild, validate, and
-reinstall web-pi; upgrading a system Pi does not change web-pi. Documentation
-and screenshots ship inside the tarball so these relative links also work in an
-installed package.
+The tarball installs the Pi version it was built with, and `web-pi --version`
+reports the installed web-pi and Pi versions. To upgrade Pi, rebuild and
+reinstall web-pi as [Upgrade](docs/deployment.md#upgrade) describes; upgrading a
+system Pi does not change web-pi. Documentation and screenshots ship inside the
+tarball so these relative links also work in an installed package.
 
 Use the documented global npm installation or pnpm 12.3.4's default isolated
 checkout/consumer layout. Runtime checks refuse ancestor SDKs, legacy links to
@@ -221,20 +211,15 @@ before starting a rebuilt version against your existing data.
 | `--version`        | show web-pi and Pi versions   |
 
 Environment: `WEB_PI_HOST`, `WEB_PI_PORT`, `WEB_PI_RUNTIME`,
-`WEB_PI_DEFAULT_CWD` (home by default), and `PI_CODING_AGENT_DIR` (defaults to
-Pi's agent directory). Server-side HTTP honors `HTTP_PROXY`, `HTTPS_PROXY`, and
-`NO_PROXY`.
-
-`WEB_PI_NOTIFICATION_GRACE_PERIOD` sets the completion-notification delay in
-whole minutes (default **15**). Values from **0 to 35791** are accepted; **0**
-sends immediately while away. Invalid or empty values fail startup rather than
-removing the delay. This is a server setting, not a browser preference.
+`WEB_PI_DEFAULT_CWD` (home by default), `PI_CODING_AGENT_DIR` (defaults to Pi's
+agent directory), and `WEB_PI_NOTIFICATION_GRACE_PERIOD` (see
+[the grace period](docs/deployment.md#completion-notification-grace-period)).
+Server-side HTTP honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`.
 
 Browser baseline: **Chrome/Edge 125+, Firefox 147+, Safari 26+**. Native
 popovers, CSS anchor positioning, `@starting-style`, `:has()`, and
-`field-sizing` are required, not optional enhancements. These are the declared
-support floors, not a claim that every minimum browser was exercised for this
-change.
+`field-sizing` are required, not optional enhancements. These are declared
+support floors; not every minimum version is tested.
 
 ## Codemode, tool search, and MCP
 
@@ -271,43 +256,31 @@ Set the intended directory and restart to recover. Independent MCP agent
 directories within one process are not supported.
 
 See Pi's
-[Codemode](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/codemode.md)
+[Codemode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/codemode.md)
 and
-[MCP](https://github.com/earendil-works/pi/blob/v1.0.4/packages/coding-agent/docs/mcp.md)
-documentation for configuration and tool exposure. These features do not require
-`pi-server` or change web-pi's session transport.
+[MCP](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md)
+documentation for configuration and tool exposure. Those pages follow Pi's
+`main` branch; the installed Pi SDK ships the pages matching its version in
+`node_modules/@earendil-works/pi-coding-agent/docs/`. These features do not
+require `pi-server` or change web-pi's session transport.
 
 ## Settings and notifications
 
-**Settings → General** holds shared appearance (default **auto**), dumb-zone
-warning threshold (**100000 tokens**), completion sound (**on**), and an
-editable system-prompt addition for the browser interface. Auto follows each
-device's OS appearance. These settings, push state and remembered worktree
-mappings live under `<agentDir>/web-pi/`, separate from Pi's own configuration.
-Existing browser preferences are deliberately reset, not imported.
+**Settings → General** holds the appearance, the context-warning threshold, the
+completion sound and an editable system-prompt addition for the browser
+interface. They are shared by every browser and stored under
+`<agentDir>/web-pi/`, separate from Pi's own configuration.
 
-Subscribe or unsubscribe **this browser** in General. Push requires HTTPS (or
-localhost) and browser push support; iPhone/iPad users must open a Home Screen
-web app, not a normal browser tab. Permission alone does not enroll a browser,
-and nothing subscribes automatically. Notifications cover completed runs in this
-web server, not terminal Pi, and OS delivery is not guaranteed.
+General also subscribes **this browser** to push notifications for completed
+runs. Pushes stay quiet while a web-pi page is visible and focused. While you
+are away, the completions of one grace period arrive as a single notification,
+and nothing more arrives until you return. Push needs HTTPS (or localhost), and
+on iPhone and iPad a Home Screen web app.
 
-Completion pushes stay quiet while any web-pi page is visible and focused on any
-device. While away, the first eligible completion starts a fixed grace period
-(default **15 minutes**). Further completions join one notification without
-extending its deadline. Returning before the deadline cancels all pending
-completions. If you stay away, one notification is sent to each subscribed
-browser, then further completions stay quiet until you return. Pending timers
-are memory-only and are lost on server restart. The page's completion sound
-remains separate. See
-[notification behavior](docs/behavior.md#extensions-and-notifications) for the
-timing and delivery limits.
-
-Before an upgrade or reset, read
-[web-state cutover and reset](docs/deployment.md#web-state-cutover-and-reset).
-Stop affected old web runtimes for the one-time file migration. With the server
-stopped after cutover, deleting only `<agentDir>/web-pi/` resets web state
-without touching Pi data. Browsers then need to confirm enrollment again.
+[Behavior](docs/behavior.md#workspaces-and-configuration) lists the defaults and
+[the notification rules](docs/behavior.md#extensions-and-notifications);
+[Deployment](docs/deployment.md#web-state-cutover-and-reset) covers upgrading
+and resetting this state.
 
 ## Security
 
@@ -320,6 +293,10 @@ Project resources can run local code. Extensions, skills, and other
 trust-requiring project resources stay dormant until you trust the project.
 Trust only repositories you control or have reviewed.
 
+A remote image in a conversation message shows as a "Load image" button naming
+its host, and loads only when you click it: an image URL can carry data a prompt
+injection put there. File previews load remote images as usual.
+
 File-content access goes through the server's allowed-root policy. The folder
 picker can list other readable directory names; selecting a folder grants access
 to it for the server process. This file boundary does not sandbox agent tools.
@@ -331,26 +308,25 @@ the restrictions on concurrent access to one session.
 After the checkout setup above:
 
 ```bash
-just dev              # http://127.0.0.1:30142, sources and asset watchers
+just dev              # http://127.0.0.1:30143, sources and asset watchers
 just qa               # format/fix, lint, typecheck, tests
 just ci               # refresh/build, non-fixing checks, installed-package smoke
 just test-one tests/web
 ```
 
-`just build` writes the bundled server in `dist/` and built assets in `static/`.
-Tests run against sources; `just smoke` packs the build, installs it into a
-throwaway consumer without system Pi, and serves a fictional session from the
-installed bin. Tests and `just dev` use the installed local dependencies without
-refreshing them; `just update-pi` refreshes Pi without building. A normal build
-may change `package.json` and `pnpm-lock.yaml`; commit both together after
-checks pass.
+`just build` refreshes Pi, then writes the bundled server in `dist/` and built
+assets in `static/`; commit a changed `package.json` and `pnpm-lock.yaml`
+together after checks pass. Tests run against sources; `just smoke` packs the
+build, installs it into a throwaway consumer without system Pi, and serves a
+fictional session from the installed bin.
 
 Contributor guidance lives in `AGENTS.md` in the checkout, with `CLAUDE.md` as
-its symlink. See [Architecture](docs/architecture.md) for ownership and
+its symlink. See [Architecture](docs/architecture.md) for the design and
 [Screenshots](docs/screenshots.md) for the capture fixture.
 
 ## License
 
 [MIT](LICENSE), copyright Michael Jakl. Copied pi-web CSS, code, and adapted
 supporting material retain [pi-web's MIT notice](LICENSE.pi-web), copyright
-agegr.
+agegr. Bundled fzf retains its
+[BSD 3-Clause notice](docs/third-party-notices.md#fzf-052).

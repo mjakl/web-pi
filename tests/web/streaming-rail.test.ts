@@ -1,12 +1,7 @@
 import { assistantEntry, userEntry } from "@adapters/fake/index";
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { streamingFixture } from "#/web/fixtures/streaming";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
 
 async function open(f: Awaited<ReturnType<typeof streamingFixture>>) {
   const subscribers = f.subscribers;
@@ -17,7 +12,6 @@ async function open(f: Awaited<ReturnType<typeof streamingFixture>>) {
         ? new Response("")
         : f.app.request(request),
   );
-  browsers.push(browser);
   await expect.poll(() => f.subscribers).toBe(subscribers + 1);
   return browser;
 }
@@ -124,12 +118,15 @@ it("activates a new branch and enables hover expansion while its response is sti
   ).not.toBeNull();
   expect(
     document
-      .querySelector('[data-rail-entry-id="u2"]')
+      .querySelector('[data-minimap-entry-id="u2"]')
       ?.getAttribute("data-branch"),
   ).toBe("true");
   expect(
     document.querySelector("#rail")?.getAttribute("data-graph-width"),
   ).toBe("72");
+  expect(
+    document.querySelector("#rail")?.getAttribute("data-strip-width"),
+  ).toBe("36");
   column.dispatchEvent(new window.PointerEvent("pointerenter"));
   await expect.poll(() => column.classList.contains("is-expanded")).toBe(true);
   column.dispatchEvent(new window.PointerEvent("pointerleave"));

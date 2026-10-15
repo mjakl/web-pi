@@ -1,3 +1,4 @@
+import { sameModel, type ModelIdentity } from "./model-settings.ts";
 import type { ModelOption, ThinkingLevel } from "./ports.ts";
 
 // Which model a new session starts on, and which of those choices are written
@@ -22,13 +23,10 @@ export function isThinkingLevel(value: string): value is ThinkingLevel {
 /** The configured default when it is still in scope, else the first model. */
 export function initialModel(
   models: readonly ModelOption[],
-  preferred?: { provider: string; id: string },
+  preferred?: ModelIdentity,
 ): ModelOption | undefined {
   const match = preferred
-    ? models.find(
-        (model) =>
-          model.provider === preferred.provider && model.id === preferred.id,
-      )
+    ? models.find((model) => sameModel(model, preferred))
     : undefined;
   return match ?? models[0];
 }
@@ -41,7 +39,7 @@ export function initialThinking(
 }
 
 export type StartupChoice = {
-  model?: { provider: string; modelId: string };
+  model?: ModelIdentity;
   thinkingLevel?: ThinkingLevel;
 };
 
@@ -57,21 +55,18 @@ export type StartupChoice = {
 export function startupWrites(
   explicit: StartupChoice,
   effective: {
-    model: { provider: string; modelId: string };
+    model: ModelIdentity;
     thinkingLevel: ThinkingLevel;
     supportsThinking: boolean;
   },
 ): StartupChoice {
-  const wanted = explicit.model;
-  const sameModel =
-    wanted !== undefined &&
-    wanted.provider === effective.model.provider &&
-    wanted.modelId === effective.model.modelId;
+  const keepModel =
+    explicit.model !== undefined && sameModel(explicit.model, effective.model);
   const keepLevel =
     explicit.thinkingLevel !== undefined &&
     (effective.supportsThinking || effective.thinkingLevel !== "off");
   return {
-    ...(sameModel ? { model: effective.model } : {}),
+    ...(keepModel ? { model: effective.model } : {}),
     ...(keepLevel ? { thinkingLevel: effective.thinkingLevel } : {}),
   };
 }

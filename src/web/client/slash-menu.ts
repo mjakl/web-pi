@@ -66,7 +66,7 @@ export function setUpSlashMenu(
     fetch(endpoints.commands(query), {
       signal: controller.signal,
     })
-      .then((response) => response.text())
+      .then((response) => (response.ok ? response.text() : ""))
       .then((html) => {
         if (
           signal?.aborted ||
@@ -77,10 +77,14 @@ export function setUpSlashMenu(
           ) !== query
         )
           return;
-        menu.render(html);
+        // An error page or an empty answer is not a menu, and the one still
+        // open answered an earlier query.
+        if (html.trim() === "") menu.close();
+        else menu.render(html);
       })
       .catch(() => {
-        // A slow or failed lookup just leaves the menu as it was.
+        // A lookup a newer one replaced leaves the menu to that one.
+        if (!signal?.aborted && !controller.signal.aborted) menu.close();
       });
   };
 

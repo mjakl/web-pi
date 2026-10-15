@@ -5,6 +5,7 @@ import {
   encodeSkillPrompt,
   recallSkillPrompts,
   skillCommand,
+  skillSelections,
 } from "@core/skill-prompt";
 import { editableUserMessage, userMessageText } from "@core/session-entries";
 import { describe, expect, it } from "vitest";
@@ -17,6 +18,29 @@ const legacy =
 function queued(text: string) {
   return { text, behavior: "steer" as const };
 }
+
+describe("skill selections", () => {
+  it("reads a list of identities, from a value or its JSON, without repeats", () => {
+    expect(skillSelections([first, second, first])).toEqual([first, second]);
+    expect(skillSelections(JSON.stringify([second]))).toEqual([second]);
+    expect(skillSelections([{ ...first, extra: true }])).toEqual([first]);
+    expect(skillSelections([])).toEqual([]);
+  });
+
+  it("refuses the whole list when any part of it is not an identity", () => {
+    for (const value of [
+      null,
+      "{not json",
+      { id: "x", name: "x" },
+      [first, null],
+      [first, { id: 1, name: "one" }],
+      [{ id: "", name: "empty" }],
+      [{ id: "x", name: "" }],
+    ]) {
+      expect(skillSelections(value)).toBeUndefined();
+    }
+  });
+});
 
 describe("skill prompt provenance", () => {
   it.each([
@@ -220,6 +244,59 @@ describe("skill prompt provenance", () => {
       }
     },
   );
+
+  it("puts the reader's draft after the queued text and unions its selections", () => {
+    const queue = [
+      queued(encodeSkillPrompt("queued", [first], "PRIVATE")),
+      queued(
+        `Prefix\n${encodeSkillPrompt("/skill:second later", [first], "PRIVATE")}`,
+      ),
+    ];
+    expect(
+      recallSkillPrompts(queue, [first, second], {
+        text: "  typed\n",
+        skills: [second, first],
+      }),
+    ).toEqual({
+      text: "queued\n\n/skill:second later\n\n  typed\n",
+      // The reader's selection covers the inline command: nothing is lost.
+      skills: [first, second],
+      images: [],
+    });
+    expect(
+      recallSkillPrompts([queued("queued")], [], { text: " \n", skills: [] }),
+    ).toEqual({ text: "queued", images: [] });
+    expect(
+      recallSkillPrompts([{ ...queued(""), images: [] }], [], {
+        text: "typed",
+      }).text,
+    ).toBe("typed");
+  });
+
+  it("warns about a command the reader typed that queued text now precedes", () => {
+    const typed = { text: "/skill:second plan it" };
+    expect(
+      recallSkillPrompts([queued("queued text")], [first, second], typed),
+    ).toEqual({
+      text: "queued text\n\n/skill:second plan it",
+      images: [],
+      warning: expect.stringContaining(
+        "/skill:second will not invoke",
+      ) as string,
+    });
+    // Selected in Skills, it still reaches the resend.
+    expect(
+      recallSkillPrompts([queued("queued text")], [first, second], {
+        ...typed,
+        skills: [second],
+      }).warning,
+    ).toBeUndefined();
+    // With no queued text before it, it still starts the request.
+    expect(
+      recallSkillPrompts([{ ...queued(""), images: [] }], [second], typed)
+        .warning,
+    ).toBeUndefined();
+  });
 
   it("does not infer an invocation from a plain unexpanded command or inline prose", () => {
     expect(

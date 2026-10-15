@@ -1,43 +1,23 @@
+import { baseName } from "@core/file-types";
+import type { ProjectEntry } from "@core/sessions";
 import { shortPath } from "@core/workspaces";
-import type { FolderChoice } from "@core/workspace";
-import { ParentFolderIcon, PickerFolderIcon } from "./icons.tsx";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ParentFolderIcon,
+  PickerFolderIcon,
+  ProjectFolderIcon,
+  SmallPlusIcon,
+  SpinnerIcon,
+} from "./icons.tsx";
 import { ConfigButton } from "./ConfigControls.tsx";
 
-// "Custom path…" in the workspace menu: pi-web's DirectoryPicker
-// (components/DirectoryPicker.tsx §3.7). One modal dialog that lists
-// directory names, walks into them, and commits the folder it is standing in.
-// Validating that folder is what grants access to it.
-
-/** The worktrees of one project, probed on demand (§ the allowed-root flow). */
-export function FolderList({
-  choice,
-  home,
-}: {
-  choice: FolderChoice;
-  home?: string;
-}) {
-  if (choice.worktrees.length === 0) {
-    return <p role="status">No working folders available</p>;
-  }
-  return (
-    <ul>
-      {choice.worktrees.map((tree) => (
-        <li>
-          <span
-            {...(tree.path === choice.current
-              ? { "aria-current": "true" }
-              : {})}
-          >
-            {`${tree.path.split("/").filter(Boolean).at(-1) ?? tree.path}${
-              tree.branch === null ? "" : ` · ${tree.branch}`
-            }`}
-          </span>
-          <p>{shortPath(tree.path, home)}</p>
-        </li>
-      ))}
-    </ul>
-  );
-}
+// Choosing the working folder of a new session, on the blank composer: the
+// folder picker, a menu of the store's projects and their folders
+// (components/ProjectFolderGroup.tsx), and the "Custom path…" dialog it
+// opens, pi-web's DirectoryPicker (components/DirectoryPicker.tsx). The dialog
+// lists directory names, walks into them, and commits the folder it is
+// standing in. Validating that folder is what grants access to it.
 
 const PANEL = "#directory-picker-panel";
 
@@ -97,7 +77,7 @@ export function BrowsePane({
         >
           <ParentFolderIcon />
         </button>
-        <label for="directory-path" class="directory-picker-label">
+        <label for="directory-path" class="sr-only">
           Directory path
         </label>
         <input
@@ -183,5 +163,243 @@ export function DirectoryPicker(props: {
     >
       <BrowsePane {...props} />
     </dialog>
+  );
+}
+
+/** How many projects it takes before the selector needs a filter box. */
+const FILTER_FROM = 8;
+
+/**
+ * The workspace pill and the menu it anchors: a native popover positioned by
+ * CSS anchor positioning. The list is fetched when the popover opens — a real
+ * store holds hundreds of projects.
+ */
+export function ProjectSelect({ cwd, home }: { cwd: string; home?: string }) {
+  const folder = cwd;
+  const chosen = folder !== "";
+  return (
+    <div id="project-picker" class="sidebar-project-picker">
+      <button
+        type="button"
+        id="project-select"
+        class={`sidebar-project-select anchor-sidebar-project${chosen ? " is-chosen" : ""}`}
+        popovertarget="sidebar-project-menu"
+        aria-label="Working directory for new session"
+        data-cwd={folder}
+        title={folder}
+      >
+        {chosen ? (
+          <PathLabel text={shortPath(folder, home)} />
+        ) : (
+          <span class="sidebar-project-placeholder">Select project…</span>
+        )}
+        <ChevronDownIcon />
+      </button>
+      <div
+        id="sidebar-project-menu"
+        class="anchored-menu menu-surface opens-down menu-sidebar-project"
+        popover="auto"
+        hx-get="/sidebar/projects"
+        hx-trigger="toggle once"
+        hx-swap="innerHTML"
+      >
+        <div class="sidebar-project-message" role="status">
+          Loading...
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * pi-web's PathLabel: right-to-left text so a long path keeps its tail and
+ * loses its head to the ellipsis.
+ */
+function PathLabel({ text }: { text: string }) {
+  return (
+    <span class="sidebar-project-path">
+      <span>{text}</span>
+    </span>
+  );
+}
+
+/** The menu's contents: every project, with a filter box once there are many. */
+export function ProjectPicker({
+  projects,
+  cwd,
+  home,
+}: {
+  projects: ProjectEntry[];
+  cwd?: string;
+  home?: string;
+}) {
+  return (
+    <>
+      {projects.length > FILTER_FROM ? (
+        <div class="menu-filter-row">
+          {/* No autofocus: pi-web renders this field with the sidebar, long
+              before the popover opens, so React's autoFocus never fires and
+              the box opens unfocused, with no ring and no caret. */}
+          <input
+            id="project-filter"
+            class="menu-filter"
+            placeholder="Filter projects…"
+            aria-label="Filter projects"
+          />
+        </div>
+      ) : null}
+      <div class="sidebar-project-list">
+        {projects.map((project) => (
+          <ProjectFolderGroup
+            project={project}
+            selected={project.folders.some((folder) => folder.path === cwd)}
+            cwd={cwd}
+            home={home}
+          />
+        ))}
+        <div id="project-empty" class="sidebar-project-message" hidden>
+          No matching projects
+        </div>
+      </div>
+      <button
+        type="button"
+        class="menu-item"
+        hx-get="/workspaces/picker"
+        hx-target="#dialogs"
+        hx-swap="innerHTML"
+      >
+        <SmallPlusIcon />
+        <span>Custom path…</span>
+      </button>
+    </>
+  );
+}
+
+/** Running counts when the directory menu is opened. */
+function ProjectActivity({ running }: { running: number }) {
+  return (
+    <span class="project-activity" hidden={running === 0}>
+      {running > 0 ? (
+        <span
+          class="project-running"
+          title="Agent running…"
+          aria-label={`Agent running… (${String(running)})`}
+        >
+          <SpinnerIcon size={10} />
+          {String(running)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** One project row, and the working folders under it when there are several. */
+function ProjectFolderGroup({
+  project,
+  selected,
+  cwd,
+  home,
+}: {
+  project: ProjectEntry;
+  selected: boolean;
+  cwd?: string;
+  home?: string;
+}) {
+  const only = project.folders.length === 1 ? project.folders[0] : undefined;
+  const chosen = selected ? cwd : undefined;
+  return (
+    <div class="project-folder-group" data-project-key={project.key}>
+      {only === undefined ? (
+        <details open={selected}>
+          <summary class="menu-item project-folder-row">
+            <ChevronRightIcon />
+            <FolderLabel
+              name={baseName(project.key)}
+              path={project.key}
+              home={home}
+            />
+            <ProjectActivity running={project.running} />
+          </summary>
+          {project.folders.map((folder) => (
+            <ProjectFolderRow
+              path={folder.path}
+              name={baseName(folder.path)}
+              current={folder.path === chosen}
+              child
+              home={home}
+            />
+          ))}
+        </details>
+      ) : (
+        <ProjectFolderRow
+          path={only.path}
+          name={baseName(project.key)}
+          current={only.path === chosen}
+          activity={<ProjectActivity running={project.running} />}
+          home={home}
+        />
+      )}
+    </div>
+  );
+}
+
+function FolderLabel({
+  name,
+  path,
+  home,
+}: {
+  name: string;
+  path: string;
+  home?: string;
+}) {
+  return (
+    <span class="project-folder-label">
+      <span>{name}</span>
+      {/* pi-web's ProjectFolderGroup shortens only paths *under* home
+          (`startsWith(homeDir + "/")`), so the home folder itself keeps its
+          full spelling here where the workspace pill would write "~". */}
+      <span class="project-folder-path">
+        {path === home ? path : shortPath(path, home)}
+      </span>
+    </span>
+  );
+}
+
+function ProjectFolderRow({
+  path,
+  name,
+  current,
+  child,
+  activity,
+  home,
+}: {
+  path: string;
+  name: string;
+  current: boolean;
+  child?: boolean;
+  activity?: unknown;
+  home?: string;
+}) {
+  const query = new URLSearchParams({ cwd: path });
+  return (
+    <button
+      type="button"
+      class={
+        child === true
+          ? "menu-item project-folder-row project-folder-child"
+          : "menu-item project-folder-row"
+      }
+      aria-current={current ? "true" : undefined}
+      title={path}
+      hx-get={`/new?${query.toString()}`}
+      hx-target="#session-region"
+      hx-swap="outerHTML"
+      hx-push-url="true"
+    >
+      <ProjectFolderIcon />
+      <FolderLabel name={name} path={path} home={home} />
+      {activity}
+      {current ? <span aria-hidden="true">✓</span> : null}
+    </button>
   );
 }

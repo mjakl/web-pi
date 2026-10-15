@@ -72,6 +72,34 @@ describe("the disable-model-invocation toggle", () => {
     );
   });
 
+  describe("behind a byte-order mark, which Pi skips", () => {
+    const BOM = "\uFEFF";
+
+    it("inserts the key after the fence and keeps the mark first", () => {
+      const source = `${BOM}---\r\nname: x\r\ndescription: d\r\n---\r\nBody\r\n`;
+      expect(hasDisableModelInvocation(source)).toBe(false);
+      expect(setDisableModelInvocation(source, true)).toBe(
+        `${BOM}---\r\n${KEY}: true\r\nname: x\r\ndescription: d\r\n---\r\nBody\r\n`,
+      );
+    });
+
+    it("rewrites and removes the key, keeping the mark", () => {
+      const source = `${BOM}---\nname: x\n${KEY}: false\n---\nBody\n`;
+      expect(hasDisableModelInvocation(source)).toBe(true);
+      const disabled = setDisableModelInvocation(source, true);
+      expect(disabled).toBe(`${BOM}---\nname: x\n${KEY}: true\n---\nBody\n`);
+      expect(setDisableModelInvocation(disabled, false)).toBe(
+        `${BOM}---\nname: x\n---\nBody\n`,
+      );
+    });
+
+    it("writes a fresh block after the mark", () => {
+      expect(setDisableModelInvocation(`${BOM}Just prose\n`, true)).toBe(
+        `${BOM}---\n${KEY}: true\n---\nJust prose\n`,
+      );
+    });
+  });
+
   it("refuses to switch a flow-mapping skill to Manual", () => {
     const source = `---\n{ name: testing, description: how we test, "${KEY}": false }\n---\nBody\n`;
     expect(() => setDisableModelInvocation(source, true)).toThrow(

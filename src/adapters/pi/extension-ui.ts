@@ -131,8 +131,6 @@ export type ExtensionUiSink = {
   changed(): void;
 };
 
-export type ExtensionUi = ReturnType<typeof createExtensionUi>;
-
 /**
  * Extension UI without a terminal. Dialogs become pending requests the browser
  * answers; a custom UI is a pi-tui component rendered to text frames and fed

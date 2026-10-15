@@ -109,20 +109,25 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  /** An empty query puts the tree back; that is what closing search means. */
+  /**
+   * An empty query puts the explorer back, as the changes toggle left it:
+   * that is what closing search means.
+   */
   app.get("/files/search", async (c) => {
     const scope = scopeParameter(c);
     const query = (c.req.query("q") ?? "").slice(0, 500).trim();
     try {
       if (query === "") {
-        const found = await deps.workspace.fileTree(scope);
+        const found = await deps.workspace.fileTree(scope, {
+          changes: c.req.query("changes") === "1",
+        });
         if (!found) return await c.notFound();
         return await c.html(
           <Explorer
             context={treeContext(scope, found)}
             status={found.status}
             entries={found.entries}
-            changes={false}
+            changes={found.changes}
           />,
         );
       }
@@ -161,23 +166,6 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  app.get("/files/meta", async (c) => {
-    const sessionId = sessionParameter(c);
-    try {
-      const meta = await deps.workspace.fileMeta(
-        sessionId,
-        c.req.query("path") ?? "",
-      );
-      c.header("Cache-Control", "no-store");
-      return c.json(meta);
-    } catch (error) {
-      if (error instanceof FileAccessError) {
-        return c.json({ error: error.message }, error.status);
-      }
-      return c.json({ error: "Cannot read that file" }, 500);
-    }
-  });
-
   const RANGE = /^bytes=(\d*)-(\d*)$/;
 
   app.get("/files/raw", async (c) => {
@@ -186,10 +174,8 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
     const download = c.req.query("download") === "1";
     try {
       const header = c.req.header("Range");
-      // One call only: every `fileBytes` opens a stream, and a second one
-      // would leak the file descriptor of the first.
-      const meta = await deps.workspace.fileMeta(sessionId, path);
-      const { size } = meta;
+      const file = await deps.workspace.fileBytes(sessionId, path);
+      const { size } = file;
       const mime = download ? "application/octet-stream" : mimeOf(path);
       const headers: Record<string, string> = {
         "Content-Type": mime,
@@ -204,8 +190,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
           "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
       }
       if (header === undefined) {
-        const { stream } = await deps.workspace.fileBytes(sessionId, path);
-        return c.body(stream, 200, {
+        return c.body(file.open(), 200, {
           ...headers,
           "Content-Length": String(size),
         });
@@ -237,11 +222,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
       }
       end = Math.min(end, size - 1);
       if (start > end || start >= size) return unsatisfiable();
-      const { stream } = await deps.workspace.fileBytes(sessionId, path, {
-        start,
-        end,
-      });
-      return c.body(stream, 206, {
+      return c.body(file.open({ start, end }), 206, {
         ...headers,
         "Content-Range": `bytes ${String(start)}-${String(end)}/${String(size)}`,
         "Content-Length": String(end - start + 1),
@@ -252,10 +233,21 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
   });
 
   /** One stream per open tab: the viewer re-reads whenever the file moves. */
-  app.get("/files/watch", (c) => {
-    const sessionId = sessionParameter(c);
+  app.get("/files/watch", async (c) => {
     const path = c.req.query("path") ?? "";
+    let start: Awaited<ReturnType<typeof deps.workspace.watchFile>>;
+    try {
+      // Refused before the stream opens: EventSource reconnects to a stream
+      // that ends, but never retries an error status.
+      start = await deps.workspace.watchFile(sessionParameter(c), path);
+    } catch (error) {
+      return fileFailure(c, error);
+    }
     return streamSSE(c, async (stream) => {
+      const ended = Promise.withResolvers<undefined>();
+      stream.onAbort(() => {
+        ended.resolve(undefined);
+      });
       let queue: Promise<void> = Promise.resolve();
       const send = (event: string, data: string) => {
         queue = queue
@@ -266,45 +258,25 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
             // A closed stream ends the watch; the abort handler cleans up.
           });
       };
-      const fail = (message: string) => {
-        queue = queue
-          .then(async () => {
-            await stream.writeSSE({
-              event: "error",
-              data: JSON.stringify({ message }),
-            });
-            await stream.close();
-          })
-          .catch(() => {
-            // Already closed.
-          });
-        return queue;
-      };
-      let stop: (() => void) | undefined;
-      try {
-        stop = await deps.workspace.watchFile(sessionId, path, {
-          change(info) {
-            send("change", JSON.stringify(info));
-          },
-          error() {
-            void fail("Failed to watch file");
-          },
-        });
-      } catch (error) {
-        await fail(
-          error instanceof FileAccessError
-            ? error.message
-            : "Failed to watch file",
-        );
-        return;
-      }
-      send("connected", JSON.stringify({ path }));
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => {
-          resolve();
-        });
+      let failed = false;
+      const stop = start({
+        change(info) {
+          send("change", JSON.stringify(info));
+        },
+        // Not `error`: EventSource fires that itself while it reconnects.
+        error() {
+          failed = true;
+          send(
+            "watch-error",
+            JSON.stringify({ message: "Failed to watch file" }),
+          );
+          ended.resolve(undefined);
+        },
       });
+      if (!failed) send("connected", JSON.stringify({ path }));
+      await ended.promise;
       stop();
+      await queue;
     });
   });
 }

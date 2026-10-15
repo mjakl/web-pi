@@ -1,4 +1,5 @@
 import { imageLimitError, MAX_IMAGES } from "@core/composer";
+import { draftChanged, onDraftChange, openDraft } from "./drafts.ts";
 import { showToast } from "./toasts.ts";
 import {
   ATTACHMENT_REMOVE_ICON,
@@ -33,12 +34,12 @@ async function downscale(file: File): Promise<File> {
       context.fillStyle = "#fff";
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-      const base64 = url.slice(url.indexOf(",") + 1);
+      const jpeg = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY);
+      });
       // Only worth it when the result really is smaller than the original.
-      if (base64.length >= Math.ceil(file.size / 3) * 4) return file;
-      const bytes = Uint8Array.from(atob(base64), (c) => c.codePointAt(0) ?? 0);
-      return new File([bytes], `${file.name}.jpg`, { type: "image/jpeg" });
+      if (!jpeg || jpeg.size >= file.size) return file;
+      return new File([jpeg], `${file.name}.jpg`, { type: "image/jpeg" });
     } finally {
       bitmap.close();
     }
@@ -55,58 +56,31 @@ export type Attachments = {
   submitted(): () => void;
 };
 
-type ImageDraft = {
-  files: File[];
-  pending: number;
-  generation: number;
-  changed: Set<() => void>;
-};
-const imageDrafts = new Map<string, ImageDraft>();
-
+/** The draft's images: in this page's memory, so navigation keeps them. */
 export function setUpImages(
   changed: () => void,
   owner: ParentNode = document,
   signal?: AbortSignal,
-  storageKey?: string,
+  key?: string,
   restored = false,
 ): Attachments {
-  let key = storageKey;
   const input = owner.querySelector<HTMLInputElement>("#image-input");
   const previews = owner.querySelector<HTMLElement>("#image-previews");
-  const draft = (key === undefined ? undefined : imageDrafts.get(key)) ?? {
-    files: [],
-    pending: 0,
-    generation: 0,
-    changed: new Set<() => void>(),
-  };
-  if (key !== undefined) imageDrafts.set(key, draft);
+  const draft = openDraft(key);
   if (restored) {
-    draft.files.length = 0;
+    draft.images.length = 0;
     draft.pending = 0;
     draft.generation += 1;
   }
-  document.body.addEventListener(
-    "web-pi:session-created",
-    (event) => {
-      const detail = (event as CustomEvent<{ cwd?: string; id?: string }>)
-        .detail;
-      if (!detail?.id || key !== `new:${detail.cwd ?? ""}`) return;
-      imageDrafts.delete(key);
-      key = detail.id;
-      imageDrafts.set(key, draft);
-    },
-    { signal },
-  );
-  const attached = draft.files;
+  const attached = draft.images;
   let initializing = true;
-  draft.changed.add(paint);
+  onDraftChange(draft, "images", paint, signal);
   const notify = () => {
-    for (const paint of draft.changed) paint();
+    draftChanged(draft, "images");
   };
   signal?.addEventListener(
     "abort",
     () => {
-      draft.changed.delete(paint);
       for (const image of previews?.querySelectorAll("img") ?? [])
         URL.revokeObjectURL(image.src);
     },
@@ -133,8 +107,8 @@ export function setUpImages(
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "composer-image-remove";
-      // views/icons.tsx #49, drawn here because the strip is built in the
-      // browser: the files never reach the server before they are sent.
+      // icons.tsx #49 as markup: the strip is built in the browser, because
+      // the files never reach the server before they are sent.
       remove.innerHTML = ATTACHMENT_REMOVE_ICON;
       remove.setAttribute("aria-label", "Remove image");
       // By identity, never by the index this closure was built with: a
@@ -163,10 +137,12 @@ export function setUpImages(
     if (signal?.aborted) return;
     const generation = draft.generation;
     const room = MAX_IMAGES - attached.length - draft.pending;
-    const accepted = files
-      .filter((file) => file.type.startsWith("image/"))
-      .slice(0, Math.max(room, 0));
-    if (accepted.length < files.length) {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    const accepted = images.slice(0, Math.max(room, 0));
+    if (images.length < files.length) {
+      showToast("Only images can be attached.", "warning");
+    }
+    if (accepted.length < images.length) {
       showToast(`At most ${String(MAX_IMAGES)} images per message.`, "warning");
     }
     if (accepted.length === 0) return;
@@ -248,8 +224,17 @@ export function setUpImages(
       }
     }
     target.replaceChildren();
-    if (recalled.length > 0) {
-      attached.push(...recalled);
+    // They join what is attached already, up to the same limit.
+    const room = Math.max(MAX_IMAGES - attached.length - draft.pending, 0);
+    const left = recalled.length - room;
+    if (left > 0) {
+      showToast(
+        `At most ${String(MAX_IMAGES)} images per message: ${String(left)} recalled image${left === 1 ? " was" : "s were"} not attached.`,
+        "warning",
+      );
+    }
+    if (room > 0 && recalled.length > 0) {
+      attached.push(...recalled.slice(0, room));
       notify();
     }
   };
@@ -316,13 +301,10 @@ function openPreview(trigger: HTMLElement, source: string): void {
   close.className = "image-preview-close";
   close.title = "Close";
   close.setAttribute("aria-label", "Close");
-  // views/icons.tsx #49 at 16px, drawn here because the dialog is built in
-  // the browser.
+  // icons.tsx #57 as markup, because the dialog is built in the browser.
   close.innerHTML = IMAGE_PREVIEW_CLOSE_ICON;
   dialog.append(image, close);
   document.body.append(dialog);
-  const overflow = document.body.style.overflow;
-  document.body.style.overflow = "hidden";
   trigger.setAttribute("aria-expanded", "true");
   const dismiss = () => {
     if (dialog.open) dialog.close();
@@ -346,7 +328,6 @@ function openPreview(trigger: HTMLElement, source: string): void {
     dismiss();
   });
   dialog.addEventListener("close", () => {
-    document.body.style.overflow = overflow;
     dialog.remove();
     trigger.setAttribute("aria-expanded", "false");
     if (trigger.isConnected) trigger.focus({ preventScroll: true });

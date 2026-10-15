@@ -93,6 +93,43 @@ describe("leading skill completion", () => {
     expect(byId("slash-menu").hidden).toBe(true);
   });
 
+  it.each([
+    ["an error page", () => text("Internal Server Error", 500)],
+    ["an empty answer", () => text("")],
+  ])("keeps the menu closed for %s", async (_, answer) => {
+    const { menu, fetch } = await setup();
+    fetch.mockImplementation(() => Promise.resolve(answer()));
+    draft("/skill:fi");
+    await open(menu);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(byId("slash-menu").hidden).toBe(true);
+    expect(byId("slash-menu").textContent).toBe("");
+  });
+
+  it.each([
+    [
+      "an error page",
+      () => Promise.resolve(text("Internal Server Error", 500)),
+    ],
+    ["an empty answer", () => Promise.resolve(text(""))],
+    [
+      "a failed request",
+      () => Promise.reject(new TypeError("Failed to fetch")),
+    ],
+  ])("closes an open menu for %s to the next query", async (_, answer) => {
+    const { menu, fetch } = await setup();
+    draft("/skill:fi");
+    await open(menu);
+    expect(byId("slash-menu").hidden).toBe(false);
+    fetch.mockImplementation(answer);
+    draft("/skill:fix");
+    await open(menu);
+    expect(byId("slash-menu").hidden).toBe(true);
+    // Enter no longer completes the earlier query's command.
+    expect(menu.handleKey(keydown(area(), "Enter"), true)).toBe(false);
+    expect(area().value).toBe("/skill:fix");
+  });
+
   it("drops a lookup when the caret moves into request text before its reply", async () => {
     let reply: ((value: Response) => void) | undefined;
     const { menu, fetch } = await setup();

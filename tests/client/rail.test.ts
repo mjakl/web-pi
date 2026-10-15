@@ -16,14 +16,16 @@ import {
 
 const TARGET = 0.3;
 
-async function load(options: { branched?: boolean; loaded?: string[] } = {}) {
+async function load(
+  options: { branched?: boolean; loaded?: string[]; strip?: number } = {},
+) {
   const entries = (options.loaded ?? ["a", "b"])
     .map((id) => `<div id="entry-${id}"></div>`)
     .join("");
   mount(
     `<div class="chat-window"><div id="log"><div id="content">${entries}</div>
       <div class="chat-load-earlier" hx-get="/sessions/s1/earlier?before=x"></div></div>
-      <div id="rail-column"><div id="rail" data-branched="${String(options.branched === true)}" data-graph-width="120">
+      <div id="rail-column"><div id="rail" data-branched="${String(options.branched === true)}" data-strip-width="${String(options.strip ?? 36)}" data-graph-width="120">
         <div class="minimap-row" data-minimap-entry-id="a" data-preview="Hello there"></div>
         <div class="minimap-row" data-minimap-entry-id="b" data-preview="Second"></div>
         <div class="minimap-row" data-minimap-entry-id="c" data-preview=""></div>
@@ -222,6 +224,14 @@ describe("the branch graph", () => {
       new FocusEvent("focusout", { bubbles: true, relatedTarget: null }),
     );
     expect(rail.classList.contains("is-expanded")).toBe(false);
+  });
+
+  it("takes the strip's width from the server", async () => {
+    await load({ branched: true, strip: 90 });
+    pointer("pointermove", { clientX: 80, clientY: 14 });
+    expect(row("a").classList.contains("is-near")).toBe(true);
+    pointer("pointermove", { clientX: 100, clientY: 14 });
+    expect(document.querySelector(".is-near")).toBeNull();
   });
 
   it("leaves an unbranched rail at its strip width", async () => {

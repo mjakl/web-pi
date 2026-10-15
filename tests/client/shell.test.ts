@@ -9,7 +9,6 @@ import {
   mockFetch,
   mount,
   query,
-  setRect,
   text,
 } from "./helpers.ts";
 
@@ -28,7 +27,7 @@ const SIDEBAR =
   '<div class="sidebar-resize-handle" tabindex="0"></div></aside>' +
   '<button type="button" id="sidebar-toggle" aria-expanded="false">' +
   "<span data-sidebar-open-icon hidden></span><span data-sidebar-closed-icon></span></button>" +
-  '<div class="sidebar-overlay-backdrop sidebar-mobile-pending"></div>';
+  '<div class="sidebar-overlay-backdrop"></div>';
 
 describe("the title", () => {
   it("names the opened folder, then the product", async () => {
@@ -139,39 +138,35 @@ describe("the sidebar width", () => {
 });
 
 describe("the top bar", () => {
+  // Opening one panel at a time, the outside click and Escape are the
+  // browser's: the panels are popovers. What is left is what they answered.
   const PANELS =
-    '<div id="top-bar"><button type="button" data-top-panel="system" aria-pressed="false"></button>' +
-    '<button type="button" data-top-panel="tools" aria-pressed="false"></button></div>' +
-    '<div id="top-panel" hidden></div><div id="elsewhere"></div>';
+    '<div id="top-bar"><button type="button" popovertarget="system-panel"></button>' +
+    '<button type="button" popovertarget="tools-panel" data-panel-loaded></button></div>' +
+    '<div id="system-panel" class="shell-top-panel" popover="auto"></div>' +
+    '<div id="tools-panel" class="shell-top-panel" popover="auto"></div>';
 
-  it("opens one panel at a time, under the bar, and closes it every way pi-web does", async () => {
+  it("tints a tab from what its panel answered and empties a panel as it closes", async () => {
     await load(PANELS);
-    setRect(byId("top-bar"), { bottom: 48, left: 260, width: 700 });
-    const system = query('[data-top-panel="system"]');
-    const tools = query('[data-top-panel="tools"]');
-    const host = byId("top-panel");
-    click(system);
-    expect(host.hidden).toBe(false);
-    expect(host.style.top).toBe("48px");
-    expect(host.style.left).toBe("260px");
-    expect(host.style.width).toBe("700px");
-    expect(system.getAttribute("aria-pressed")).toBe("true");
-    click(tools);
-    expect(system.getAttribute("aria-pressed")).toBe("false");
-    expect(tools.getAttribute("aria-pressed")).toBe("true");
-    host.innerHTML = '<div class="tool-definitions-item"></div>';
-    htmxEvent(host, "htmx:after:settle");
-    expect(tools.hasAttribute("data-panel-loaded")).toBe(true);
-    const again = click(tools);
-    expect(again.defaultPrevented).toBe(true);
-    expect(host.hidden).toBe(true);
-    expect(host.childElementCount).toBe(0);
-    click(system);
-    click(byId("elsewhere"));
-    expect(host.hidden).toBe(true);
-    click(system);
-    keydown(document.body, "Escape");
-    expect(host.hidden).toBe(true);
+    const system = byId("system-panel");
+    system.showPopover();
+    system.innerHTML =
+      '<section class="system-prompt-panel"><div class="system-prompt-text">Be concise.</div></section>';
+    htmxEvent(system, "htmx:after:settle");
+    expect(
+      query('[popovertarget="system-panel"]').hasAttribute("data-panel-loaded"),
+    ).toBe(true);
+    const tools = byId("tools-panel");
+    tools.showPopover();
+    tools.innerHTML =
+      '<div class="tool-definitions-panel"><div class="tool-definitions-empty">No active tools</div></div>';
+    htmxEvent(tools, "htmx:after:settle");
+    expect(
+      query('[popovertarget="tools-panel"]').hasAttribute("data-panel-loaded"),
+    ).toBe(false);
+    system.hidePopover();
+    expect(system.childElementCount).toBe(0);
+    expect(tools.childElementCount).toBe(1);
   });
 
   it("slides the phone toolbar's tabs in from the more button", async () => {
@@ -196,13 +191,31 @@ describe("shortcuts", () => {
   const LIST =
     '<main data-session-id="s1"></main><div id="session-list">' +
     '<a href="/sessions/s1">1</a><a href="/sessions/s2">2</a></div>' +
-    '<textarea id="composer-text"></textarea>';
+    '<form id="composer" data-session-id="s1"><textarea id="composer-text"></textarea></form>';
+  const PANELS =
+    '<div id="stats-panel" class="shell-top-panel" popover="auto"></div>' +
+    '<div id="row-menu" popover="auto"></div>';
 
-  it("opens a new session on Ctrl+K", async () => {
-    await load(LIST);
+  it("opens a new session on Ctrl+K through the sidebar's link", async () => {
+    await load(`${LIST}<a href="/new" data-session-link></a>`);
+    const clicked = vi.fn((event: Event) => {
+      event.preventDefault();
+    });
+    query("a[data-session-link]").addEventListener("click", clicked);
     expect(
       keydown(document.body, "k", { ctrlKey: true }).defaultPrevented,
     ).toBe(true);
+    expect(clicked).toHaveBeenCalledOnce();
+    expect(location.pathname).toBe("/");
+    // A dialog over the page keeps the shortcut from reaching under it.
+    document.body.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
+    keydown(document.body, "k", { metaKey: true });
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
+  it("loads the new-session page on Ctrl+K when there is no link", async () => {
+    await load(LIST);
+    keydown(document.body, "k", { ctrlKey: true });
     expect(location.pathname).toBe("/new");
   });
 
@@ -218,6 +231,36 @@ describe("shortcuts", () => {
     document.body.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
     keydown(document.body, "Escape");
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("leaves Escape in an editable region to that region", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load(`${LIST}<div id="editable" contenteditable="true"></div>`);
+    keydown(byId("editable"), "Escape");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes an open top panel or popover first, and only then aborts", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load(LIST + PANELS);
+    // The browser closes a popover after the key's listeners have run.
+    for (const id of ["stats-panel", "row-menu"]) {
+      byId(id).showPopover();
+      keydown(document.body, "Escape");
+      expect(fetch).not.toHaveBeenCalled();
+      byId(id).hidePopover();
+    }
+    keydown(document.body, "Escape");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/sessions/s1/abort", {
+      method: "POST",
+    });
+  });
+
+  it("sends nothing from a page without a composer", async () => {
+    const fetch = mockFetch(() => text(""));
+    await load('<main data-session-id="s1"></main>');
+    keydown(document.body, "Escape");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -243,25 +286,6 @@ describe("settings helpers", () => {
     expect(query("[data-session-copy]").classList.contains("is-copied")).toBe(
       false,
     );
-  });
-
-  it("switches a scope picker and the install path beside it", async () => {
-    await load(
-      "<form><div><div data-scope-picker>" +
-        '<button type="button" data-scope="global" aria-pressed="true">Global</button>' +
-        '<button type="button" data-scope="project" aria-pressed="false">Project</button></div>' +
-        '<input data-scope-value value="global"></div>' +
-        '<code data-scope-path data-scope-path-global="~/.pi" data-scope-path-project="./.pi">~/.pi</code></form>',
-    );
-    click(query('[data-scope="project"]'));
-    expect(query('[data-scope="project"]').getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-    expect(query('[data-scope="global"]').getAttribute("aria-pressed")).toBe(
-      "false",
-    );
-    expect(field("[data-scope-value]").value).toBe("project");
-    expect(query("[data-scope-path]").textContent).toBe("./.pi");
   });
 
   it("fills the plugin source from an example", async () => {

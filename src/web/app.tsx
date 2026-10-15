@@ -1,19 +1,18 @@
+import { COOKIE_MAX_AGE, CWD_COOKIE, SESSION_COOKIE } from "@core/cookies";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
+import { isSessionId, isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
-import { honoFactory } from "@web/hono";
 import { HtmlLayout } from "@web/HtmlLayout";
 import { composerRoutes } from "@web/routes/composer";
 import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
-  CWD_COOKIE,
+  displayedCwd,
   errorText,
   type RouteContext,
-  SESSION_COOKIE,
   toastHeader,
   type WebDeps,
-  YEAR,
 } from "@web/routes/shared";
 import { shellRoutes } from "@web/routes/shell";
 import { sidebarRoutes } from "@web/routes/sidebar";
@@ -21,7 +20,7 @@ import { transcriptRoutes } from "@web/routes/transcript";
 import { SessionPage } from "@web/views/SessionPage";
 import { SessionRow } from "@web/views/Sidebar";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Context } from "hono";
+import { type Context, Hono } from "hono";
 import { jsxRenderer } from "hono/jsx-renderer";
 import { getCookie, setCookie } from "hono/cookie";
 
@@ -33,7 +32,7 @@ export type { WebDeps };
  * modules can be worked on at once without touching each other.
  */
 export function createWebApp(deps: WebDeps) {
-  const app = honoFactory.createApp();
+  const app = new Hono({ strict: false });
   const renderIntervalMs = deps.renderIntervalMs ?? 100;
   const assets = staticAssets(deps.staticRoot);
 
@@ -45,7 +44,7 @@ export function createWebApp(deps: WebDeps) {
     setCookie(c, name, value, {
       path: "/",
       sameSite: "Lax",
-      maxAge: YEAR,
+      maxAge: COOKIE_MAX_AGE,
     });
   }
 
@@ -56,7 +55,7 @@ export function createWebApp(deps: WebDeps) {
 
   /** Contextual controls follow the displayed conversation, not its preference. */
   async function currentCwd(c: Context): Promise<string> {
-    const explicit = c.req.query("cwd") ?? c.req.header("X-Web-Pi-Cwd");
+    const explicit = c.req.query("cwd") ?? displayedCwd(c);
     if (explicit !== undefined) return explicit;
     const id = currentSessionId(c);
     return (
@@ -64,9 +63,19 @@ export function createWebApp(deps: WebDeps) {
     );
   }
 
-  function warnTokens(): { warnTokens: number } {
-    return { warnTokens: deps.workspace.webSettings().warnTokens };
-  }
+  /**
+   * A session page with the trust status its top bar shows. Every render of
+   * one comes through here: a page drawn without it loses the Restricted
+   * mode badge until the next full load. A delegated session has none.
+   */
+  const sessionPage: RouteContext["sessionPage"] = async (view, props) => {
+    const trust = isSubagentSession(view.summary)
+      ? undefined
+      : await deps.workspace
+          .trustStatus(view.summary.cwd)
+          .catch(() => undefined);
+    return <SessionPage {...props} view={view} trust={trust} />;
+  };
 
   /** The whole session page, swapped into <body> after a history change. */
   async function page(
@@ -78,7 +87,7 @@ export function createWebApp(deps: WebDeps) {
   ): Promise<Response> {
     const [sidebar, view] = await Promise.all([
       sidebarOf(id),
-      deps.workspace.viewSession(id, warnTokens()),
+      deps.workspace.viewSession(id),
     ]);
     if (!view) return c.notFound();
     if (!c.req.header("HX-Request")) {
@@ -86,14 +95,7 @@ export function createWebApp(deps: WebDeps) {
     }
     c.header("HX-Push-Url", `/sessions/${id}`);
     return c.render(
-      <SessionPage
-        sidebar={sidebar}
-        view={view}
-        draft={draft}
-        images={images}
-        skills={skills}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-      />,
+      await sessionPage(view, { sidebar, draft, images, skills }),
     );
   }
 
@@ -101,18 +103,8 @@ export function createWebApp(deps: WebDeps) {
     const found = await deps.workspace.row(id);
     if (!found) return c.notFound();
     // The open session's row keeps its selected background through a swap.
-    // The page says which that is when its own URL cannot: settings opens
-    // over a session without becoming one.
-    const activeId =
-      c.req.header("X-Web-Pi-Session") === undefined
-        ? (c.req.query("active") ?? currentSessionId(c))
-        : currentSessionId(c);
-    return c.html(
-      <SessionRow
-        {...found}
-        {...(activeId === undefined ? {} : { activeId })}
-      />,
-    );
+    const activeId = currentSessionId(c);
+    return c.html(<SessionRow {...found} activeId={activeId} />);
   }
 
   /** Reports the failure as a toast instead of breaking the page. */
@@ -129,11 +121,6 @@ export function createWebApp(deps: WebDeps) {
     }
   }
 
-  app.use("*", (c, next) => {
-    c.set("workspace", deps.workspace);
-    c.set("assets", assets);
-    return next();
-  });
   // Built assets carry their content hash in ?v=, so the browser may keep
   // them for good; the rest (fonts, icons, versioned vendor files) for a day.
   app.use("/static/*", async (c, next) => {
@@ -154,7 +141,33 @@ export function createWebApp(deps: WebDeps) {
       rewriteRequestPath: (p) => p.replace(/^\/static/, ""),
     }),
   );
-  app.use("*", jsxRenderer(HtmlLayout));
+  app.use(
+    "*",
+    jsxRenderer(({ children }, c) =>
+      c.req.header("HX-Request") === "true" ? (
+        <>{children}</>
+      ) : (
+        <HtmlLayout assets={assets} settings={deps.workspace.webSettings()}>
+          {children}
+        </HtmlLayout>
+      ),
+    ),
+  );
+  // These URLs serve both documents and HTMX fragments. Neither representation
+  // may be stored and reused for the other kind of request.
+  for (const path of ["/", "/new", "/sessions/:id", "/settings"]) {
+    app.get(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
+  // An id Pi could not have written names no session, so nothing under it
+  // exists; the pattern covers the session page itself as well.
+  app.use("/sessions/:id/*", async (c, next) => {
+    if (!isSessionId(c.req.param("id"))) return c.notFound();
+    await next();
+    return c.res;
+  });
 
   const context: RouteContext = {
     deps,
@@ -164,7 +177,7 @@ export function createWebApp(deps: WebDeps) {
     remember,
     newCwd,
     currentCwd,
-    warnTokens,
+    sessionPage,
     page,
     row,
     guard,

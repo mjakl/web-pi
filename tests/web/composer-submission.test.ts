@@ -6,20 +6,11 @@ import type {
   HTMLInputElement,
   HTMLSelectElement,
 } from "happy-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing expected test value");
-  return value;
-}
-
 type Browser = Awaited<ReturnType<typeof htmxBrowser>>;
-const browsers: Browser[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function fixture() {
   const world = createFakeWorld({
@@ -71,14 +62,12 @@ async function openComposer(
   const html = await (
     await app.request(fresh ? "/new" : "/sessions/s1")
   ).text();
-  const browser = await htmxBrowser(html, async (request) => {
+  return htmxBrowser(html, async (request) => {
     const response = await app.request(request);
     if (loseResponse && request.method === "POST")
       throw new Error("Connection lost after dispatch");
     return response;
   });
-  browsers.push(browser);
-  return browser;
 }
 
 const area = (browser: Browser) =>
@@ -161,12 +150,14 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
       });
       expect(area(browser).value).toBe(text);
       expect(notices(browser)).toMatch(/folder|Prompt rejected|Usage/);
-      await pause(350);
-      expect(
-        browser.window.localStorage.getItem(
-          `web-pi:draft:${fresh ? "new:/repo" : "s1"}`,
-        ),
-      ).toBe(text);
+      // The debounced draft save is the page's last delayed work.
+      await expect
+        .poll(() =>
+          browser.window.localStorage.getItem(
+            `web-pi:draft:${fresh ? "new:/repo" : "s1"}`,
+          ),
+        )
+        .toBe(text);
       if (image) await expectImage(image);
       expect(posts(browser)).toHaveLength(1);
     },
@@ -185,7 +176,10 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
     expect(notices(browser)).toContain(
       "Check the conversation before sending again",
     );
-    await pause(350);
+    // The debounced draft save is the page's last delayed work.
+    await expect
+      .poll(() => browser.window.localStorage.getItem("web-pi:draft:s1"))
+      .toBe("possibly accepted");
     expect(posts(browser)).toHaveLength(1);
   });
 
@@ -206,8 +200,8 @@ describe("composer acceptance through shipped HTMX and real routes", () => {
       }),
     );
     pending.resolve(undefined);
+    // A queued repeat would be issued as the first request ends, before this.
     await done;
-    await pause(30);
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(posts(browser)).toHaveLength(1);
   });
@@ -337,11 +331,20 @@ describe("explicit startup choices from the rendered form", () => {
       const body = await required(posts(browser)[0]).formData();
       expect(body.get("model")).toBe(modelChosen ? `fake/${modelId}` : "");
       expect(body.get("thinking")).toBe(thinkingChosen ? "medium" : "");
-      expect(openSpy).toHaveBeenCalledExactlyOnceWith({
-        cwd: "/repo",
-        ...(modelChosen ? { model: { provider: "fake", modelId } } : {}),
-        ...(thinkingChosen ? { thinkingLevel: "medium" } : {}),
-      });
+      // One creation carries the choice; the prompt then opens that session
+      // by id, which hands back the runtime just created.
+      expect(openSpy.mock.calls).toEqual([
+        [
+          {
+            cwd: "/repo",
+            ...(modelChosen
+              ? { model: { provider: "fake", id: modelId } }
+              : {}),
+            ...(thinkingChosen ? { thinkingLevel: "medium" } : {}),
+          },
+        ],
+        [{ sessionId: "new-1" }],
+      ]);
     },
   );
 });
@@ -373,9 +376,12 @@ describe("new and existing dispatch", () => {
           fresh ? "/sessions" : "/sessions/s1/prompt",
           { method: "POST", headers: { "HX-Request": "true" }, body },
         );
-        expect(openSpy).toHaveBeenCalledTimes(
-          kind === "name" && !fresh ? 0 : 1,
-        );
+        // A new session is created once; every command but a rename then
+        // opens the session it runs in by id.
+        expect(openSpy.mock.calls).toEqual([
+          ...(fresh ? [[{ cwd: "/repo" }]] : []),
+          ...(kind === "name" ? [] : [[{ sessionId: fresh ? "new-1" : "s1" }]]),
+        ]);
         expect(prompt).toHaveBeenCalledTimes(kind === "prompt" ? 1 : 0);
         expect(bash).toHaveBeenCalledTimes(kind.includes("bash") ? 1 : 0);
         if (kind.includes("bash"))

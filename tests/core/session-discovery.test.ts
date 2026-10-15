@@ -312,6 +312,21 @@ describe("priority interval root discovery", () => {
     ]);
     expect(short.visits).toHaveLength(71);
   });
+  it("places delegated sessions met mid-scan where a full tree would", async () => {
+    // Each root's subagents ran after it, so the scan meets a child first and
+    // it pulls its parent in; later siblings join a parent already placed.
+    const files = Array.from({ length: 120 }, (_, r) => {
+      const base = 10_000 + r * 10;
+      const id = `family-${String(r).padStart(3, "0")}`;
+      return [
+        file(id, base),
+        ...[1, 2, 3].map((c) => file(`${id}-${String(c)}`, base + c, id)),
+      ];
+    }).flat();
+    expect((await check(files)).visits).toHaveLength(202);
+    expect((await check(files, { offset: 50 })).visits).toHaveLength(402);
+  });
+
   it("matches complete trees across dense and sparse activity, ties, cycles and later pages", async () => {
     let seed = 0x1a7e2a1;
     const random = (n: number) => {

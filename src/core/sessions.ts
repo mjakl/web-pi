@@ -1,3 +1,5 @@
+import { preview } from "./transcript.ts";
+
 export type SessionSummary = {
   id: string;
   cwd: string;
@@ -34,6 +36,7 @@ export type SessionSummary = {
 /** What a sidebar row shows once its file has been read. */
 export type SessionRowMetadata = {
   name?: string;
+  /** The first request, cut to what a title shows. */
   firstMessage: string;
   messageCount: number;
   starCount: number;
@@ -62,15 +65,6 @@ export function projectKeyOf(session: SessionSummary): string {
 /** Persisted delegation ownership, plus legacy tool-call transcript IDs. */
 export function isSubagentSession(summary: SessionSummary): boolean {
   return summary.inspectionOnly === true || summary.id.startsWith("subagent.");
-}
-
-/** Sidebar order: working sessions first, then live ones, then by age. */
-export function compareSessions(a: SessionSummary, b: SessionSummary): number {
-  const rank = (session: SessionSummary) =>
-    session.running ? 0 : session.live ? 1 : 2;
-  return (
-    rank(a) - rank(b) || b.modifiedAt.localeCompare(a.modifiedAt) //
-  );
 }
 
 /** One entry per project, newest first; the selector lists these. */
@@ -106,6 +100,9 @@ export function recentProjects(
   );
 }
 
+/** How much of the first request a row keeps for its title. */
+export const TITLE_CHARS = 300;
+
 /** Row title: the name, else a bounded preview of the first message, else the id. */
 export function sessionTitle(
   summary: SessionSummary,
@@ -113,8 +110,8 @@ export function sessionTitle(
 ): string {
   const name = (metadata?.name ?? summary.name ?? "").trim();
   if (name) return name;
-  const first = (metadata?.firstMessage ?? "").replaceAll(/\s+/g, " ").trim();
-  if (first) return first.slice(0, 300);
+  const first = preview(metadata?.firstMessage ?? "", TITLE_CHARS);
+  if (first) return first;
   return summary.id.slice(0, 12);
 }
 
@@ -149,4 +146,33 @@ export function isSessionId(value: unknown): value is string {
   return (
     typeof value === "string" && value.length <= 128 && SESSION_ID.test(value)
   );
+}
+
+/**
+ * How long anything waits for a session's runtime to stop. The `exec` Pi
+ * gives extensions allows a cancelled command 5 seconds between SIGTERM and
+ * SIGKILL; twice that leaves room for the abort and the last writes.
+ */
+const STOP_WAIT_MS = 10_000;
+
+/**
+ * Whether a runtime's stop settles, either way, in that time. A stop can hang
+ * on an extension's session_shutdown or a tool that ignores the abort, and
+ * whoever waits for it then gives up instead of hanging with it.
+ */
+export async function stopsInTime(stop: Promise<unknown>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      stop.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(resolve, STOP_WAIT_MS, false);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

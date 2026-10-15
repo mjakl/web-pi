@@ -1,16 +1,15 @@
-# Behavior and remaining work
+# Behavior and known gaps
 
-This is the retained behavior reference for web-pi. It replaces the six
-historical Next.js porting extracts and the completed phase plan. Current source
-and tests are authoritative; this document does not promise full pi-web parity.
+How web-pi behaves for the person using it, its limits, and the gaps it
+knowingly leaves. Where this document and the code disagree, the code and its
+tests are authoritative.
 
 ## Sessions and conversation
 
-Pi session JSONL and the live runtime own the conversation. The server projects
-settled history and a non-overlapping live tail into the same views for pages,
-HTMX responses, and SSE updates. History pages backwards, while the desktop rail
-covers all prompts and starred answers. Stars use `web-pi:star` custom entries;
-old `pi-web:star` entries are not recognized or migrated.
+History loads page by page as you scroll back, while the desktop rail covers all
+prompts and starred answers from the start. Stars use `web-pi:star` custom
+entries; old `pi-web:star` entries are not recognized or migrated, so answers
+starred in pi-web must be starred again.
 
 Open persisted conversations managed outside web-pi, including inspection-only
 subagents, check for saved updates every two seconds while the page is visible.
@@ -35,31 +34,44 @@ rewrite, then reactivates the session without sending the recalled request. Rail
 branch selection changes the session's active leaf and can return a prompt for
 editing; it is not read-only historical browsing.
 
-Tool cards load their settled bodies on first opening, initially limited to **16
-KiB text and 200 diff rows**, with a control to fetch the rest. Older thinking
-blocks are also deferred. Subagent calls have result, original-prompt,
-run-details, and raw-output disclosures when their structured result is
-recognized. Tool arguments are visible while streaming. Assistant headers show
-the model without live token estimates or tokens per second. Completed usage,
-session totals, cost reporting, and context accounting remain available.
+Tool cards load their settled bodies on first opening. Arguments and output show
+their first **16,384 characters** and diffs their first **200 rows**, with a
+control to fetch the rest. Older thinking blocks are also deferred. Subagent
+calls have result, original-prompt, run-details, and raw-output disclosures when
+their structured result is recognized. Tool arguments are visible while
+streaming. Assistant headers show the model, and a finished message its token
+usage; there are no live token counts or tokens-per-second figures. The session
+info panel shows the session's token totals, context usage and active time.
 
-The SSE delivery/recovery contract and context-accounting thresholds live in
-[Architecture](architecture.md). Do not introduce a second browser conversation
-model or a second context formula.
+The context readout becomes critical at **75%** of the model's context window.
+Below that it warns once the context reaches General's token threshold; no
+percentage alone warns. After a compaction, until a new answer reports usage,
+the readout shows an estimate marked with `~`.
 
 ## Composer
 
 - Slash completion combines built-ins, extension commands, prompt templates, and
   skills. Commands that require idle state are refused while running.
 - `@` supports indexed project files, directory-by-directory path completion,
-  quoted paths, and line-range references.
+  quoted paths, and line-range references. Names are ranked with fzf's
+  algorithm, so an abbreviation can span folder and file names (`@rtcomp` finds
+  `src/web/routes/composer.tsx`). The browser filters the first **5,000** paths
+  itself and asks the server, which searches the whole listing (up to
+  **200,000** Git paths or **50,000** walked files), when a folder has more.
 - Attach up to **10 images, 10 MiB each**. Image drafts survive in-app
   navigation in memory, not a reload. Text drafts persist per session or
   new-session folder.
 - A successful submit clears only the originating draft revision and submitted
   attachments, not edits made while the response was pending.
 - During a run, sending steers by default; Alt selects a queued follow-up. Queue
-  recall restores text and images. Input history is scoped to the composer.
+  recall puts the queued text before the draft, separated by a blank line, adds
+  its skills to the selection and its images to the attachments up to the limit;
+  a queue that was already sent leaves the composer as it is. Input history is
+  scoped to the composer.
+- `/copy` copies the latest completed answer on the active branch: its text
+  blocks joined as written, skipping an empty aborted message. A streaming
+  answer does not count, and an answer with no text has nothing to copy. If the
+  lookup or the clipboard write fails, the command stays in the composer.
 - `!command` runs a shell command whose output enters context; `!!command`
   records it with `excludeFromContext`. Both use the project-command boundary in
   [ADR 0001](adr/0001-project-command-environment.md).
@@ -74,6 +86,10 @@ audio and PDF, offers downloads and line references, and displays Git status and
 per-file diffs. Tabs and panel preferences belong to the browser; file changes
 use a server watcher. Settled turns refresh the tree and changes.
 
+HTML files open in a rendered preview that is static: a sandboxed frame shows
+their HTML and CSS but runs no scripts and submits no forms. Vue components open
+as source.
+
 Every file request uses `authorize` in `src/core/workspace/deps.ts`: lexical
 containment before filesystem access, followed by realpath containment against
 resolved roots. Roots include the session/project and validated folders; lookup
@@ -82,6 +98,13 @@ reading a named file outside those roots, never listing its directory. A
 shell-output capture also needs a permitted `pi-bash-*.log` path and a persisted
 shell entry that references it. Directory-name browsing in the folder picker is
 separate from file-content authorization.
+
+`@` path completion is a deliberate exception: it lists names, never contents,
+without `authorize`. It reads the directory a path-like query names (`@./`,
+`@../`, `@~/`, `@/`) and keeps the entries whose paths lie lexically inside the
+session's or picked folder. Symlinks are not resolved, so a symlink inside the
+folder lists the names in the directory it points to, even outside every allowed
+root. Opening any of those files still goes through `authorize`.
 
 ## Workspaces and configuration
 
@@ -96,12 +119,27 @@ provider configuration and resource discovery. Skill toggles change only
 `disable-model-invocation` frontmatter. Re-enabling a disabled package loses its
 per-resource filters, matching Pi's representation.
 
-General holds shared appearance, dumb-zone threshold and completion sound, with
-defaults **auto**, **100000 tokens**, and **on**. Auto follows the current
-device's OS appearance. Saves apply across browsers; a returning page refreshes
-on focus/visibility, and live context renders use the current server threshold.
-Legacy browser preferences are ignored, not imported. Drafts, navigation and
-browser notification permission remain device-local. See
+Settings → Models chooses the models the model menu cycles through, for the
+browser and terminal Pi alike: it edits Pi's global `enabledModels`. It lists
+every model with credentials, extension-provided ones included; having
+credentials does not prove the provider accepts them. An absent or empty list
+means all models, including future ones. Saving an unchanged selection writes
+nothing, a save needs at least one model selected, and **Use all models** writes
+an empty list. Patterns that match nothing stay listed as unavailable and
+survive edits. Trusted project overrides are shown but never written, and a save
+never switches a running or stored conversation to another model.
+
+General holds shared appearance, dumb-zone threshold, completion sound and
+system-prompt addition, with defaults **auto**, **100000 tokens**, **on** and
+the built-in note on how the interface renders Markdown. Auto follows the
+current device's OS appearance. The system-prompt addition replaces only that
+note: an empty text removes it, and **Reset to default** brings it back. New
+sessions, and stopped sessions when they start again, use the saved text; a
+running session keeps the text it started with, also through `/reload`, and
+saving interrupts nothing. Saves apply across browsers; a returning page
+refreshes on focus/visibility, and live context renders use the current server
+threshold. Legacy browser preferences are ignored, not imported. Drafts,
+navigation and browser notification permission remain device-local. See
 [Deployment](deployment.md#web-state-cutover-and-reset) before upgrading or
 resetting web-owned storage.
 
@@ -136,10 +174,9 @@ page is both visible and focused, on any device, in any session or Settings,
 even without push enrollment. While any page is foreground, this server
 suppresses system pushes to every subscription. After all pages leave, the first
 eligible completion starts a fixed grace-period timer measured from that
-completion, not from departure. `WEB_PI_NOTIFICATION_GRACE_PERIOD` sets whole
-minutes, default **15**; **0** restores immediate delivery while away. Accepted
-values are **0 to 35791**; empty, fractional, negative, nonnumeric and larger
-values fail startup.
+completion, not from departure. The server's operator sets its length, and zero
+means immediate delivery; see
+[Deployment](deployment.md#completion-notification-grace-period).
 
 Additional completions during the grace period coalesce without extending the
 deadline. A single completion keeps its session title and link; multiple
@@ -188,13 +225,13 @@ notification. Extension input requests retain their browser dialog and tone. The
 generated service worker caches static assets and the offline page, not session
 history or commands.
 
-## Unfinished work retained from the port
+## Known gaps
 
-These are known gaps, not work authorized by the documentation migration:
+Listing a gap here does not authorize work on it.
 
-- Git worktree discovery in the picker UI. The fresh-discovery route exists, but
-  the picker lists folders from known sessions. Use Custom path… for a worktree
-  that has no session yet; see [Worktrees](worktrees.md).
+- Git worktree discovery in the picker UI. The picker lists folders from known
+  sessions only; use Custom path… for a worktree that has no session yet. See
+  [Worktrees](worktrees.md).
 - ANSI rendering in ordinary tool cards. Output is currently preformatted text.
 - Read-only historical branch selection. Current rail navigation changes the
   active leaf and offers an editable prompt.
@@ -204,12 +241,6 @@ These are known gaps, not work authorized by the documentation migration:
   minutes** idle or immediately on an explicit stop; there is no general
   live-session cap.
 
-The old plan's queue-image recall, phone-keyboard handling, streaming tool
-arguments, and subagent run details are implemented and are not outstanding
-migration requirements. Live token count and tokens-per-second displays are
-deliberately omitted.
-
-Deliberate limitations remain in [Architecture](architecture.md): attachment
-drafts do not survive reloads, UI strings are English without a locale layer,
-and terminal-only extension APIs are stubbed. No Next.js runtime, old PWA,
-translation layer, or historical porting script is needed here.
+Some limits are deliberate: image attachments do not survive a reload, the
+interface is in English only, and extension APIs that need a terminal are
+stubbed, as [Architecture](architecture.md#extensions) describes.

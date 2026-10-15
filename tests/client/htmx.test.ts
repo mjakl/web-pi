@@ -39,6 +39,15 @@ describe("HTMX request field selection", () => {
     ]);
   });
 
+  it("retains every field the control names", async () => {
+    const { body } = await configure("prompt thinking");
+    expect([...body.entries()]).toEqual([
+      ["prompt", "draft"],
+      ["thinking", "high"],
+      ["mode", "followUp"],
+    ]);
+  });
+
   it("leaves unmarked submissions, repeated uploads and submitter values untouched", async () => {
     const { body } = await configure();
     expect(body.get("prompt")).toBe("draft");

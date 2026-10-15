@@ -63,12 +63,11 @@ export function Compaction({
           <CompactIcon />
           <span
             class="compaction-token-count"
-            {...(item.tokensAfter === undefined
-              ? {}
-              : {
-                  title:
-                    "Context usage after compaction is estimated, including retained messages.",
-                })}
+            title={
+              item.tokensAfter === undefined
+                ? undefined
+                : "Context usage after compaction is estimated, including retained messages."
+            }
           >
             {tokens}
           </span>

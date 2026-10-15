@@ -1,5 +1,6 @@
 import { createFakeWorld } from "@adapters/fake/index";
-import type { RuntimeEvent } from "@core/ports";
+import { createPiProjectTrust } from "@adapters/pi/project-trust";
+import type { LiveSession, RuntimeEvent } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { STAR_TYPE } from "@core/session-entries";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
@@ -9,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  branchMessages,
   CONTEXT_WINDOW,
   createHarness,
   gate,
@@ -224,7 +226,7 @@ describe("opening", () => {
     );
     const session = await h.open({
       cwd: h.cwd,
-      model: { provider: PROVIDER, modelId: MODEL_2 },
+      model: { provider: PROVIDER, id: MODEL_2 },
       thinkingLevel: "high",
     });
     expect(session.snapshot().status.model?.id).toBe(MODEL_2);
@@ -241,7 +243,7 @@ describe("opening", () => {
     // Clamped to off on a model that cannot reason: nothing written back.
     const plain = await h.open({
       cwd: h.cwd,
-      model: { provider: PROVIDER, modelId: MODEL_ID },
+      model: { provider: PROVIDER, id: MODEL_ID },
       thinkingLevel: "high",
     });
     expect(plain.snapshot().status.thinkingLevel).toBe("off");
@@ -253,6 +255,158 @@ describe("opening", () => {
       defaultThinkingLevel: "high",
     });
     expect(announced).toHaveLength(1);
+  });
+
+  it("starts on the picked model when Pi cannot save it as the default", async () => {
+    h = await createHarness();
+    await writeFile(join(h.agentDir, "settings.json"), "{");
+    const session = await h.open({
+      cwd: h.cwd,
+      model: { provider: PROVIDER, id: MODEL_2 },
+    });
+    expect(session.snapshot().status.model?.id).toBe(MODEL_2);
+    expect(session.snapshot().status.notices).toEqual([
+      {
+        level: "warning",
+        message: expect.stringContaining(
+          "Could not save this choice as Pi's default: global settings:",
+        ) as string,
+      },
+    ]);
+  });
+
+  it("saves the picked model as the default beside a damaged project settings file", async () => {
+    h = await createHarness();
+    await mkdir(join(h.cwd, ".pi"), { recursive: true });
+    await writeFile(join(h.cwd, ".pi", "settings.json"), "{");
+    await createPiProjectTrust({ agentDir: h.agentDir }).trust(h.cwd);
+    const session = await h.open({
+      cwd: h.cwd,
+      model: { provider: PROVIDER, id: MODEL_2 },
+    });
+    expect(session.snapshot().status.notices).toEqual([]);
+    const settings: unknown = JSON.parse(
+      await readFile(join(h.agentDir, "settings.json"), "utf8"),
+    );
+    expect(settings).toMatchObject({ defaultModel: MODEL_2 });
+  });
+
+  it("reopens a stopping session only after its stop has finished writing", async () => {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", async () => {
+            await shutdown.wait;
+            pi.appendEntry("last-word", {});
+          });
+        },
+      ],
+    });
+    const first = await h.open();
+    h.script(reply("answer"));
+    let done = next(first, "turn_done");
+    await first.prompt("question");
+    await done;
+    const stopping = first.stop();
+    let reopening: Promise<LiveSession>;
+    try {
+      expect(h.runtime.get(first.id)).toBeUndefined();
+      reopening = h.open({ sessionId: first.id });
+    } finally {
+      shutdown.open();
+    }
+    const second = await reopening;
+    await stopping;
+    expect(second).not.toBe(first);
+    expect(
+      second
+        .snapshot()
+        .entries.some(
+          (entry) =>
+            entry.type === "custom" && entry.customType === "last-word",
+        ),
+    ).toBe(true);
+    h.script(reply("again"));
+    done = next(second, "turn_done");
+    await second.prompt("after reopening");
+    await done;
+  });
+
+  it.each([
+    ["no file", undefined],
+    ["an empty file", ""],
+  ])(
+    "refuses to reopen an unsaved stopping session with %s instead of creating another in the server folder",
+    async (_case, saved) => {
+      const shutdown = gate();
+      h = await createHarness({
+        extensions: [
+          (pi) => {
+            pi.on("session_shutdown", (event) =>
+              event.reason === "quit" ? shutdown.wait : Promise.resolve(),
+            );
+          },
+        ],
+      });
+      const first = await h.open();
+      await first.reload();
+      const file = (await h.catalog.pathOf(first.id)) ?? "";
+      expect(file).not.toBe("");
+      expect(existsSync(file)).toBe(false);
+      expect(first.snapshot().summary.cwd).toBe(h.cwd);
+      // A first write cut short can leave an empty file behind.
+      if (saved !== undefined) {
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, saved);
+      }
+      const stopping = first.stop();
+      const reopening = h.open({ sessionId: first.id }).then(
+        (session) =>
+          `Opened ${session.id} in ${session.snapshot().summary.cwd}`,
+        (error: unknown) => String(error),
+      );
+      shutdown.open();
+      await stopping;
+      expect(await reopening).toBe(
+        `Error: Cannot reopen session ${first.id}: no saved transcript.`,
+      );
+      expect(h.runtime.live()).toEqual([]);
+      // What was there stays as it was.
+      expect(existsSync(file) ? await readFile(file, "utf8") : undefined).toBe(
+        saved,
+      );
+      expect(h.calls).toHaveLength(0);
+    },
+  );
+
+  it("gives up reopening a session whose stop does not finish", async () => {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", () => shutdown.wait);
+        },
+      ],
+    });
+    const first = await h.open();
+    h.script(reply("answer"));
+    const done = next(first, "turn_done");
+    await first.prompt("question");
+    await done;
+    const stopping = first.stop();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const reopening = expect(h.open({ sessionId: first.id })).rejects.toThrow(
+        "Cannot reopen a session that is still stopping.",
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      await reopening;
+    } finally {
+      vi.useRealTimers();
+      shutdown.open();
+      await stopping;
+    }
   });
 
   it("resumes a persisted session and coalesces concurrent opens", async () => {
@@ -378,6 +532,65 @@ describe("session commands", () => {
     expect(session.snapshot().turnStart).toBe(session.snapshot().branch.length);
   });
 
+  it("runs !cmd in the shell a reload picked up, as the agent's bash does", async () => {
+    // Shells that do not exist: nothing is spawned, and the error names the
+    // shell Pi looked for.
+    const settings = (shellPath: string) => ({
+      defaultProvider: PROVIDER,
+      defaultModel: MODEL_ID,
+      shellPath,
+    });
+    h = await createHarness({
+      localShell: true,
+      settings: settings("/nonexistent/first-shell"),
+    });
+    const session = await h.open();
+    await writeFile(
+      join(h.agentDir, "settings.json"),
+      JSON.stringify(settings("/nonexistent/second-shell")),
+    );
+    await session.reload();
+    let done = next(session, "turn_done");
+    await session.runBash("true", true);
+    await done;
+    h.script((turn) => {
+      turn.toolCall("bash", { command: "true" });
+      turn.done();
+    }, reply("done"));
+    done = next(session, "turn_done");
+    await session.prompt("run it");
+    await done;
+    const failures = [
+      JSON.stringify(h.calls[1]?.context.messages.at(-1)),
+      ...session.snapshot().status.notices.map((notice) => notice.message),
+    ];
+    expect(failures).toHaveLength(2);
+    for (const failure of failures) {
+      expect(failure).toContain("/nonexistent/second-shell");
+      expect(failure).not.toContain("first-shell");
+    }
+  });
+
+  it("lists a folder's commands before a session starts as the session then does", async () => {
+    const probe = (description: string) => (pi: ExtensionAPI) => {
+      pi.registerCommand("probe", {
+        description,
+        handler: () => Promise.resolve(),
+      });
+    };
+    h = await createHarness({ extensions: [probe("First"), probe("Second")] });
+    const before = await h.runtime.resources.commands(h.cwd);
+    expect(before).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "mcp", source: "extension" }),
+        { name: "probe:1", description: "First", source: "extension" },
+        { name: "probe:2", description: "Second", source: "extension" },
+      ]),
+    );
+    const session = await h.open();
+    expect(session.commands()).toEqual(before);
+  });
+
   it("lists commands from extensions, prompts, and skills, and the tools", async () => {
     h = await createHarness({
       extensions: [
@@ -481,5 +694,237 @@ describe("stopping", () => {
     await vi.advanceTimersByTimeAsync(120);
     expect(h.runtime.get(kept.id)?.snapshot().status.running).toBe(false);
     expect(events).not.toContain("stopped");
+    // Nor is a timer kept armed for it once its file exists.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("a stop already in progress", () => {
+  // The stopping runtime still writes: late tool results, and what its
+  // extensions append on session_shutdown. Its shutdown is held until the
+  // test releases it, so commands can arrive while it is under way.
+  async function stoppingSession(prompts: string[]) {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi: ExtensionAPI) => {
+          pi.on("session_shutdown", async () => {
+            await shutdown.wait;
+            pi.appendEntry("last-word", {});
+          });
+        },
+      ],
+    });
+    const workspace = createWorkspace({
+      ...createFakeWorld(),
+      runtime: h.runtime,
+      sessions: h.catalog,
+    });
+    const session = await h.open();
+    for (const text of prompts) {
+      h.script(reply(`${text} answer`));
+      const done = next(session, "turn_done");
+      await session.prompt(text);
+      await done;
+    }
+    const stopping = session.stop();
+    let asks = 0;
+    let onAsk = () => {};
+    session.stop = () => {
+      asks += 1;
+      onAsk();
+      return stopping;
+    };
+    const release = shutdown.open;
+    /** Resolves once others have asked the stopping runtime to stop `count` times. */
+    const asked = (count: number) =>
+      new Promise<void>((resolve) => {
+        onAsk = () => {
+          if (asks >= count) resolve();
+        };
+        onAsk();
+      });
+    /** The same, or 100 ms later for a command the workspace holds back first. */
+    const askedOrHeld = (count: number) =>
+      Promise.race([
+        asked(count),
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ]);
+    /** Runs a command, letting the stop finish once the command asks for it. */
+    const during = async (command: () => Promise<unknown>): Promise<void> => {
+      void asked(1).then(release);
+      try {
+        await command();
+      } finally {
+        release();
+        await stopping;
+      }
+    };
+    return {
+      workspace,
+      session,
+      stopping,
+      release,
+      asked,
+      askedOrHeld,
+      during,
+    };
+  }
+
+  function secondQuestion(session: LiveSession) {
+    const second = session
+      .snapshot()
+      .branch.filter(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      )[1];
+    if (!second) throw new Error("Missing fixture prompt");
+    return second;
+  }
+
+  /** Resolves when a turn ends, in whichever runtime. */
+  function turnFinished(): Promise<void> {
+    return new Promise((resolve) => {
+      const off = h.runtime.subscribeAll((event) => {
+        if (event.type !== "finished") return;
+        off();
+        resolve();
+      });
+    });
+  }
+
+  /** The saved file's branch, or undefined when it is not a valid tree. */
+  async function savedBranch(sessionId: string) {
+    const saved = await h.catalog.readSaved(sessionId);
+    return saved.kind === "changed"
+      ? branchMessages(saved.snapshot.branch)
+      : undefined;
+  }
+
+  it("deletes the file only once the stop has finished writing", async () => {
+    const { workspace, session, during } = await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    await during(() => workspace.remove(session.id));
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("rewinds only once the stop has finished writing", async () => {
+    const { workspace, session, during } = await stoppingSession([
+      "first",
+      "second",
+    ]);
+    const second = secondQuestion(session);
+    await during(() => workspace.rewind(session.id, second.id));
+    const resumed = h.runtime.get(session.id);
+    if (!resumed) throw new Error("Rewind left the session inactive");
+    expect(messages(resumed)).toEqual(["user:first", "assistant:first answer"]);
+  });
+
+  it("stops a draft that is already stopping instead of refusing it", async () => {
+    const { workspace, session, during } = await stoppingSession([]);
+    await during(() => workspace.stop(session.id));
+    expect(h.runtime.live()).toEqual([]);
+  });
+
+  // A command that opens a runtime waits for the stop as well. A rewind or
+  // a delete waiting for the same stop must not let that runtime load the
+  // file before it is rewritten, or write it after it is gone.
+
+  it("rewinds after a send waiting for the same stop has opened its runtime", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["first", "second"]);
+    const second = secondQuestion(session);
+    h.script(reply("late answer"));
+    const finished = turnFinished();
+    const sending = workspace.send(session.id, "late question");
+    await asked(1);
+    const rewinding = workspace.rewind(session.id, second.id);
+    await askedOrHeld(2);
+    release();
+    const sent = await sending.then(
+      () => true,
+      () => false,
+    );
+    await Promise.all([rewinding, stopping]);
+    if (sent) await finished;
+    expect(await savedBranch(session.id)).toEqual([
+      "user:first",
+      "assistant:first answer",
+    ]);
+  });
+
+  it("deletes after a send waiting for the same stop has opened its runtime", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    const sending = workspace.send(session.id, "late question");
+    await asked(1);
+    const removing = workspace.remove(session.id);
+    await askedOrHeld(2);
+    release();
+    await Promise.allSettled([sending, removing, stopping]);
+    expect(h.runtime.live().map((live) => live.id)).toEqual([]);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("sends after a rewind waiting for the same stop has rewritten the file", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["first", "second"]);
+    const second = secondQuestion(session);
+    const rewinding = workspace.rewind(session.id, second.id);
+    await asked(1);
+    h.script(reply("late answer"));
+    const finished = turnFinished();
+    const sending = workspace.send(session.id, "late question");
+    await askedOrHeld(2);
+    release();
+    await Promise.all([rewinding, sending, stopping, finished]);
+    expect(await savedBranch(session.id)).toEqual([
+      "user:first",
+      "assistant:first answer",
+      "user:late question",
+      "assistant:late answer",
+    ]);
+  });
+
+  it("refuses a send waiting for the same stop as a delete", async () => {
+    const { workspace, session, stopping, release, asked, askedOrHeld } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    const removing = workspace.remove(session.id);
+    await asked(1);
+    const sending = workspace.send(session.id, "late question");
+    await askedOrHeld(2);
+    release();
+    await Promise.all([removing, stopping]);
+    await expect(sending).rejects.toThrow(`Unknown session ${session.id}`);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("fails a delete whose stop does not finish, and an open queued behind it", async () => {
+    const { workspace, session, stopping, release, asked } =
+      await stoppingSession(["question"]);
+    const file = session.snapshot().summary.filePath ?? "";
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const deleteWaits = asked(1);
+      const removing = expect(workspace.remove(session.id)).rejects.toThrow(
+        "This session is still stopping. Try again once it has stopped.",
+      );
+      await deleteWaits;
+      const activating = expect(workspace.activate(session.id)).rejects.toThrow(
+        "Cannot reopen a session that is still stopping.",
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      await removing;
+      // Behind the delete, the open waits for the same stop, as long again.
+      await asked(2);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await activating;
+    } finally {
+      vi.useRealTimers();
+      release();
+      await stopping;
+    }
+    expect(existsSync(file)).toBe(true);
   });
 });

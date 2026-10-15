@@ -61,6 +61,14 @@ describe("following the tail", () => {
     expect(view.scrollTop).toBe(2400);
   });
 
+  it("follows a frame that updates only what is still in flight", async () => {
+    const view = await load();
+    byId("turn").innerHTML = '<div id="turn-live"></div>';
+    setGeometry(view, { scrollHeight: 2400 });
+    htmxEvent(byId("turn-live"), "htmx:after:settle");
+    expect(view.scrollTop).toBe(2400);
+  });
+
   it("keeps the reader's place when an older page is prepended", async () => {
     const view = await load('<div class="load-earlier"></div>');
     view.scrollTop = 100;
@@ -105,7 +113,9 @@ describe("saved transcript updates", () => {
     readingTop = 190;
     setGeometry(view, { scrollHeight: 2400 });
     htmxEvent(byId("messages"), "htmx:after:settle");
-    view.dispatchEvent(new Event("web-pi:saved-after"));
+    view.dispatchEvent(
+      new CustomEvent("web-pi:saved-after", { detail: { content: true } }),
+    );
     expect(view.scrollTop).toBe(1160);
     expect(byId("jump-to-latest").hidden).toBe(false);
     expect(query("[data-new-messages]").hidden).toBe(false);
@@ -117,6 +127,27 @@ describe("saved transcript updates", () => {
     view.dispatchEvent(new Event("scroll"));
     expect(byId("jump-to-latest").hidden).toBe(true);
     expect(query("[data-new-messages]").hidden).toBe(true);
+  });
+
+  it("keeps a detached reader's place without a label when nothing new was said", async () => {
+    const view = await load('<div id="entry-reading">Reading this</div>');
+    view.scrollTop = 1000;
+    view.dispatchEvent(new Event("scroll"));
+    let readingTop = 30;
+    vi.spyOn(byId("entry-reading"), "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(0, readingTop, 600, 100),
+    );
+    view.dispatchEvent(new Event("web-pi:saved-before"));
+    readingTop = 50;
+    view.dispatchEvent(
+      new CustomEvent("web-pi:saved-after", { detail: { content: false } }),
+    );
+    expect(view.scrollTop).toBe(1020);
+    expect(byId("jump-to-latest").hidden).toBe(false);
+    expect(query("[data-new-messages]").hidden).toBe(true);
+    expect(byId("jump-to-latest").getAttribute("aria-label")).toBe(
+      "Jump to latest",
+    );
   });
 
   it("follows saved additions at the tail without advertising unread messages", async () => {
@@ -181,6 +212,24 @@ describe("copy buttons", () => {
     expect(query("[data-copy]").dataset["copied"]).toBeUndefined();
   });
 
+  it("shows Copied until 1.5s after the last of two quick clicks, then Copy", async () => {
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    await load(
+      '<div><div data-copy-source>the answer</div><button type="button" data-copy>Copy</button></div>',
+    );
+    click(query("[data-copy]"));
+    await flush();
+    vi.advanceTimersByTime(500);
+    click(query("[data-copy]"));
+    await flush();
+    vi.advanceTimersByTime(1000);
+    expect(query("[data-copy]").textContent).toBe("Copied");
+    expect(query("[data-copy]").dataset["copied"]).toBe("1");
+    vi.advanceTimersByTime(500);
+    expect(query("[data-copy]").textContent).toBe("Copy");
+    expect(query("[data-copy]").dataset["copied"]).toBeUndefined();
+  });
+
   it("keeps a two-icon button's markup and does not open the summary it sits in", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     await load(
@@ -233,7 +282,7 @@ describe("copy buttons", () => {
       );
       await load(live ? "" : content);
       if (live) {
-        byId("turn").innerHTML = content;
+        byId("turn").innerHTML = `<div id="turn-live">${content}</div>`;
         htmxEvent(byId("turn"), "htmx:after:settle");
       }
       const block = query(".markdown-code-block");
@@ -264,13 +313,14 @@ describe("copy buttons", () => {
 });
 
 describe("highlighting", () => {
-  it("colours settled fences with numbered lines and leaves the running turn alone", async () => {
+  it("colours settled fences with numbered lines and leaves what is in flight alone", async () => {
     await load(
       '<pre><code class="language-ts">const a = 1;\nlet b = "x";\n</code></pre>' +
         '<pre><code class="language-nonsense">plain &lt;b&gt;\n</code></pre>',
     );
     byId("turn").innerHTML =
-      '<pre><code class="language-ts">streaming</code></pre>';
+      '<div><pre><code id="finished" class="language-ts">done</code></pre></div>' +
+      '<div id="turn-live"><pre><code class="language-ts">streaming</code></pre></div>';
     htmxEvent(byId("turn"), "htmx:after:settle");
     const [typed, unknown] =
       document.querySelectorAll<HTMLElement>("#messages code");
@@ -280,7 +330,14 @@ describe("highlighting", () => {
     expect(typed?.style.getPropertyValue("--linenumber-width")).toBe("1.25em");
     expect(unknown?.innerHTML).toContain("plain &lt;b&gt;");
     expect(unknown?.querySelectorAll(".linenumber")).toHaveLength(1);
-    expect(query("#turn code").dataset["highlighted"]).toBeUndefined();
+    // A finished message of the running turn no longer changes either.
+    expect(byId("finished").dataset["highlighted"]).toBe("1");
+    expect(query("#turn-live code").dataset["highlighted"]).toBeUndefined();
+  });
+
+  it("asks a morph to leave a coloured block alone", async () => {
+    await load('<pre><code class="language-ts">const a = 1;</code></pre>');
+    expect(query("#messages code").hasAttribute("hx-morph-skip")).toBe(true);
   });
 });
 

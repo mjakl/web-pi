@@ -2,6 +2,7 @@ import { Partial } from "@web/views/Partial";
 import { formatContextUsage } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { LiveStatus } from "@core/ports";
+import type { SessionStats } from "@core/session-entries";
 import { displaySkillPrompt } from "@core/skill-prompt";
 import type { SessionView } from "@core/workspace";
 import { ModelSelector, ModelScopeWarning, modelPick } from "./Composer.tsx";
@@ -15,7 +16,7 @@ import {
 
 // Everything about a running session that is not the transcript: the banners
 // and the queue panel above the composer surface (pi-web keeps them inside
-// ChatInput's 820px column, §6.1), plus the two things elsewhere on the page
+// ChatInput's 820px column), plus the two things elsewhere on the page
 // that the same render owns — the model selector in the toolbar and the
 // context readout in the top bar, both swapped out of band.
 
@@ -27,22 +28,21 @@ import {
  */
 export function ContextReadout({
   usage,
+  tokens,
   oob,
-  empty,
 }: {
   usage?: ContextUsage;
+  /** The session's token totals, which the stats button shows beside it. */
+  tokens?: SessionStats["tokens"];
   oob?: boolean;
-  /**
-   * Nothing else in the stats button has a value, so the readout names what
-   * the button opens. False keeps the element (the stream swaps it by id)
-   * but silent, because the token groups beside it already say something.
-   */
-  empty?: boolean;
 }) {
   const text = usage ? formatContextUsage(usage) : "";
   const swap = oob === true ? { "hx-swap-oob": "true" } : {};
   if (!usage || text === "") {
-    return empty === false ? (
+    // With nothing to measure, the readout names what the button opens,
+    // unless the token totals beside it already say something. Silent, it
+    // stays in the page: the stream swaps it by id.
+    return tokens !== undefined && tokens.input > 0 ? (
       <span id="context-readout" hidden {...swap} />
     ) : (
       <span id="context-readout" class="shell-context-empty" {...swap}>
@@ -90,10 +90,10 @@ export function CompactButton({
       type="button"
       id="context-compact"
       class="context-compact-button"
-      {...(warn ? { "data-warning": "true" } : {})}
-      {...(disabled === true || compacting ? { disabled: true } : {})}
-      {...(compacting ? { "aria-busy": "true" } : {})}
-      {...(oob === true ? { "hx-swap-oob": "true" } : {})}
+      data-warning={warn ? "true" : undefined}
+      disabled={disabled === true || compacting}
+      aria-busy={compacting ? "true" : undefined}
+      hx-swap-oob={oob === true ? "true" : undefined}
       title={compacting ? "Compacting context…" : "Compact context"}
       aria-label={compacting ? "Compacting context…" : "Compact context"}
       hx-post={`/sessions/${sessionId}/compact`}
@@ -125,7 +125,7 @@ export function compactDisabled(view: SessionView): boolean {
   return turnBusy(view.status);
 }
 
-/** One queued message: the kind as a pill, then the text (§6.1). */
+/** One queued message: the kind as a pill, then the text. */
 function QueuedRow({
   behavior,
   text,
@@ -172,9 +172,10 @@ function QueuePanel({
           class="composer-queue-recall"
           title="Remove all queued messages and put them back into the input box for editing"
           hx-post={`/sessions/${sessionId}/queue/recall`}
-          // The button sits inside the composer form; without this htmx would
-          // post the draft and its attachments with the recall.
-          data-request-fields="none"
+          // The button sits inside the composer form. The recall puts the
+          // queued text in front of the draft, so it posts the draft's text
+          // and skills, never its attachments.
+          data-request-fields="text skills"
           hx-target="#composer-text"
           hx-swap="outerHTML"
         >
@@ -190,21 +191,20 @@ function QueuePanel({
 }
 
 /**
- * Everything that changes while a session runs. `model` asks for the toolbar's
- * selector out of band, which the stream sends only when the model or the
- * levels actually changed: it is a whole subtree, and a turn re-renders ten
- * times a second.
+ * Everything that changes while a session runs. `oob` renders it as a stream
+ * update: the body as a `#status` partial, with the context readout and the
+ * compact button out of band. `model` adds the toolbar's selector, which the
+ * stream sends only when the model or the levels actually changed: it is a
+ * whole subtree, and a turn re-renders ten times a second.
  */
 export function Status({
   view,
   model,
   oob,
-  partial,
 }: {
   view: SessionView;
   model?: boolean;
   oob?: boolean;
-  partial?: boolean;
 }) {
   const { status, summary } = view;
   const body = (
@@ -233,33 +233,28 @@ export function Status({
       <span
         id="session-state"
         hidden
-        {...(status?.running ? { "data-running": "true" } : {})}
-        {...(status?.bashRunning ? { "data-bash-running": "true" } : {})}
-        {...(status?.compacting ? { "data-compacting": "true" } : {})}
+        data-running={status?.running ? "true" : undefined}
+        data-bash-running={status?.bashRunning ? "true" : undefined}
+        data-compacting={status?.compacting ? "true" : undefined}
       />
       {status?.title ? (
         <span id="extension-title" hidden data-title={status.title} />
       ) : null}
     </>
   );
+  if (oob !== true) return body;
   return (
     <>
-      {partial === true ? <Partial target="#status">{body}</Partial> : body}
-      {oob === true ? (
-        <>
-          <ContextReadout usage={view.usage} oob />
-          <CompactButton
-            sessionId={summary.id}
-            usage={view.usage}
-            oob
-            disabled={compactDisabled(view)}
-            compacting={status?.compacting ?? false}
-          />
-        </>
-      ) : null}
-      {oob === true && model === true ? (
-        <ModelSelector pick={modelPick(view)} oob />
-      ) : null}
+      <Partial target="#status">{body}</Partial>
+      <ContextReadout usage={view.usage} tokens={view.tokens} oob />
+      <CompactButton
+        sessionId={summary.id}
+        usage={view.usage}
+        oob
+        disabled={compactDisabled(view)}
+        compacting={status?.compacting ?? false}
+      />
+      {model === true ? <ModelSelector pick={modelPick(view)} oob /> : null}
     </>
   );
 }

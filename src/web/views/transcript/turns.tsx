@@ -9,7 +9,7 @@ import {
 import { ProcessChevronIcon } from "@web/views/icons";
 import { AssistantMessage, WrittenFiles } from "./assistant.tsx";
 import { Bash, Compaction, Note } from "./notes.tsx";
-import { type ItemActions, Markdown } from "./shared.tsx";
+import { type ItemActions, itemKey, Markdown } from "./shared.tsx";
 import { UserMessage } from "./user.tsx";
 
 // One item of any kind, and the turns a settled transcript groups them
@@ -36,7 +36,7 @@ export function Item({
           item={item}
           actions={actions}
           starrable={starrable ?? false}
-          {...(written === undefined ? {} : { written })}
+          written={written}
         />
       );
     case "compaction":
@@ -65,10 +65,7 @@ export function Item({
 function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
   const first =
     turn.boundary ?? turn.process[0] ?? turn.answer ?? turn.trailing[0];
-  const key =
-    first?.entryId === "partial"
-      ? `partial-${String(Date.parse(first.timestamp))}`
-      : first?.entryId;
+  const key = first === undefined ? undefined : itemKey(first);
   const count = (value: number, noun: string) =>
     `${String(value)} ${noun}${value === 1 ? "" : "s"}`;
   const label = [
@@ -183,46 +180,53 @@ export function LoadEarlier({
   );
 }
 
-/** A page of older messages, with the sentinel for the page before it. */
-export function EarlierPage({
-  items,
-  actions,
-  hasMore,
-  oldestId,
-  leaf,
-}: {
-  items: TranscriptItem[];
-  actions: ItemActions;
-  hasMore: boolean;
-  oldestId?: string;
-  leaf?: string;
-}) {
-  return (
-    <>
-      {hasMore && oldestId !== undefined ? (
-        <LoadEarlier
-          sessionId={actions.sessionId}
-          before={oldestId}
-          {...(leaf === undefined ? {} : { leaf })}
-        />
-      ) : null}
-      <Items items={items} actions={actions} />
-    </>
+/**
+ * The leading items of a running turn that will not change again, which a
+ * session stream sends only once: everything before the first item still in
+ * flight (the partial message, a running shell command, or a message waiting
+ * for tool results). A message that failed or was stopped waits for nothing:
+ * Pi runs none of its tool calls. None while the turn is not running: it
+ * renders grouped.
+ */
+export function finishedItems(
+  items: TranscriptItem[],
+  status: LiveStatus | null,
+): TranscriptItem[] | undefined {
+  if (status?.running !== true && status?.bashRunning !== true) return;
+  const inFlight = items.findIndex(
+    (item) =>
+      item.entryId === "partial" ||
+      (item.kind === "bash" && item.pending) ||
+      (item.kind === "assistant" &&
+        item.stopReason !== "error" &&
+        item.stopReason !== "aborted" &&
+        item.blocks.some(
+          (block) => block.kind === "tool" && block.call.result === undefined,
+        )),
   );
+  return inFlight === -1 ? items : items.slice(0, inFlight);
 }
 
 /**
  * The running turn: its messages flat, plus the line that says what the
- * session is doing while nothing has streamed yet.
+ * session is doing while nothing has streamed yet. While it runs, the
+ * finished messages come first and everything that can still change sits in
+ * `#turn-live`, after `children`, so a stream can send the finished ones once
+ * and morph only that element. `from` leaves out the finished messages a
+ * stream already sent.
  */
 export function TurnFragment({
   items,
   actions,
   status,
+  from = 0,
+  children,
 }: {
   items: TranscriptItem[];
   actions: ItemActions;
   status: LiveStatus | null;
+  from?: number;
+  children?: unknown;
 }) {
   const onlyTool = status?.tools.length === 1 ? status.tools[0] : undefined;
   // A pending subagent's header already shows its activity, even collapsed.
@@ -245,29 +249,49 @@ export function TurnFragment({
     );
   const label = status && !cardCoversActivity ? activityLabel(status) : null;
   // Only a turn that is actually working renders flat: grouping a moving
-  // target hides what just happened. A finished turn groups like any other.
-  const live = status?.running === true || status?.bashRunning === true;
+  // target hides what just happened. A turn that stopped groups like any
+  // other.
+  const finished = finishedItems(items, status);
   const progress = Object.fromEntries(
     (status?.tools ?? [])
       .filter((tool) => tool.progress !== undefined)
       .map((tool) => [tool.id, tool.progress ?? ""]),
   );
+  const turnActions: ItemActions = {
+    ...actions,
+    ...(finished ? { live: true } : {}),
+    ...(Object.keys(progress).length > 0 ? { progress } : {}),
+    ...(status?.running === true ? { streaming: true } : {}),
+  };
+  const activity =
+    label === null ? null : (
+      <div class="chat-activity">
+        <span class="chat-activity-label">{label}</span>
+      </div>
+    );
+  if (!finished)
+    return (
+      <>
+        {children}
+        <Items items={items} actions={turnActions} />
+        {activity}
+      </>
+    );
+  // The finished messages get an element of their own: htmx's morph processes
+  // the ones it moves out of #turn-live only inside a new element, and a tool
+  // card that just completed needs that to fetch its body.
   return (
     <>
-      <Items
-        items={items}
-        actions={{
-          ...actions,
-          ...(live ? { live } : {}),
-          ...(Object.keys(progress).length > 0 ? { progress } : {}),
-          ...(status?.running === true ? { streaming: true } : {}),
-        }}
-      />
-      {label === null ? null : (
-        <div class="chat-activity">
-          <span class="chat-activity-label">{label}</span>
+      {from < finished.length ? (
+        <div>
+          <Items items={finished.slice(from)} actions={turnActions} />
         </div>
-      )}
+      ) : null}
+      <div id="turn-live">
+        {children}
+        <Items items={items.slice(finished.length)} actions={turnActions} />
+        {activity}
+      </div>
     </>
   );
 }

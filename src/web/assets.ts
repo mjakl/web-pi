@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Built assets are hashed once at boot so the browser can cache them hard and
-// still pick up a rebuild; nothing rebuilds them while the server runs.
+// still pick up a rebuild; `just dev` restarts the server after each rebuild.
 
 export type StaticAssets = { css: string; js: string };
 

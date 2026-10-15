@@ -1,4 +1,5 @@
 import {
+  baseName,
   catppuccinIcon,
   extensionOf,
   fileKind,
@@ -8,6 +9,17 @@ import {
   mimeOf,
 } from "@core/file-types";
 import { describe, expect, it } from "vitest";
+
+describe("baseName", () => {
+  it("names the last segment, a folder's even with a trailing separator", () => {
+    expect(baseName("/repo/src/main.ts")).toBe("main.ts");
+    expect(baseName("C:\\repo\\src")).toBe("src");
+    expect(baseName("/repo/src/")).toBe("src");
+    expect(baseName("C:\\repo\\src\\\\")).toBe("src");
+    expect(baseName("main.ts")).toBe("main.ts");
+    expect(baseName("/")).toBe("");
+  });
+});
 
 describe("languageOf", () => {
   it("recognises the special file names before any extension", () => {
@@ -42,6 +54,8 @@ describe("hasPreview and catppuccinIcon", () => {
     expect(hasPreview("readme.md")).toBe(true);
     expect(hasPreview("page.html")).toBe(true);
     expect(hasPreview("main.ts")).toBe(false);
+    // A component is not a page: it shows as source.
+    expect(hasPreview("App.vue")).toBe(false);
   });
 
   it("picks the icon by special name, then extension", () => {
@@ -52,6 +66,18 @@ describe("hasPreview and catppuccinIcon", () => {
     expect(catppuccinIcon("notes.MD")).toBe("markdown");
     expect(catppuccinIcon("LICENSE")).toBe("_file");
   });
+});
+
+describe("an extension named like an Object property", () => {
+  it.each(["notes.constructor", "x.__proto__"])(
+    "treats %s as an unknown extension",
+    (name) => {
+      expect(fileKind(name)).toBe("text");
+      expect(mimeOf(name)).toBe("application/octet-stream");
+      expect(languageOf(name)).toBe("text");
+      expect(catppuccinIcon(name)).toBe("_file");
+    },
+  );
 });
 
 describe("formatBytes", () => {

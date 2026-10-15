@@ -1,10 +1,12 @@
 import { createDirectoryBrowser } from "@adapters/fs/browse";
+import { createWebSettingsStore } from "@adapters/fs/web-settings";
+import { createPiAgentRuntime } from "@adapters/pi/agent-runtime";
 import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
-import { createPiProjectResources } from "@adapters/pi/resources";
+import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createPiSkills } from "@adapters/pi/skills";
 import { SkillFrontmatterError } from "@core/skill-toggle";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,7 +102,14 @@ describe("project trust", () => {
 });
 
 describe("folder commands", () => {
-  it("offers extension commands, and only once the project is trusted", async () => {
+  const runtime = () =>
+    createPiAgentRuntime({
+      agentDir,
+      catalog: createPiSessionCatalog({ agentDir }),
+      webSettings: createWebSettingsStore(agentDir),
+    });
+
+  it("offers project extension commands once the project is trusted, at once", async () => {
     const extensions = join(project, ".pi", "extensions");
     await mkdir(extensions, { recursive: true });
     await writeFile(
@@ -108,17 +117,157 @@ describe("folder commands", () => {
       'export default (pi) => { pi.registerCommand("probe",' +
         ' { description: "Project probe", handler: async () => {} }); };\n',
     );
-    const extensionCommands = async () =>
-      // A fresh adapter each time: the answer is cached per folder.
-      (await createPiProjectResources({ agentDir }).commands(project)).filter(
-        (command) => command.source === "extension",
+    const { resources } = runtime();
+    const probes = async () =>
+      (await resources.commands(project)).filter(
+        (command) => command.name === "probe",
       );
 
-    expect(await extensionCommands()).toEqual([]);
+    expect(await probes()).toEqual([]);
 
     await createPiProjectTrust({ agentDir }).trust(project);
-    expect(await extensionCommands()).toEqual([
+    expect(await probes()).toEqual([
       { name: "probe", description: "Project probe", source: "extension" },
+    ]);
+  });
+
+  it("refreshes external resource edits and additions after ten seconds without opening a session", async () => {
+    const prompts = join(agentDir, "prompts");
+    const skill = join(agentDir, "skills", "tidy", "SKILL.md");
+    await mkdir(prompts, { recursive: true });
+    await mkdir(join(skill, ".."), { recursive: true });
+    await writeFile(
+      join(prompts, "review.md"),
+      "---\ndescription: Old prompt\n---\nReview\n",
+    );
+    await writeFile(
+      skill,
+      "---\nname: tidy\ndescription: Old skill\n---\nBody\n",
+    );
+    const clock = vi.spyOn(Date, "now");
+    const now = Date.now();
+    clock.mockReturnValue(now);
+    try {
+      const agent = runtime();
+      const { resources, models } = agent;
+      await models.list(project);
+      const before = await resources.commands(project);
+      expect(before).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "review",
+            description: "Old prompt",
+          }),
+          expect.objectContaining({
+            name: "skill:tidy",
+            description: "Old skill",
+          }),
+        ]),
+      );
+      await writeFile(
+        join(prompts, "review.md"),
+        "---\ndescription: Updated prompt\n---\nReview\n",
+      );
+      await writeFile(
+        skill,
+        "---\nname: tidy\ndescription: Updated skill\n---\nBody\n",
+      );
+      await writeFile(
+        join(prompts, "added.md"),
+        "---\ndescription: Added prompt\n---\nAdded\n",
+      );
+      await mkdir(join(agentDir, "extensions"), { recursive: true });
+      await writeFile(
+        join(agentDir, "extensions", "added.js"),
+        'export default (pi) => { pi.registerCommand("added-command", { description: "Added extension", handler: async () => {} }); };\n',
+      );
+      clock.mockReturnValue(now + 9_999);
+      expect(await resources.commands(project)).toEqual(before);
+      clock.mockReturnValue(now + 10_000);
+      expect(await resources.commands(project)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "review",
+            description: "Updated prompt",
+          }),
+          expect.objectContaining({
+            name: "skill:tidy",
+            description: "Updated skill",
+          }),
+          expect.objectContaining({
+            name: "added",
+            description: "Added prompt",
+          }),
+          expect.objectContaining({
+            name: "added-command",
+            description: "Added extension",
+          }),
+        ]),
+      );
+      expect(agent.live()).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("starts the ten seconds once a load finishes, so a slow load runs once", async () => {
+    await mkdir(join(agentDir, "extensions"), { recursive: true });
+    // Counts loads, and holds the first one open as a package install would.
+    await writeFile(
+      join(agentDir, "extensions", "slow.js"),
+      "export default async () => { globalThis.webPiLoads = (globalThis.webPiLoads ?? 0) + 1; await globalThis.webPiGate; };\n",
+    );
+    const probe = globalThis as {
+      webPiLoads?: number;
+      webPiGate?: Promise<undefined>;
+    };
+    const gate = Promise.withResolvers<undefined>();
+    probe.webPiGate = gate.promise;
+    const clock = vi.spyOn(Date, "now");
+    const now = Date.now();
+    clock.mockReturnValue(now);
+    try {
+      const { resources } = runtime();
+      const first = resources.commands(project);
+      clock.mockReturnValue(now + 10_001);
+      const second = resources.commands(project);
+      gate.resolve(undefined);
+      expect(await second).toEqual(await first);
+      expect(probe.webPiLoads).toBe(1);
+      // It finished at now + 10_001, so it serves until now + 20_001.
+      clock.mockReturnValue(now + 20_000);
+      await resources.commands(project);
+      expect(probe.webPiLoads).toBe(1);
+      clock.mockReturnValue(now + 20_001);
+      await resources.commands(project);
+      expect(probe.webPiLoads).toBe(2);
+    } finally {
+      gate.resolve(undefined);
+      clock.mockRestore();
+      delete probe.webPiLoads;
+      delete probe.webPiGate;
+    }
+  });
+
+  it("lists a skill change once a skill action drops the preparation", async () => {
+    const { resources, models } = runtime();
+    const skills = async () =>
+      (await resources.commands(project)).filter(
+        (command) => command.source === "skill",
+      );
+    expect(await skills()).toEqual([]);
+    const file = join(agentDir, "skills", "tidy", "SKILL.md");
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, "---\nname: tidy\ndescription: Tidy up\n---\nBody\n");
+    // What installing, updating or toggling a skill calls.
+    models.invalidate();
+    expect(await skills()).toEqual([
+      {
+        name: "skill:tidy",
+        description: "Tidy up",
+        source: "skill",
+        skillId: file,
+      },
     ]);
   });
 });
@@ -282,6 +431,63 @@ describe("extension packages", () => {
     expect((enabled as { packages: unknown[] }).packages).toEqual([
       "npm:@acme/pi-plugin",
     ]);
+  });
+
+  it("fails a package action whose settings Pi could not save", async () => {
+    const plugin = join(temp.root, "plugin");
+    await mkdir(plugin);
+    const settings = join(agentDir, "settings.json");
+    await writeFile(settings, "{");
+    const packages = createPiPackages({ agentDir });
+    const install = { cwd: project, scope: "user" as const, source: plugin };
+    await expect(packages.run("install", install)).rejects.toThrow(
+      "global settings:",
+    );
+    expect(await readFile(settings, "utf8")).toBe("{");
+
+    await writeSettings("global", { packages: [plugin] });
+    await chmod(settings, 0o444);
+    await expect(packages.run("disable", install)).rejects.toThrow(
+      /global settings: .*EACCES/,
+    );
+  });
+
+  it("reports only the errors of the settings file a package change writes", async () => {
+    const plugin = join(temp.root, "plugin");
+    await mkdir(plugin);
+    await writeSettings("global", { packages: [plugin] });
+    await mkdir(join(project, ".pi"), { recursive: true });
+    await writeFile(join(project, ".pi", "settings.json"), "{");
+    await createPiProjectTrust({ agentDir }).trust(project);
+    const packages = createPiPackages({ agentDir });
+    await packages.run("disable", {
+      cwd: project,
+      scope: "user",
+      source: plugin,
+    });
+    const saved: unknown = JSON.parse(
+      await readFile(join(agentDir, "settings.json"), "utf8"),
+    );
+    expect((saved as { packages: unknown[] }).packages).toEqual([
+      { source: plugin, extensions: [], skills: [], prompts: [], themes: [] },
+    ]);
+    await expect(
+      packages.run("install", {
+        cwd: project,
+        scope: "project",
+        source: plugin,
+      }),
+    ).rejects.toThrow("project settings:");
+  });
+
+  it("says when there is no package to remove", async () => {
+    await expect(
+      createPiPackages({ agentDir }).run("remove", {
+        cwd: project,
+        scope: "user",
+        source: join(temp.root, "never-added"),
+      }),
+    ).rejects.toThrow("No matching package");
   });
 
   it("refuses to touch project packages while the project is untrusted", async () => {

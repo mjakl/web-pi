@@ -21,13 +21,14 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   `node scripts/check-doc-path-references.ts` (Node 24) and `git diff --check`,
   and inspect changed guidance and links. This exception does not cover runtime
   content, fixtures, configuration, dependencies, tests, executable skills,
-  validation scripts, or workflows. CI uses an explicit documentation allowlist
-  in `.github/workflows/validation.yml`; unknown or mixed changes run full CI.
-  Packaged documentation changes ship on the next release; these lightweight
-  checks do not validate a new tarball.
-- Never start the dev server on port 30141 or write into `~/.pi/agent` from
-  tests. Experiments that run a model use `PI_CODING_AGENT_DIR` pointing at a
-  temporary directory with copied `auth.json`, `models.json`, and a minimal
+  validation scripts, or workflows. Packaged documentation changes ship on the
+  next release; these lightweight checks do not validate a new tarball.
+- Never build, start, or run `just dev`, `just smoke` or `just update-pi` in a
+  checkout that serves a running web-pi instance, and never install dependencies
+  there; use a linked worktree instead. Development servers use port 30143,
+  never the installed default 30142, and tests never write into `~/.pi/agent`.
+  Experiments that run a model use `PI_CODING_AGENT_DIR` pointing at a temporary
+  directory with copied `auth.json`, `models.json`, and a minimal
   `settings.json`. Anything that writes settings, trust, skills or packages —
   every adapter in the configuration layer — takes the agent directory as an
   argument for exactly this reason; never call `getAgentDir()` from one.
@@ -35,18 +36,18 @@ the browser keeps drafts and presentation preferences, not a second transcript.
   Pi's agent directory itself and installs into the real `~/.pi/agent/skills`
   and `~/.agents/.skill-lock.json` whatever `PI_CODING_AGENT_DIR` says. Do not
   run a skill install from a test or an unattended check.
-- Pi is a local runtime dependency, not the system `pi`. Every `just build`
-  queries the stable `latest` tag and updates exact Pi dependencies and the
-  lockfile before typechecking and bundling. Keep the named Pi runtime
-  release-age exceptions in `pnpm-workspace.yaml` narrow; other dependencies
-  retain their 24-hour delay. Commit manifest and lockfile changes together.
-  `just doctor` validates ownership and versions as well as reporting the SDK.
-  Keep public startup paths behind the guarded `src/server.ts` bootstrap;
-  `src/server-runtime.ts` contains the SDK module graph. Startup must not
-  update, relink, or discover a system Pi.
-- `dependencies` are only what stays external in `dist/server.js` (the Pi SDK,
-  `web-push`, `undici`); everything else esbuild bundles and belongs in
-  `devDependencies`. Changing either list means running `just smoke`.
+- Pi is a package-owned runtime, not the system `pi`, and every `just build`
+  refreshes it to the latest stable release; read
+  `docs/adr/0002-package-owned-pi-runtime.md` before changing that. Commit
+  `package.json` and `pnpm-lock.yaml` changes together. Keep the release-age
+  exceptions in `pnpm-workspace.yaml` to Pi's own runtime packages. Keep every
+  startup path behind the guarded `src/server.ts` bootstrap, which validates Pi
+  before `src/server-runtime.ts` loads the SDK; startup must not update, relink,
+  or discover a system Pi. `just doctor` reports the SDK and validates its
+  ownership and versions.
+- `dependencies` are only what `dist/server-runtime.js` leaves external (the Pi
+  SDK packages, `web-push`, `undici`); everything else esbuild bundles and
+  belongs in `devDependencies`. Changing either list means running `just smoke`.
 - `CLAUDE.md` is a symlink to this file. Shared development workflows depend on
   globally installed skills, not copies in this checkout. Follow their installed
   triggers and permission limits; planning and simplification remain
@@ -57,61 +58,69 @@ the browser keeps drafts and presentation preferences, not a second transcript.
 ## Layout and boundaries
 
 ```text
-src/core       rules and ports: transcript projection, session derivations
-               (stars, statistics, branches), project selection, the
-               conversation rail layout, terminal-output conversion, context
-               usage, composer input rules, path containment and local file
-               links, HTML escaping, file kinds, Git status parsing,
-               patches, frontmatter, worktree identity,
-               the skill frontmatter toggle, skill install metadata, package
-               list semantics, startup model preferences, tool schemas,
-               pending extension dialogs and custom-UI frames, terminal key
-               encoding, the run-completion rule
-src/core/workspace  the inbound port, one module per use-case family
-               (sessions, live, files, config) over deps.ts, which holds the
-               ports and the shared internals; index.ts composes them into
-               the one `Workspace` object every route calls
-src/adapters   Pi SDK, filesystem, Git, and in-memory implementations of the
-               ports
-src/web        Hono routes, JSX views, HTMX/SSE delivery, client bundle, the
-               generated service worker and manifest. routes/, views/ and
-               client/ are split one module per area of the screen — sidebar,
-               shell, transcript, composer, files — so five ports can run at
-               once; routes/shared.ts holds what they all need, and
-               views/transcript/ holds the transcript's views one module per
-               item kind behind the views/Items.tsx barrel
-src/web/styles plain CSS, grouped by component owner; index.css fixes cascade
-src/container.ts  the only file that wires adapters into the core
-src/server.ts  ownership-checked bootstrap; src/server-runtime.ts the server,
-               src/cli.ts the flags and startup behind the bin, src/dev.ts its
-               source entrypoint, src/pi-version.ts the runtime ownership check,
-               src/http.ts the proxy-aware global dispatcher
-bin/web-pi.js  the published entry point: imports dist/cli.js, nothing else
-tests/         vitest, mirrors src/ and scripts/; tests/client runs the
-               bundle's modules in happy-dom, tests/smoke only from `just smoke`
-scripts/       repository tooling: build-time Pi refresh, doctor, doc checks
+src/core            rules and ports: logic over Pi's session format and the
+                    reader's input, the port types adapters implement, and the
+                    names server and browser share, such as the cookie names
+                    in src/core/cookies.ts
+src/core/workspace  the inbound port: one module per use-case family over
+                    deps.ts, composed by index.ts into the `Workspace` object
+                    every route calls
+src/adapters        port implementations: the Pi SDK, the file system, Git, and
+                    the in-memory fake world
+src/web             Hono routes, JSX views, the client bundle, and the
+                    generated service worker and manifest; routes/, views/ and
+                    client/ hold one module per area of the screen
+src/web/styles      plain CSS, grouped by component owner; index.css fixes the
+                    cascade
+src/container.ts    the composition root, the only file that wires adapters
+                    into the core
+src/config.ts       server configuration read from the environment
+src/server.ts       the guarded bootstrap: checks Pi's ownership, then loads
+                    src/server-runtime.ts, the server
+src/cli.ts          the bin's flags and startup; src/dev.ts runs it from sources
+src/pi-version.ts   the Pi runtime ownership and version check
+src/http.ts         the proxy-aware global HTTP dispatcher
+bin/web-pi.js       the published entry point: imports dist/cli.js, nothing else
+static/             fonts, icons and the vendored htmx, plus the built app.css
+                    and client.js, which are not tracked
+tests/              vitest, mirrors src/ and scripts/; tests/client runs the
+                    bundle's modules in happy-dom, tests/smoke only from
+                    `just smoke`
+scripts/            repository tooling: build-time Pi refresh, doctor, doc
+                    checks, the screenshot fixture, and the opt-in browser
+                    checks that drive agent-browser against it
+docs/               user, operator and design documentation; ships in the
+                    package
 ```
 
 Rules enforced by `.oxlintrc.json`:
 
-- `src/core` may import SDK **types** but never call the SDK, Node, or Hono.
-- `src/adapters` never import `src/web`.
-- `src/web` never imports adapters or the SDK; it talks to `Workspace`.
-- No parent-relative imports; use `@/*` (src root), `@core/*`, `@adapters/*`,
-  `@web/*`, `#/*` (tests).
-- One escaper: `escapeHtml` in `src/core/html.ts`. Views, the ANSI converter,
-  and the client bundle all build markup from untrusted text, and a second
-  escaper is how one of them ends up missing an entity.
+- `src/core` never imports `src/web`, `src/adapters`, Hono or Node built-ins,
+  and imports the Pi SDK for its **types** only.
+- `src/adapters` never import `src/web` or Hono.
+- `src/web`, the client bundle included, never imports adapters or the SDK; it
+  talks to `Workspace`.
+- `src/` and `tests/` use no parent-relative imports; use `@/*` (src root),
+  `@core/*`, `@adapters/*`, `@web/*`, `#/*` (tests).
 - Hono JSX uses `class`, never `className`. No dynamic imports in `src/`; the
   two exceptions carry a narrowed lint override — `src/cli.ts` loads the server
   after flags reach the environment, and `src/server.ts` loads the SDK module
   graph only after ownership validation.
-- `src/web/client/*` is bundled by esbuild and may import `@core/*`; anything it
-  imports must run in a browser (no Node, no SDK). `main.ts` is the client
-  bundle entry point.
-- Anything a page can do without script does: the workspace menu is a native
-  `popover` anchored in CSS, and the subagent fold and the extension widget
-  panel are `<details>` elements the server fills on demand.
+
+Conventions lint does not check:
+
+- One escaper: `escapeHtml` in `src/core/html.ts`. Views, the ANSI converter,
+  and the client bundle all build markup from untrusted text, and a second
+  escaper is how one of them ends up missing an entity.
+- `src/web/client/*` is bundled by esbuild for the browser, with `main.ts` as
+  its entry point. It may import `@core/*`, but nothing it imports may need
+  Node.
+- Anything a page can do without script does: the top-bar panels and the
+  workspace menu are native popovers anchored in CSS, and the subagent fold is a
+  `<details>` element the server fills on demand. The extension widget panels
+  are a scripted toggle, because the stream replaces the shelf: the client
+  bundle keeps the open panel per session and follows the server's default until
+  the reader picks.
 - Web-owned settings, push state and worktree mappings live under
   `<agentDir>/web-pi/`. Read `docs/deployment.md` before changing their cutover
   or reset behavior. Never let a test or unattended check reach the real store:
@@ -135,10 +144,10 @@ changes follow the established Settings patterns, not a blanket redesign.
 - Runtime depth, gutter widths, measured bounds, rail positions, keyboard
   viewport values and arbitrary ANSI colors may use narrow inline values or
   custom properties. Keep their surrounding static styling in CSS.
-- `base.css`, `globals.css` and `web-pi.css` own reset, tokens, fonts and global
-  browser/HTMX concerns. `settings.css` owns Settings/config components;
-  `areas/shell.css` owns shell and shared dialog actions; the sidebar, composer
-  (including extension shelf), files and transcript each own their area file.
+- `base.css` and `globals.css` own reset, tokens, fonts and global browser
+  concerns. `settings.css` owns Settings/config components; `areas/shell.css`
+  owns shell and shared dialog actions; the sidebar, composer (including
+  extension shelf), files and transcript each own their area file.
   `code-theme.css` owns the syntax highlighting palette that transcript code
   blocks and the file viewer share. Move component rules to their owner rather
   than adding fallback layers. Keep the explicit cascade in `index.css`.
@@ -150,8 +159,8 @@ changes follow the established Settings patterns, not a blanket redesign.
   sizes, including affected breakpoints, overflow, focus/disabled states and
   HTMX/SSE updates. Fixture screenshots need visual inspection; snapshots and
   happy-dom do not prove pixel preservation.
-- Icons come from `src/web/views/icons.tsx`, which holds every SVG pi-web draws.
-  Add one there, copied from pi-web, rather than inline in a view.
+- Icons come from `src/web/views/icons.tsx`, which holds every SVG icon web-pi
+  draws. Add one there, copied from pi-web, rather than inline in a view.
 - An HTMX swap has to replace a whole owner subtree (`.chat-transcript`,
   `.session-row`, `#file-panel`): pi-web's CSS keys on container relationships,
   and a partial swap breaks them silently.
@@ -162,8 +171,11 @@ accounting. Shell commands run with a sanitised environment; read
 
 Every file request goes through `authorize` in `src/core/workspace/deps.ts`; add
 a root through the allowed-root flow there, never a check in a route handler.
-Read `docs/behavior.md` before changing file behavior and `docs/worktrees.md`
-before changing folder selection or worktree discovery.
+The one stated exception is `@` path completion: it lists names, never contents,
+from the directory a query names, filtered lexically to the folder. Read
+`docs/behavior.md` before changing file behavior (its "Files and Git" section
+describes that exception) and `docs/worktrees.md` before changing folder
+selection or repository grouping.
 
 ## Validation
 
@@ -178,14 +190,18 @@ before changing folder selection or worktree discovery.
   fails, append `--reporter=agent` to `just test-one`, or run
   `AI_AGENT=pi just qa`. Preserve failure diagnostics; do not silence or
   truncate test output.
-- Tests that write session files build them with `SessionManager` in a `mkdtemp`
-  directory and pass that as the agent directory. A test that loads skills or
-  starts a session goes through `tests/adapters/temp-agent.ts`, which also
-  points `HOME` at the temp root: the SDK reads `~/.agents/skills` from `HOME`
-  whatever agent directory it is given.
+- `tests/global-setup.ts` points `HOME`, the XDG directories and
+  `PI_CODING_AGENT_DIR` at a temporary directory before any worker starts, so no
+  test run reaches the developer's home. Tests that write session files build
+  them with `SessionManager` in a `mkdtemp` directory and pass that as the agent
+  directory. A test that loads skills or starts a session goes through
+  `tests/adapters/temp-agent.ts`, which also points `HOME` at the temp root: the
+  SDK reads `~/.agents/skills` from `HOME` whatever agent directory it is given.
 - `tests/client` mounts the markup a view renders and dispatches DOM events at
   the client module; `setup.ts` fakes htmx and undoes every listener after each
   test. happy-dom has no layout, so a test that needs geometry sets it.
+- `just coverage` measures `src/` only, and code that runs in the browser realm
+  of `tests/web/htmx4-browser.ts` does not appear in it.
 - Add or update the nearest test for changed behaviour; assert on rendered
   output or port behaviour, never on source text.
 - `just build` writes `dist/` and the built assets; `just smoke` builds, packs

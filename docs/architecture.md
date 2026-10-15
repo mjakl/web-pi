@@ -1,924 +1,665 @@
 # Architecture
 
-## Problem
+The server owns the conversation. Pi's session files and the live `AgentSession`
+are the only conversation state; the browser shows HTML the server rendered and
+keeps only drafts and presentation preferences. A second copy of the
+conversation in the browser would have to be reconciled with the server's
+through deltas, snapshot merges and recovery polling, and every derived number,
+such as context usage, would be computed on both sides. Here a page load, an
+HTMX response and a stream frame all render the same views from the same server
+state.
 
-pi-web (Next.js + React) keeps a second copy of the conversation in the browser
-and reconciles it against the server with a three-layer protocol (deltas,
-snapshot merges, polling recovery). Context usage was computed in five places
-with three estimators. Every screen needed both a React component and an API
-route.
+[Behavior](behavior.md) describes what the reader sees; this document describes
+how it works and why.
 
-web-pi removes the browser copy. Pi's session JSONL and the live `AgentSession`
-are the conversation state; the browser shows whatever the server last rendered.
-Browser-local drafts and selections are separate from that model. General's
-appearance, token threshold, completion sound and system prompt addition are
-shared server settings.
+## Layers
 
-## Boundary and ports
+- `src/core` holds the rules and the ports. It may describe Pi's session format
+  with SDK types but never calls the SDK, Node or Hono.
+- `src/core/workspace/` is the inbound port. `createWorkspace(deps)` in its
+  `index.ts` composes one flat `Workspace` object from four use-case families
+  that never import each other: `sessions.ts` (the sidebar, a session's page,
+  and the edits Pi's `SessionManager` writes), `live.ts` (the running agent and
+  what only its entries can answer), `files.ts` (the file panel and `@`
+  completion) and `config.ts` (folder choice, `/new`, trust, skills, packages).
+  `deps.ts` holds what several families need: session lookup and decoration,
+  folder availability and `authorize`. `views.ts` defines what pages render.
+- The outbound ports are the fields of `WorkspaceDeps` in
+  `src/core/workspace/deps.ts`. Their types live in `src/core/ports.ts`, apart
+  from `WebSettingsStore` in `src/core/web-settings.ts`. `src/adapters`
+  implements them with the Pi SDK, the file system and Git, and the fake world
+  in `src/adapters/fake/index.ts` implements every one in memory for the web
+  tests and `WEB_PI_RUNTIME=fake`.
+- `src/web` holds the Hono routes, the JSX views and the client bundle, each
+  split into one module per area of the screen (shell, sidebar, transcript,
+  composer, files), so work on different areas does not collide. Hono matches on
+  the path, so the order in which `src/web/app.tsx` registers the route modules
+  carries no meaning. The web layer talks only to `Workspace`.
+- `src/container.ts` is the composition root, the only file outside
+  `src/adapters` that imports adapters.
 
-Internal interfaces, all consumers in this repository. Defined in
-`src/core/ports.ts`:
+`AGENTS.md` lists the import rules that oxlint enforces.
 
-| Port               | Purpose                                                                                                                             | Adapter                              |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `SessionCatalog`   | Discover priority-certified roots or complete delegation trees; exact classification; non-writing snapshots; row metadata and edits | `src/adapters/pi/session-catalog.ts` |
-| `AgentRuntime`     | Open or resume a `LiveSession`; list the open ones; watch every session's lifecycle                                                 | `src/adapters/pi/agent-runtime.ts`   |
-| `LiveSession`      | `snapshot()`, `prompt()`, `abort()`, `commands()`, `compact()`, `clearQueue()`, `runBash()`, `navigateTree()`, `subscribe()`        | same                                 |
-| `ModelCatalog`     | Extension-aware models from a folder preparation or the named session, with Pi scope, thinking and diagnostics                      | `src/adapters/pi/model-catalog.ts`   |
-| `ProjectResolver`  | The repository a working folder belongs to, and its branch                                                                          | `src/adapters/pi/projects.ts`        |
-| `ProjectResources` | Prompt templates and skills of a folder, without starting an agent                                                                  | `src/adapters/pi/resources.ts`       |
-| `Files`            | The `@` completion index, directory listings, file bytes and text, shell-output captures                                            | `src/adapters/fs/file-tree.ts`       |
-| `Git`              | `git status` of a folder and the patch for one file                                                                                 | `src/adapters/git/git.ts`            |
-| `Watcher`          | One file's changes on disk, deduplicated                                                                                            | `src/adapters/fs/watch.ts`           |
-| `PushNotifier`     | VAPID identity, per-browser enrollment, app-wide foreground leases, completion grace period and durable away-broadcast admission    | `src/adapters/pi/web-push.ts`        |
+`LiveSession` is the deep module: the SDK's event choreography (partial
+messages, compaction, retries, the queue, extension notices) stays inside the
+adapter, and callers read a `snapshot()` and receive four events: `activity`,
+`turn_done`, `completed` (see [Notifications](#notifications)) and `stopped`.
+`AgentRuntime.subscribeAll` reports every live session's lifecycle as `opened`,
+`started` (the session became busy, not every token), `finished` (a turn ended),
+`completed` and `stopped`.
 
-`WebSettingsStore` in `src/core/web-settings.ts` owns shared General
-preferences; `src/adapters/fs/web-settings.ts` persists them. All standalone
-web-owned state lives in `<agentDir>/web-pi/`: `settings.json`, `push.json` and
-`worktree-projects.json`. Pi configuration and session files stay outside that
-folder. [Deployment](deployment.md#web-state-cutover-and-reset) owns the
-one-time legacy-file cutover, reset procedure and rollback limitations.
+## Rendering a session
 
-General's system prompt editor replaces only web-pi's Markdown rendering note.
-An absent or null `systemPromptAddition` uses the unchanged built-in note; a
-string replaces it verbatim, including an empty string to omit the addition.
-Reset to default saves null. The Pi adapter captures the effective addition when
-preparing services and preserves the loader's other appended instructions and
-Pi's base prompt. New and stopped-and-reactivated sessions read the saved
-setting; active runtimes retain their captured addition through `/reload` and
-browser refresh. Saving does not interrupt a turn or restart a session.
+`SessionView` carries the settled conversation (`items`), the current turn
+(`turn`), `settledCursor` (the last settled raw entry, empty at the root), the
+live `status`, context `usage` and the model choices. History and the current
+turn come from one snapshot: the runtime moves the turn boundary to the end of
+the branch when a run settles, so the two never overlap. Pages, HTMX responses
+and stream frames reuse the same views.
 
-Saved external conversations use a separate read-only observation path. A
-mounted page checks `GET /sessions/:id/saved` every two seconds while visible,
-pauses when hidden, and checks immediately on return. Each page owns at most one
-request; navigation, pagination and disposal cancel or suspend it. Nothing
-observes unopened transcripts. The catalog stats the known path first and parses
-only a changed file, using size, mtime, ctime, device and inode for its
-revision. Saved reads never open a runtime, call a model, or repair, migrate or
-write the source. Incomplete or unstable snapshots and missing observed entries
-retain the last displayed history.
-
-The observation cursor carries the last checked revision, observed branch tip
-and last content entry separately. Parent links advance that branch even when
-later file entries belong to a sibling; the file's current leaf cannot switch
-the mounted view. If competing continuations arrive between checks, observation
-advances along their shared path and holds at the ambiguous fork rather than
-choosing a child. Reload or navigation may select the current saved branch. The
-content entry must remain on that branch: rewinds can preserve and reparent
-metadata tips while deleting the messages before them. The oldest loaded entry
-bounds a full-window projection, so saved tool results can update an existing
-assistant card without discarding earlier loaded pages. The browser morphs
-canonical message and rail HTML, not a second transcript model. Keyed
-disclosures and fetched bodies survive these updates. Readers at the tail
-follow; readers above it keep their anchor and get a “New messages” label on the
-existing jump control.
-
-Ordinary saved pages start session SSE only when web-pi acquires runtime
-ownership. The first ownership frame reconciles their loaded window before
-resuming the existing cursor protocol. A stopped runtime sends `web-pi:saved`
-with observation metadata and closes its stream; the mounted page resumes
-saved-only checks. A connection with no runtime owner makes the same handoff,
-including initial connections and reconnects that missed the stop. Live frames
-carry the rendered branch tip and last content entry alongside the live tail,
-separate from the settled transport cursor, plus an inert fragment for stopped
-controls. A missed-stop handoff clears owned status and extension UI without
-refreshing the model selector, even if saved history is unavailable. Recovery
-uses the rendered cursors, not the saved file's current branch, and clears the
-live tail only after an accepted saved reconciliation. Inspection-only children
-never make that handoff. These saved updates make no claim about external
-process activity or token streaming.
-
-`LiveSession` is the deep module: SDK event choreography (partial messages,
-compaction, retries, queue, extension notices) stays inside; callers only read a
-snapshot and receive `activity`, `turn_done`, and `stopped`.
-
-`runBash()` resolves when the session admits the command, before execution
-finishes, so a new session can expose its URL and Stop control immediately. The
-adapter owns the completion promise, reports later failures through notices, and
-saves real `bashExecution` entries before `turn_done`. Pi normally defers its
-first JSONL write until an assistant reply; shell-only sessions use pi-web's
-exclusive initial flush and then return to SDK appends. `!!` entries retain
-`excludeFromContext`; no assistant message is invented. Stopping a session
-aborts its shell and awaits settlement before disposal.
-
-`src/adapters/pi/session-services.ts` constructs the same trust-gated
-`AgentSessionServices` for discovery and startup. `AgentRuntime` owns a bounded
-cache of at most four unbound folder preparations. Ordinary page renders reuse a
-preparation; startup removes it synchronously before awaiting it, validates the
-chosen model against its registry, and passes it to
-`createAgentSessionFromServices()`. Independent sessions never share a bound
-loader, extension callbacks, queued images or mutable provider registry.
-Inactive saved-session model enrichment uses a folder preparation without
-opening the transcript with a writable manager. Live queries name the exact
-session and use its services, not another runtime from the same folder.
-
-Preparation loads allowed extension factories and may install missing configured
-packages through Pi. It is not inert metadata discovery. Project settings start
-disabled; the existing saved-trust adapter decides whether project resources
-load. Unbound services have no general dispose lifecycle: eviction and
-invalidation drop references, never emit `session_shutdown`. Extensions must
-reserve long-lived resources for real session events. Providers must register
-from their factory to participate in discovery and startup; registrations
-deferred to `session_start` arrive after model selection.
-
-Each session's resource loader registers Pi's `codemode`, `tool-search`, and
-`mcp` as replaceable built-in extensions. The SDK owns their setting-based
-exclusions, user replacements, tool exposure, and per-session state. Existing
-extension binding emits `session_start`, which starts MCP connections.
-`PiLiveSession` owns one sequential lifecycle lane for initial binding, admitted
-resource reloads, and final shutdown. Reload emits shutdown before rebuilding.
-Stop immediately closes admission and extension UI, cancels completion tracking,
-and signals shell and turn cancellation before waiting for owned work. It
-rejects new prompts, shell commands, compaction, tree navigation, and reloads.
-It then awaits `session_shutdown` before SDK disposal and shares one completion
-promise across concurrent stops. Admitted reloads retain their individual
-results; a failed operation does not prevent final cleanup. Final shutdown
-follows the last start, so extensions cannot restart after disposal. A session
-stopped during initial binding is never registered as live; opening rejects with
-`Session stopped during startup.` Arbitrary extension work that ignores
-cancellation and does not await UI can still delay shutdown.
-
-Production chooses one process-wide agent directory with Pi's `getAgentDir()` in
-`loadConfig()` and passes it through the container. MCP independently uses that
-same upstream resolver. After the loader applies exclusions and replacements,
-the runtime checks that a loaded `builtin:mcp` agrees with its supplied
-directory. A mismatch rejects startup or reload before MCP can read
-configuration, credentials, or logs from a different directory. Disabled or
-replaced MCP does not impose this restriction. The runtime never swaps the
-process environment to support several directories. See
-[Codemode, tool search, and MCP](../README.md#codemode-tool-search-and-mcp) for
-settings and browser limitations.
-
-Settings → Models uses an explicit folder or selected session context and
-carries the displayed session identity through its form when one is selected. It
-lists the full `ModelRuntime.getAvailable()` catalog before `enabledModels`
-narrowing: built-in, configured and extension-provided models with credentials,
-not the unauthenticated registry. Availability is the SDK's credential check,
-not a provider request proving account access.
-
-Models edits only global `enabledModels` in `<agentDir>/settings.json` through
-Pi's `SettingsManager`. The terminal shares this pattern-based cycling scope;
-General's web-specific preferences remain separate. The editor reads global
-patterns, not the project-merged setting, and identifies trusted project
-overrides without writing them. Untrusted project settings remain unloaded.
-
-Absent or empty `enabledModels` means all available models, including future
-models. Opening Settings and saving an unchanged selection write nothing.
-Ordinary saves require at least one available selection. “Use all models”
-explicitly writes an empty array. With no available models, the controls are
-disabled and the saved configuration remains untouched. Nonempty unmatched
-patterns remain visible as unavailable entries and are retained by ordinary
-edits; they do not silently expose all choices.
-
-The Pi adapter owns pattern resolution and persistence. Unchanged wildcard and
-fuzzy patterns retain their spelling and reasoning pins. Excluding a match
-expands only its affected pattern into remaining current identities with their
-effective pins; that pattern then stops admitting future matches. Unavailable
-patterns remain, but diagnostic warnings on successfully resolved patterns do
-not classify them as unavailable. Generated patterns must round-trip through
-Pi's resolver to exactly the requested provider/ID pairs and preserved pins;
-ambiguous or unrepresentable identities are rejected. A stale form is rejected
-rather than overwriting a changed global model list. Pi's locked field-level
-write preserves unrelated external edits; load errors and drained write errors
-are surfaced, including failures swallowed by `flush()`.
-
-Model views re-read trusted Pi settings for each projection. Saving triggers an
-HTMX refresh of the mounted selector without rebuilding services or executing
-extension factories again. New-session, stored-session and live/SSE selectors
-read the effective scope from their corresponding registry. Running and stored
-sessions retain their current model even when it is removed from that scope; no
-save switches a conversation. Live reload delegates to Pi's `session.reload()`
-and subsequent model views read that session's refreshed registry and resource
-diagnostics.
-
-The model menu's default scope and new-session startup share SDK scope
-resolution. Startup applies the effective model and reasoning pin without
-passing them to `startupWrites` as user choices. Only deliberate overrides reach
-that unchanged persistence rule. A deliberate startup choice is validated
-against the full credential-available catalog, not the cycling scope. A matching
-scope pin still applies; otherwise Pi supplies the model's normal reasoning
-default. Missing or uncredentialed choices are rejected, never silently
-replaced. Project trust still gates project settings, and existing conversations
-retain SDK model/reasoning restoration.
-
-`src/core/workspace/` is the inbound port: `createWorkspace(deps)` in
-`src/core/workspace/index.ts` composes one flat `Workspace` object from four
-use-case families that never import each other —
-`src/core/workspace/sessions.ts` (the sidebar, one session's page, and the edits
-Pi's `SessionManager` writes), `src/core/workspace/live.ts` (the running agent
-and what only its entries can answer), `src/core/workspace/files.ts` (the file
-panel and `@` completion) and `src/core/workspace/config.ts` (folder choice,
-`/new`, trust, skills, packages). `src/core/workspace/deps.ts` holds the
-`WorkspaceDeps` ports and the internals more than one family needs (session
-lookup and decoration, folder availability, `authorize`), and
-`src/core/workspace/views.ts` the view types a page renders. Every route calls
-the workspace and renders the returned `SessionView`. The fake world in
-`src/adapters/fake/index.ts` implements every outbound port in memory; web tests
-and `WEB_PI_RUNTIME=fake` use it.
-
-## One rendering of UI state
-
-`SessionView` holds `items` (settled conversation), `turn` (the current turn,
-including the in-progress assistant message), `settledCursor` (the last settled
-raw entry ID, or empty at the root), `status`, `usage`, and `models`. Settlement
-moves the runtime boundary to the end of the branch. History and the live tail
-come from that same snapshot and never overlap. Page load, HTMX responses, and
-SSE events reuse the same views. Session reads are non-consuming by default. The
-SSE renderer opts into `consumePending` because it delivers notices and composer
-insertions. It captures and consumes the batch synchronously, before awaiting
-project or model enrichment. Events arriving during those awaits belong to the
-next delivery. Page loads, selectors, metadata, history fragments and alternate
-branch reads leave pending output for the session stream.
-
-The session stream sends unnamed HTML messages containing native HTMX 4
-`hx-partial` elements with explicit targets and swap modes:
-
-- `#messages` receives canonical items after the delivered settled cursor
-  (`beforeend`);
-- `#rail` receives the conversation rail out of band when its marks or branch
-  state change, including during a running turn; unchanged rails stay in place;
-- `#turn` receives the current turn (`innerMorph`), keyed by entry and tool-call
-  IDs. Partial assistant messages use their message timestamp until Pi assigns
-  an entry ID. Morphing ignores `open`, so disclosure choices survive changing
-  content. Completed ordinary tools and subagents send body placeholders, not
-  their arguments or results. Opening a card fetches its body through the same
-  endpoint used by stored turns. `hx-morph-skip` keeps both pending requests and
-  loaded bodies in place, including full output, selection and local scroll;
-- `#status` receives model, state, queue, compaction, and the context badge;
-- `#shelf` receives the extension status line and widgets (`outerHTML`), and
-  only when one of them actually changed, because it holds an open panel;
-- `#extension-dialog` receives the modal an extension is waiting on, and
-  `#custom-ui` the panel around a terminal component — both only when the
-  request itself changed, or a re-render would wipe what the reader typed;
-  `#custom-frame` inside the panel takes every new frame, so the keyboard stays
-  where it is;
-- `#toasts` receives notices (`beforeend`), and `#editor-insert` receives text
-  an extension put in the composer.
-
-Empty partials explicitly clear the current turn and closed extension UI. Named
-events carry semantic data in `event.detail.data`: `settled` follows the
-messages append and turn clear, and `done` carries the completed session ID.
-Client region effects use per-task `htmx:after:settle`, including OOB updates,
-rather than the request-source swap batch.
-
-The SSE endpoint coalesces activity into one re-render per 100 ms. Every render
-reconciles canonical history after the delivered cursor, then morphs the live
-tail and updates status in the same HTML frame. The initial stream URL carries
-the page's settled cursor. Each frame sets `id: settled=<cursor>`; the bundled
-extension returns it as `Last-Event-ID` on reconnect. Recovery covers any number
-of missed settlements without resending already delivered history, discarding
-older loaded pages, or replaying completion sounds and notices. The usual
-50-entry backwards pagination is unchanged; only missing entries after the
-cursor bypass the tail limit. This replaces the runtime's last-settled-turn
-slot, not the transport's retry policy.
-
-If a navigation or rewind removes that cursor from the active branch, the
-projection marks its fresh bounded page as a replacement. The stream replaces
-`.chat-body` through the same `Transcript` view used for initial pages,
-including its `#log`, pagination, live tail and rail column, and sends the
-matching status and fresh cursor. The old scroller's lifecycle is disposed,
-along with the old rail column's interaction state. Transcript cleanup aborts
-ordinary HTMX requests and rejects late responses from detached sources, so an
-old pagination request cannot insert the discarded branch again. Other
-projection failures show an error toast and end that stream instead of being
-mistaken for a missing cursor or followed by a completion notification.
-
-The core HTMX script is parser-blocking so it sees `readyState=loading` and
-initializes on `DOMContentLoaded`. The SSE extension stays deferred and the
-client stays a module; both finish before that event. Deferring core as well
-would let its initialization timer run before a delayed extension registers,
-leaving the first stream without a trigger.
-
-The bundled SSE extension has `pauseOnBackground: false` so hiding a tab does
-not introduce additional disconnects. The client starts each owner through its
-native `web-pi:sse-start` trigger after installing failure handlers. Before the
-first SSE connection, network failures and HTTP 408, 429, 500, 502, 503, and 504
-get five retries, delayed by 500, 1,000, 2,000, 4,000, and 8,000 ms. Other
-non-SSE responses or six failed attempts show a toast asking the reader to
-reload. Removing an owner cancels its pending startup; after connection, the
-bundled extension alone handles reconnection. Ordinary requests retain the
-previous unlimited timeout for compaction and package actions. Inherited 4xx/5xx
-no-swap rules preserve error toasts without replacing the requested region.
-
-A second stream, `GET /events`, belongs to the global sidebar rather than one
-session or project. Opening, starting a turn, finishing and stopping replace the
-sorted first 50 root subtrees through `hx-partial`. Adaptive delegation
-discovery certifies the root prefix before pagination; transcript bodies are not
-retained for the list. The runtime announces `started` only when it becomes
-busy, not for every token. A named `finished` event carries the session id,
-which the browser records as an unread dot in `localStorage`, including for rows
-that have not loaded yet. The list and its small `#sidebar-events` owner live in
-`#session-nav` and survive conversation and directory navigation. No cookie or
-query scopes the stream. Row selection is projected from the displayed `main` on
-processing and settlement, including paginated rows, star responses and stream
-updates.
-
-The browser also refreshes the list every 30 seconds while visible, on sidebar
-SSE connection or reconnection, and on visibility return or window focus. Return
-and connection events share a 100 ms coalescing window. Automatic and
-lifecycle-requested refreshes use the list-only `/sidebar/rows` path, leaving
-the sidebar stream owner in place. List refreshes are single-flight, with at
-most one pending automatic follow-up. Automatic refreshes yield to an in-flight
-manual refresh, which already refreshes the list; manual refresh shares the
-sidebar's HTMX request queue and retains its existing navigation replacement.
-Hiding the document removes the polling clock and cancels scheduled automatic
-work. This discovers external sessions only after Pi persists them in the
-configured session directory; it does not infer external live status or change
-pagination.
+Reading a session does not consume its pending notices or the text an extension
+put in the composer; only the session stream does (`consumePending`), because it
+is what delivers them. It takes them before awaiting project or model
+enrichment, so anything that arrives meanwhile goes out with the next frame.
 
 `src/core/transcript.ts` projects one branch into items, and `src/core/turns.ts`
-groups those items into turns, pages them, and writes the activity line. Every
-transcript fragment — a page load, an earlier page, the settled turn appended to
-the log, the running turn — renders through the one `Items` view, which
-`src/web/views/Items.tsx` re-exports from `src/web/views/transcript/`: one
-module per item kind (`user.tsx`, `assistant.tsx`, `tools.tsx`, `subagent.tsx`,
-`notes.tsx`), `shared.tsx` for what they all use (Markdown, the copy button,
-times, images, history actions) and `turns.tsx` for the grouping, the pages and
-the running turn. `tests/web/transcript-items.test.tsx` checks rendered
-behavior: source-copy and action permissions, escaping, stable identities,
-disclosures and lazy-body limits. The running turn renders flat and everything
-else renders grouped.
+groups them into turns, pages them and writes the activity line. Every
+transcript fragment renders through `Items`, which `src/web/views/Items.tsx`
+re-exports from `src/web/views/transcript/`: one module per item kind
+(`user.tsx`, `assistant.tsx`, `tools.tsx`, `subagent.tsx`, `notes.tsx`),
+`deferred-tool.tsx` for tool bodies fetched on demand, `shared.tsx` for what
+they all use, and `turns.tsx` for grouping, pages and the running turn. A
+running turn renders flat; everything else is grouped into turns.
+`src/core/session-entries.ts` derives what raw entries imply: starred answers,
+statistics and active time, the path to a branch tip, and a sidebar row's
+summary. Adapters hand the core entries; no core rule reads a file.
 
-`src/core/session-entries.ts` derives everything a session's raw entries imply:
-starred answers, statistics and active time, the tip of every branch, and the
-sidebar row summary. The catalog hands the core entries; no rule reads a file.
+### Pages and deferred bodies
+
+A page holds the last 50 session entries of a branch. It counts entries, not
+cards, because one card can stand for several entries (a tool call and its
+result), and it may begin mid-turn. A sentinel with
+`hx-trigger="intersect once"` swaps itself for the page before it, and the
+client keeps the distance to the bottom so the text does not move.
+`through=<entryId>` widens a page until that entry is on it.
+
+Long sessions are mostly reasoning, so once a page holds 20,000 characters of
+thinking, older thinking blocks are sent as placeholders that fetch their text
+when opened. The running turn applies the same budget to its finished messages,
+never to the partial one, which has no entry to fetch from yet.
+
+Completed tool calls send a body placeholder, never their arguments or result,
+in pages, stored turns and live frames alike. Opening a card fetches
+`GET /sessions/:id/entries/:entryId/tool-result/:callId`, which cuts ordinary
+tools to the [limits in Behavior](behavior.md#sessions-and-conversation), with a
+button for the rest, and renders a subagent's results in full. An open card
+fetches by itself when its running call completes. Body requests do not consume
+pending notices. `hx-morph-skip` keeps pending requests and loaded bodies
+through later morphs, and HTMX drops a duplicate request while one is pending.
+
+The conversation rail is server-rendered from all of the session's entries, not
+from the page, so paging never changes it; it keeps at most 400 marks, dropping
+the oldest. `src/core/conversation-rail.ts` lays out the active path, lanes,
+rows and the target leaf of each lane, and the view positions marks with
+`calc()` against the rail's own height, so the server needs no measurement of
+the reader's viewport. `src/web/client/rail.ts` measures the transcript for the
+active mark, the hover preview and press-and-drag, and reaches a mark the page
+has not loaded through the "load earlier" sentinel with `through=`.
+
+### The session stream
+
+`GET /sessions/:id/events` is one SSE stream per open session page. Its unnamed
+messages are HTML built from HTMX 4 `hx-partial` elements, each naming its
+target and swap. Runtime `activity` is coalesced into one render every 100 ms,
+and `turn_done` renders at once. Each render sends one frame with
+`id: settled=<cursor>`:
+
+- `#messages` gets the settled items after the cursor the stream last delivered
+  (`beforeend`).
+- `#turn` gets the current turn (`innerMorph`), keyed by entry and tool-call
+  IDs; a partial assistant message is keyed by its timestamp until Pi gives it
+  an entry ID. While a turn runs, its finished messages come first: everything
+  before the first message still in flight (the partial message, a running shell
+  command, or a message waiting for tool results). The rest sits in
+  `#turn-live`. The stream remembers which finished messages it sent, and while
+  the same run goes on and the cursor stays put, a frame sends only the newly
+  finished messages and morphs `#turn-live` (`outerMorph`), so frames do not
+  grow with the run. The first frame of a connection, a moved cursor, a replaced
+  transcript, and a turn that starts or stops morph the whole of `#turn`.
+  Morphing ignores `open`, so disclosure choices survive.
+- `#rail` gets the conversation rail when its marks or branch state changed.
+- `#status` gets model-scope warnings, the queue, retry and compaction notes,
+  the running state and an extension's title; the context readout and the
+  compact button follow out of band. The model selector is re-sent only when its
+  choices changed, because it may hold an open menu.
+
+Then, each only when it changed, because each may hold what the reader is doing:
+`#shelf` (the extension status line and widgets, `outerHTML`),
+`#extension-dialog` (the dialog an extension waits on), `#custom-ui` (the panel
+around a custom UI, when the request changes) and `#custom-frame` (each new
+frame inside it). Text an extension puts in the composer goes to
+`#editor-insert`, and notices go to `#toasts` (`beforeend`). Empty partials
+clear the turn and closed extension UI.
+
+Named events carry their data in `event.detail.data`: `settled` (the session ID)
+follows a frame whose cursor moved or that ended a turn; `done` (the session ID)
+follows a completed run; `web-pi:saved` hands the page back to saved observation
+(below). Client effects that depend on a region run on per-task
+`htmx:after:settle`, which also fires for out-of-band updates.
+
+The stream URL carries the page's settled cursor (`after=`). The SSE extension
+returns the last frame's `id` as `Last-Event-ID` when it reconnects, and the
+stream sends every settled entry after that cursor, however many settlements
+were missed, without resending delivered history or replaying sounds and
+notices; only those missing entries bypass the 50-entry page. If navigation or a
+rewind took the cursor off the active branch, the stream replaces `.chat-body`
+with the same `Transcript` view a page load renders (log, pagination, live tail
+and rail) and a fresh cursor. Disposing the old scroller aborts its HTMX
+requests and rejects their late responses, so an old pagination request cannot
+bring the discarded branch back. Any other render failure shows an error toast
+and ends the stream.
+
+The core HTMX script is parser-blocking, so it sees `readyState=loading` and
+initializes on `DOMContentLoaded`; the deferred SSE extension and the module
+client have run by then. Deferring the core as well would let its initialization
+run before a late extension registered, leaving the first stream without a
+trigger. The extension runs with `pauseOnBackground: false`, so a hidden tab
+adds no disconnects. It reconnects only after a first successful SSE response,
+so `src/web/client/sse.ts` starts each stream itself, through the
+`web-pi:sse-start` trigger, after installing its failure handlers: network
+failures and HTTP 408, 429, 500, 502, 503 and 504 are retried after 500, 1,000,
+2,000, 4,000 and 8,000 ms, and any other response or a sixth failure shows a
+toast asking the reader to reload.
+
+### Saved sessions and handoff
+
+A page whose session no web-pi runtime owns, including every inspection-only
+subagent, observes the saved file instead of a stream. While visible it asks
+`GET /sessions/:id/saved` every two seconds, pauses while hidden and asks at
+once on return, with at most one request per page. The catalog stats the known
+file and parses it only when its revision (size, mtime, ctime, device and inode)
+changed. Saved reads never open a runtime, call a model, or repair, migrate or
+write the file, and an incomplete or unstable read keeps the displayed history.
+
+The observation cursor carries the last revision, the observed branch tip and
+the last content entry. Parent links advance that branch even when later entries
+belong to a sibling, and when competing continuations arrive between checks,
+observation advances along their shared path and stops at the fork rather than
+choosing a child. The content entry must stay on the branch, because a rewind
+can keep metadata tips while deleting the messages before them. The browser
+morphs canonical message and rail HTML, so keyed disclosures and fetched bodies
+survive.
+
+When web-pi starts a runtime for such a page, the page connects the session
+stream with `saved=1` and `through=` its oldest loaded entry, and the first
+frame morphs its whole loaded window: an append-only cursor cannot account for a
+tool result added to an existing card. When the runtime stops, or a connection
+finds no runtime (a first connection or a reconnect that missed the stop), the
+stream sends `web-pi:saved` and closes, and the page returns to saved checks
+from the branch it rendered, not the file's current one. Live frames carry that
+branch tip and content entry, with a template that clears status and extension
+UI when a stop was missed. Inspection-only sessions never hand off.
+
+### The sidebar
+
+`GET /events` is the global session list's stream. On `opened`, `started`,
+`finished` and `stopped` it re-renders the list's first page through
+`hx-partial`; a render that has not started yet covers every event queued before
+it, so a burst of events costs one scan of the store. Named `finished` and
+`completed` events carry `{"id": …}`: the browser marks a finished session
+unread in `localStorage`, including rows it has not loaded, and plays the
+completion tone for another session's `completed`, since the session on screen
+already rang through its own `done`. The list and its stream owner live in
+`#session-nav` and survive conversation and folder navigation.
+
+The browser also refreshes the list every 30 seconds while visible, when the
+stream connects or reconnects, and when the page becomes visible or focused,
+with one 100 ms window for those. Refreshes request `/sidebar/rows`, which
+leaves the stream owner in place, and run one at a time with at most one
+waiting. That is how sessions written by another process appear, once Pi has
+written them to the session directory.
+
+The list is a global tree of delegations, paged because a real store of about
+2,750 sessions in 256 folders made every page 3 MB when it shipped every row.
+`src/core/session-tree.ts` groups persisted delegation origins across folders.
+Each sibling subtree sorts by its most urgent member (running, then live, then
+stored), then its newest member's mtime, then ID; a row's own timestamp and
+status never inherit its descendants'. Roots come 50 at a time, and children
+load in pages of 50 when expanded. A selected session's off-page ancestor is
+included on the first page and left out of later pages.
+
+Every sidebar request lists and stats every session file; a header is read again
+only when its file is new or was replaced (another inode), and concurrent
+requests share one listing. Header IDs, not file names, identify sessions and
+delegation parents. Root discovery classifies known runtimes and the selected
+session's ancestry first, resolves each candidate's ancestors, and stops once
+timestamp intervals prove the first `offset + 50` roots and one more root for
+the next-page cursor. Duplicate IDs, timestamp ties and short pages can require
+classifying every file; there is no fixed cutoff and no background index.
+Classification reads to the end of the file or uses a cache stamped with the
+file's revision, and a scan keeps a snapshot of that cache from its start, so
+early misses cannot evict later hits. The order is certified against the
+revisions seen, not an atomic snapshot: changed or unreadable files are left out
+and reconciled by later refreshes. Counts of children can miss older or
+late-arriving edges, which is accepted rather than adding checking controls.
+Expanding a row classifies the sessions created no earlier than its parent,
+through to the end of each file, so its child pages are exact.
+
+A delegation origin is a `pi-subagent:delegation` custom entry
+(`{version:1, childSessionId, parentSessionId, agent, handle}`) and belongs only
+to the session whose header ID equals `childSessionId`; copies in forks and
+parent-seeded children establish nothing. Conflicting, malformed and
+self-referencing claims create no edge, all edges of a cycle are dropped, and a
+child must not be older than its parent by header timestamp, so clock rollback
+or an imported future-dated parent loses the edge without changing any file.
+Pi's own `parentSession` never creates a delegation edge. A child whose parent
+is missing becomes a root with its descendants.
+
+Delegated sessions are inspection-only. A session with an own-ID origin claim,
+even a malformed one, or a legacy `subagent.*` ID is read-only, and the
+workspace refuses every mutation, runtime attachment, extension input and
+runtime-starting panel for it, whatever the request. Its pages read catalog
+snapshots, never a runtime. Unreadable or unstable classification never admits a
+writer; a missing file is usable only by a runtime web-pi already owns, whose
+first reply may not be on disk yet.
+
+## The browser
+
+`src/web/client/main.ts` is the entry of the one client bundle besides htmx,
+built into `static/client.js` and loaded as a module with a content hash in its
+URL. It imports one module per screen area (shell, sidebar, transcript,
+composer, files) and four that serve every page: request fields (`htmx.ts`),
+stream startup (`sse.ts`), navigation, and foreground presence for push
+(`push-presence.ts`). The cached offline page loads the same bundle and runs
+only the presence reporter. The only inline script reads the theme in `<head>`,
+because it has to run before the first paint.
+
+Stateful regions mount through `setUpRegion` in `client/lifecycle.ts`, keyed by
+their owner element, on the first load and on HTMX's `after:process`. Replacing
+an owner aborts its listeners, requests and timers. HTMX emits cleanup only for
+elements it powers, so processing and settling also dispose of owners that left
+the document; swaps inside an owner keep its state.
+
+Server-rendered `<dialog open>` elements show without script, and
+`client/dialogs.ts` upgrades them with `showModal()` for the backdrop, focus
+trap and top layer. It removes `open` before `showModal()` instead of calling
+`close()`, whose queued `close` event would remove the dialog again. The
+extension shelf's widget panels are a scripted toggle, because the stream
+replaces the shelf whenever its status line or a widget changes: the client
+keeps the open panel per session and follows the panel the server opens until
+the reader picks one.
+
+General's settings are shared and stored on the server. The server renders the
+`light`, `dark` or `auto` preference on `<html>`, the pre-paint script applies
+it, and `client/theme.ts` follows the operating system for `auto`. The client
+applies confirmed writes and reloads the settings when focus or visibility
+returns.
+
+### Navigation and drafts
+
+Session links replace `#session-region` (the top bar, the stream owner and the
+composer) and keep the sidebar and file panel; the same views render that region
+for HTMX and the whole shell for a direct load. Changing folders refreshes the
+explorer's context, never the session list or its stream. HTMX owns URL pushes,
+`HX-Location` after creating a session or choosing a folder, and history
+restores.
+
+The displayed session and folder live on `main` (`data-session-id`, `data-cwd`).
+Every HTMX request names them in `X-Web-Pi-Session` and `X-Web-Pi-Cwd`, the
+folder percent-encoded because a header cannot carry characters above U+00FF; a
+full page load falls back to its referrer and the `web-pi-session` cookie. A
+navigation cancels the one before it, and responses for an older navigation or a
+departed page are rejected, including their `HX-Trigger` headers, which HTMX
+would otherwise still fire. The `web-pi-session` and `web-pi-cwd` cookies are
+written only once a winning response is on screen, so a cancelled response
+cannot change them.
+
+A draft belongs to a session, or to `new:<cwd>` until the server names the new
+session. `client/drafts.ts` saves its text and selected skills to `localStorage`
+300 ms after a change, on `pagehide` and when its composer unmounts; images stay
+in the page's memory. A submission clears only what it sent (the text's version,
+the skills it carried, the images' generation), so edits made while it was
+pending survive, and nothing is resent automatically. Fork and rewind put the
+restored request in the composer with a marker that wins over the stored draft,
+even when the request's text is empty.
+
+The composer's rules live in `src/core/composer.ts`, which the client bundle
+imports: slash ranking, `@` queries and fzf ranking, insert text, history
+cycling and attachment limits run in the browser where a round trip would be
+felt and are unit-tested on the server. The `@` menu and shared settings use
+JSON endpoints, since a keystroke cannot wait for a rendered fragment;
+everything else the composer opens is server-rendered HTML.
+
+## The Pi runtime
+
+### Folder preparations
+
+`src/adapters/pi/session-services.ts` builds the trust-gated
+`AgentSessionServices` a session in a folder would get, and keeps unbound
+preparations for the four most recently used folders. Page renders, a stopped
+session's slash menu and model listings reuse them without starting a session.
+Starting a session claims its folder's preparation, removing it from the cache
+before the first await, so independent sessions never share a bound loader,
+extension callbacks, queued images or a mutable provider registry. Live queries
+use the services of the session they name, never another runtime in the same
+folder.
+
+A preparation is not inert: it loads the allowed extension factories and may
+install missing configured packages through Pi. Project settings start
+untrusted, and Pi's saved trust decides whether project resources load. Dropping
+a preparation never emits `session_shutdown`, so extensions must keep long-lived
+resources for real session events, and providers must register from their
+factory to take part in discovery and startup; one registered at `session_start`
+arrives after the model was chosen.
+
+A preparation is rebuilt when its inputs change: the content of `auth.json`; the
+stamps of `models.json`, `trust.json` and the folder's `.pi/settings.json`; the
+global settings other than model preferences; and the web system-prompt
+addition, which is captured when the preparation is built. Model preferences are
+re-read without a rebuild, so they never run extension factories again, and Pi
+creating an empty `auth.json` changes nothing. Trust grants, skill and package
+changes and explicit reloads drop the preparations they affect, which for a
+skill toggle, a global skill or a user-scope package is all of them. None of
+this restarts a running session.
+
+Every preparation registers Pi's `codemode`, `tool-search` and `mcp` as
+replaceable built-in extensions and replaces the agent's `bash` tool with one
+that runs in the project's environment
+([ADR 0001](adr/0001-project-command-environment.md)). MCP reads Pi's
+process-wide agent directory, which `loadConfig()` also takes from
+`getAgentDir()`. After exclusions and replacements, a loaded `builtin:mcp` must
+agree with the runtime's agent directory, or startup and reload fail before MCP
+can read another directory's configuration or credentials. The runtime never
+swaps the process environment to serve several directories.
+
+### Live sessions
+
+`PiLiveSession` runs initial extension binding, admitted resource reloads and
+final shutdown through one sequential lane, so extensions cannot start again
+after disposal; a reload emits `session_shutdown` before rebuilding. Stop closes
+admission and extension UI at once, cancels completion tracking and signals the
+shell and the turn to abort, then waits for that work, emits `session_shutdown`
+and disposes the SDK session. Concurrent stops share one promise, and a failed
+operation does not skip the cleanup. A session stopped during its initial
+binding is never registered, and its open rejects with
+`Session stopped during startup.` Extension work that ignores cancellation and
+does not await UI can still delay a stop. `AgentRuntime.open` locks a session
+before its first await, so two concurrent opens cannot start two writers on one
+file, and reopens a stopping session only after its stop finished; a stop that
+has not finished within 10 seconds (`stopsInTime` in `src/core/sessions.ts`)
+fails the open with `Cannot reopen a session that is still stopping.` Delete,
+rewind and Stop likewise wait for a stop already under way, with the same limit,
+before they touch the file; when it runs out they fail with
+`This session is still stopping. Try again once it has stopped.` The workspace
+runs deletes, rewinds and its runtime opens of the same session one at a time,
+in the order they arrive (`serialised` in `src/core/workspace/deps.ts`), so no
+runtime loads a file that is about to be rewritten or writes one that was
+removed; an open queued behind a delete fails as for an unknown session. Server
+shutdown stops every live session the same way.
+
+`runBash()` resolves when the session admits the command, before it finishes, so
+a new session can show its URL and Stop control at once; later failures arrive
+as notices. Pi writes a new session's file once it holds a user or assistant
+message, so for a session that has only run shell commands the adapter creates
+the file itself before `turn_done` and then leaves appends to the SDK. `!!`
+entries keep `excludeFromContext`, and no assistant message is invented.
+
+### Models
+
+Settings → Models lists `ModelRuntime.getAvailable()`, every model with
+credentials, before `enabledModels` narrows it.
+`src/adapters/pi/model-settings.ts` owns pattern resolution and writes only the
+global `enabledModels`, through Pi's `SettingsManager`, whose locked field-level
+write keeps unrelated edits. Load and write errors are reported, including those
+`flush()` records instead of throwing. Unchanged wildcard and fuzzy patterns
+keep their spelling and reasoning pins. Excluding a model expands only the
+patterns that matched it into the remaining exact identities, which then stop
+admitting future matches. A generated list must resolve back to exactly the
+selected models and pins, or the save is refused, and so is a form whose
+patterns no longer match the file. Model views read Pi's settings for each
+projection, so a save refreshes the selectors without rebuilding services.
+
+The model menu's default scope and new-session startup share Pi's scope
+resolution. Startup checks an explicit model against every credentialed model,
+not just the cycling scope, applies a matching scope pin or Pi's default
+reasoning, and refuses a missing model instead of replacing it. `startupWrites`
+in `src/core/models.ts` then writes the choice as Pi's default only when the
+session really started on that model, and the reasoning level unless it was
+clamped to `off` on a model that cannot reason. The session is constructed with
+the choice, and `setModel` is never called again: a second call would append a
+duplicate session entry and a duplicate extension event.
 
 ### Context usage
 
-`src/core/context-usage.ts` is the only formula: Pi's context count, the model's
-window, a percent, and the thresholds. Context is critical at **75%** of the
-model window. Below that, it warns at the shared token threshold (pi-web's "dumb
-zone", **100,000** by default). There is no percentage-based yellow warning;
-critical takes precedence over the token threshold. General saves the positive
-safe integer in `web-pi/settings.json`. Page, statistics and live-stream renders
-read the current shared value, never the old `web-pi-warn-tokens` cookie. The
-badge and compaction button use the same formula.
+`src/core/context-usage.ts` is the only context formula: Pi's context count, the
+model's window, a percentage and the warning level. The badge, the compact
+button, statistics and stream renders all use it with the current shared
+threshold. After compaction, Pi withholds its count until a new answer reports
+usage; meanwhile the runtime estimates the rebuilt messages with the SDK's
+`estimateTokens`, the method the compaction divider uses, and marks the count as
+estimated, also after reopening the session. Pre-compaction usage of retained
+messages never replaces that estimate. Per-message usage and session totals are
+separate.
 
-After compaction, Pi withholds its count until a new assistant reports valid
-usage. The runtime then estimates Pi's current rebuilt messages with the SDK's
-`estimateTokens`, the same method used by the compaction divider and success
-status. It marks that count as estimated, including after reopening a session;
-retained assistants' pre-compaction usage must not replace it. New messages are
-included in each estimate, and valid subsequent usage restores Pi's count. The
-transcript usage fallback remains for an unavailable SDK count, while stored
-sessions without a runtime keep their existing empty gauge. Per-message usage
-and session totals are separate and unchanged.
+## Sessions on disk
 
-### Session navigation and drafts
+The catalog (`src/adapters/pi/session-catalog.ts`) parses raw JSONL and indexes
+it with an in-memory `SessionManager`: a read never opens the file with a
+writable manager, repairs a partial append, initializes an empty file, locks it
+or persists a migration. An old-format file is migrated in memory, with stable
+IDs across reads. If a writer later migrates those IDs, saved links resolve
+against the current entries, star responses use the writer's target ID, and a
+stale stream cursor resets the transcript so element IDs catch up.
 
-Ordinary session links and the new-chat link request `#session-region`, which
-contains the top bar, session stream owner and composer. The same page views
-render that region for HTMX and the whole shell for direct loads. Same-session
-clicks only close the mobile drawer; modified clicks retain native link
-behavior. A different session replaces the region when ready, retaining the
-sidebar and file panel. Directory changes refresh the explorer context, never
-the session list or its stream; same-folder switches also keep the expanded
-tree. File requests derive their authorization context from the displayed
-session.
+The workspace keeps the last read of each stopped session, because a page's
+images, deferred thinking, tool bodies and shell captures would otherwise parse
+the whole file once each (`savedRead` in `src/core/workspace/deps.ts`). Every
+use first asks the catalog whether the file still has the kept revision, reads
+of one session queue behind each other, and the kept reads come from at most 32
+MiB of session files.
 
-HTMX owns URL pushes, `HX-Location` after creation or custom-folder selection,
-and `hx-history-elt` restores. New Session opens the composer directly, using
-`web-pi-cwd` or the configured server default. Its directory selector reuses the
-session-derived project/worktree options and custom-folder picker. Selecting a
-directory opens that folder's draft; the first message creates a session with
-fixed cwd. Opening old sessions never overwrites this preference. Clone and
-deletion of the displayed session use the same region navigation.
+Renames, stars, forks and clones go through Pi's `SessionManager`, so terminal
+Pi and web-pi agree on the format; stars are `web-pi:star` custom entries. Only
+delete and rewind rewrite a file, because the SDK cannot remove entries, and
+both write atomically and keep the file's permissions. Delete points the deleted
+session's fork children at its own parent, but never rewrites a delegated child
+(one with a delegation record or a `web-pi:subagent` entry). Fork and rewind
+read the selected request's text and images before any rewrite; the composer
+takes the images through the queue-recall slot without recompressing them.
 
-Navigation cancellation covers normal and history request shapes. A pending
-request identity rejects reversed responses; admission epochs also reject an old
-command's navigation/notice effects while a newer choice is still loading. The
-guard clears parsed HX headers because HTMX fires `HX-Trigger` even after
-response cancellation, including a canceled response body read. Displayed
-session identity and contextual cwd live on `main`. Request headers derive from
-that owner; only a mounted blank new-session view commits the directory
-preference, so canceled responses and old-session navigation cannot change it.
-The notice shelf uses native `hx-preserve` across region replacements.
+HTML export spawns the bundled Pi CLI under web-pi's own Node binary, because
+the SDK's exporter sits behind the package's export map. It exports a temporary
+snapshot in a private folder, not the source, because the CLI opens a writable
+manager. The exported page's recursive tree walks are rewritten as iterative
+ones, or a long session overflows the browser's stack; when a rewrite no longer
+matches Pi's template, the page is served unpatched.
 
-Text drafts remain keyed by session or `new:<cwd>`, debounced for 300 ms and
-flushed on owner departure and `pagehide`. File drafts stay in per-key memory;
-compression belongs to the draft, while previews and their object URLs belong to
-the mounted form. An accepted response clears only its originating text revision
-and sent Files, even after that form leaves. Later attachments remain. New text
-edits and explicit history-restored payloads invalidate older revisions.
-Rejected or ambiguous submissions retain the draft; no response is retried
-automatically.
+## Files and folders
 
-The composer decides Enter's meaning before either completion menu or an exact
-built-in can handle it. Composition state, `isComposing`, and key code 229
-suppress commands; send shortcuts also consume Enter during the 100 ms grace
-after composition ends. Above 640 px, plain Enter completes or sends. At 640 px
-and below it remains a newline, even with a menu open. Ctrl, Meta or Alt permits
-completion/send; Shift always leaves Enter as a newline. Both menus share the
-same arrow, Escape, Tab and admitted-Enter dispatch.
+Every file request goes through `authorize` in `src/core/workspace/deps.ts`,
+which applies the rules in `src/core/path-access.ts`: a lexical check before any
+file system call, then the same check on the resolved path against the resolved
+roots. The roots are the open session's folder and its repository, plus the
+folders a reader validated through `POST /workspaces/validate`, kept in memory
+until restart. A path outside them widens the search to every session's folder,
+and then to the repositories those sit in, before it is refused; concurrent
+requests share that list, which is reused for five seconds and rebuilt when
+web-pi creates or deletes a session or validates a folder. A file the session's
+transcript names literally (`referencesPath`) may be read, since the agent
+already showed it, but its folder may not be listed: naming a file does not open
+its folder. A shell-output capture also needs a `pi-bash-*.log` name directly in
+the temporary directory and a `bashExecution` entry of that session that names
+it. Refusals carry the status the route sends (400, 403, 404, 413). `@` path
+completion is the one exception; see [Behavior](behavior.md#files-and-git).
 
-`/copy` fetches plain text from `GET /sessions/:id/last-assistant-text`. The
-workspace reads the complete active branch from its current writer, without
-opening a runtime or using the paginated view. Like Pi's `getLastAssistantText`,
-it selects the latest completed assistant message, skips empty aborted messages,
-and concatenates its text blocks without separators. Streaming partials do not
-count; a latest thinking-only, tool-only or blank answer has nothing to copy.
-Unlike the SDK's final trim, the response preserves source whitespace. The
-browser copies only while the requesting composer and text revision remain
-current. Failed lookups or clipboard writes retain the command; success clears
-only that revision, never later attachments. Existing per-message source-copy
-buttons keep their rendered process/answer-half behavior.
+The file panel is server-rendered, and the browser keeps only the tabs. Each
+directory is fetched when opened, the change list and tree re-render when a turn
+settles (`settled from:body`), and the viewer is one fragment per mode.
+`client/files.ts` owns what the server cannot know: the panel width, the open
+paths, each tab's mode, wrap and scroll position, the `EventSource` of the
+active tab, and the selection a line-range mention comes from. A file is
+coloured on the server (`src/web/syntax.ts`), because a whole file has to be
+split into numbered rows; the browser colours transcript code blocks with the
+same module. highlight.js colours settled blocks and the running turn's finished
+messages but never `#turn-live`, whose text changes every frame, and
+`hx-morph-skip` keeps a coloured block through later morphs.
 
-## Dependency rules
+The new-session folder is the `web-pi-cwd` cookie, and validating a folder is
+what grants access to it, so `/new` validates the cookie again on every load
+instead of trusting it. The picker commits through `POST /workspaces/validate`;
+browsing (`GET /workspaces/browse`) shows directory names only and stays outside
+the policy, because a reader has to see a folder before asking for it.
+`web-pi:last-cwd` in `localStorage` only pre-fills the browse box.
+`src/core/cookies.ts` names every cookie.
 
-Enforced by `.oxlintrc.json` (see `AGENTS.md`). `src/container.ts` is the
-composition root and the only importer of Pi adapters.
+`src/core/workspaces.ts` holds the repository identity rules: bare repositories,
+linked worktrees, and subdirectories that keep their own identity. The resolver
+in `src/adapters/pi/projects.ts` runs Git, caches answers for 60 seconds and
+answers an expired one while refreshing it, because a sidebar render resolves
+every folder at once (a branch switch may show one render late). It checks that
+a folder exists before using the cache, so a deleted folder is never masked. Git
+forgets a worktree when it is removed, so the resolver writes observed
+folder-to-repository mappings to `<agentDir>/web-pi/worktree-projects.json`,
+atomically and only when one changed; that map keeps a removed worktree's
+sessions grouped.
 
-## Decisions
+A session whose folder is missing still reads, exports, shows statistics and
+stops. Everything that would run the agent there is refused by one
+`requireFolder` guard in the workspace, with the sentence the page shows, so a
+new route cannot forget it.
 
-- **Preserve rendered appearance and behavior with owner-scoped plain CSS.**
-  `archive/nextjs-final` is the historical reference, not an immutable source
-  layout. The styling rules in `AGENTS.md` allow minor normalization to the
-  established Settings controls while preserving meaningful density, hierarchy,
-  accessibility and responsive behavior. Static styles and finite presentation
-  states belong to the component's stylesheet, including generated HTML and
-  HTMX/SSE fragments. Only runtime values such as measured geometry and
-  arbitrary ANSI colors stay inline. Reset, tokens, fonts and browser/HTMX
-  concerns remain global; Settings, shell/dialog actions, sidebar,
-  composer/shelf, files and transcript own their component rules. `index.css`
-  declares the cascade and esbuild bundles it into `static/app.css`, without a
-  utility framework. Decorative entrance, sweep and repeating highlight effects
-  are removed; restrained interaction and functional progress feedback remain.
-  Rendered baseline comparisons, not source or snapshot equality, validate this
-  contract. The declared web-pi browserslist floor is (chrome/edge ≥125, firefox
-  ≥147, safari ≥26): native popovers, CSS anchor positioning, `@starting-style`,
-  `:has()` and `field-sizing` are load-bearing, not progressive enhancement.
-- **One module per area of the screen, on both sides.** `src/web/routes/` holds
-  `sidebar`, `shell`, `transcript`, `composer` and `files`; `createWebApp`
-  builds one `RouteContext` (the dependencies plus the request helpers that
-  answer in more than one area) and composes them, and Hono matches on the path,
-  so registration order carries no meaning. `src/web/client/main.ts` is an entry
-  and nothing else: it imports the same five modules. The split exists so five
-  agents can port five regions of pi-web at once without touching each other's
-  files.
-- **General preferences are shared; auto appearance resolves per device.** The
-  server renders `light`, `dark` or `auto` on `<html>`. A pre-paint script
-  applies it before the stylesheet loads; `src/web/client/theme.ts` follows OS
-  changes for auto. General's controls save through the workspace settings port.
-  The browser applies confirmed writes and refreshes settings when focus or
-  visibility returns. Legacy theme/sound localStorage and threshold cookies are
-  ignored, not imported. Drafts, navigation, panel geometry and notification
-  permission remain device-local.
+## Extensions
 
-- **Pi is a package-owned runtime, refreshed at build time.** `just build` runs
-  `scripts/update-pi.ts`: a fresh registry query selects Pi's stable `latest`
-  tag, then pnpm installs matching exact versions of `pi-coding-agent`, `pi-ai`,
-  `pi-agent-core`, and `pi-tui` and updates the manifest and lockfile. These
-  stay external to esbuild so Pi retains its module identity, extension loader,
-  workers and assets. The build validates installed ownership and versions, then
-  typechecks against the selected SDK before emitting bundles. Registry, install
-  or type errors fail the build. The named Pi runtime release-age exceptions in
-  `pnpm-workspace.yaml` allow newly published stable Pi immediately; other
-  dependencies retain the 24-hour delay. Builds need network access and may
-  change dependency files. Installed launches use their own dependencies with no
-  system Pi lookup, update or filesystem relinking. The user's agent directory
-  stays independent of the runtime install. `src/pi-version.ts` checks direct
-  dependency paths (nested npm or isolated pnpm links), physical ownership and
-  exact manifest versions for all four packages; ordinary ancestor resolution
-  cannot supply a missing runtime. `src/server.ts` validates before importing
-  the SDK-bearing `src/server-runtime.ts`, including direct server launches.
-  Development and the installed bin go through the same guarded path.
-  Unsupported hoisted or global-store layouts fail closed; see
-  [Installation](../README.md#install-and-run). A terminal Pi can now differ in
-  version; use one writer per session and heed upstream upgrade/rollback limits
-  in [Deployment](deployment.md).
-- **The package ships a bundle; the checkout runs the sources.** `just build`
-  bundles `src/server.ts`, `src/server-runtime.ts`, and `src/cli.ts` with
-  esbuild into `dist/`, leaving only the Pi SDK, `web-push`, and `undici`
-  external. The published `dependencies` include them, so a consumer install has
-  its own runtime and no web-pi build toolchain. `just dev` and every test still
-  run the TypeScript through `tsx`: tests that ran against `dist/` would test
-  the bundler. The one check that does run against the package is `just smoke`
-  (`tests/smoke/packaging.smoke.test.ts`), which packs, installs into a
-  throwaway project, and serves a fixture session from the result — the only way
-  to catch a missing `files` entry or an import that resolves solely in a
-  checkout. `dist/` is not minified: a stack trace from an install should name
-  real functions.
-- **The bin is composition only.** `bin/web-pi.js` is three lines of JavaScript
-  that need no build; `src/cli.ts` parses the flags into the environment
-  `loadConfig()` already reads, warns when the bind address is not loopback, and
-  then imports `dist/server.js`. The deferred import keeps flags ahead of
-  configuration loading and avoids starting the server for help or version
-  requests.
-- **One HTTP dispatcher, proxy-aware.** `src/http.ts` installs undici's
-  `EnvHttpProxyAgent` globally, so `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
-  are honoured by every server-side fetch — Node's built-in fetch ignores them,
-  and a model call behind a corporate proxy simply fails. It keeps undici's own
-  300 s idle timeout, which a streaming turn pausing between tokens needs, and
-  attaches an error listener to every client it creates: undici can emit an
-  internal `error` while tearing a response body down, and an unhandled one
-  would take the server with it.
-- **Raw HTML in Markdown is escaped**, not sanitised. No allowlist to maintain,
-  no script can pass.
-- **The sidebar is a global, paged delegation tree.** A real store holds ~2,750
-  sessions across ~256 projects; shipping every row made a session page 3.0 MB.
-  `src/core/session-tree.ts` groups only persisted delegation origins, across
-  working folders. Each sibling subtree sorts by its best known local activity
-  (running, then live, then stored), newest member mtime, and ID for ties. A
-  row's own timestamp and status never inherit its descendants' values. The
-  workspace returns 50 roots at a time; child siblings load in pages of 50 on
-  expansion. An off-page selected ancestor is included on the first page and
-  omitted from later pages to avoid duplicates. Every row keeps its own folder
-  and optional worktree branch. The old project cookie and query do not filter
-  the list.
-- **Root discovery is adaptive; child expansion is creation-bounded.** Every
-  sidebar request enumerates headers and file revisions across the store.
-  Concurrent requests share an in-flight inventory, including a cold direct
-  link's sidebar and session lookup; later requests enumerate again. Header IDs,
-  not filenames, resolve renamed sessions and delegation parents. Root requests
-  classify known local runtimes and the selected session's ancestor chain first;
-  every subsequent candidate also resolves its ancestors. Classification reads
-  to EOF or uses a fresh cache stamped by size, mtime, ctime, device and inode.
-  Root discovery stops when priority-aware timestamp intervals prove the first
-  `offset + 50` roots and at least one additional root proves a next-page
-  cursor. Subtree priority and newest member time are independent; timestamp
-  ties use root-ID `localeCompare`. Unknown roots can only be stored-priority
-  roots after runtime ancestry closure. Duplicate IDs force complete
-  classification, and short pages, conservative timestamp-tie bounds or
-  ambiguous same-priority activity can also require all files. There is no fixed
-  archive cutoff or background index. The bounded caches may evict metadata, but
-  an initial page does not reclassify the whole archive just because it exceeds
-  their capacity. Discovery and complete-list scans keep a bounded snapshot of
-  the classification cache at scan start, so early misses cannot evict later
-  hits from the same scan. Every hit still checks the current file revision;
-  concurrent reads of one revision share the same EOF pass.
+An extension dialog is a pending request, not a message.
+`src/core/extension-ui.ts` holds both state machines: unanswered dialogs with
+their timeouts and abort signals, and the custom UIs whose frames the panel
+shows. Several of each may be open, because the SDK keys them by ID and an
+extension may ask twice, but only the newest is on screen; an older one waits
+for its own timeout or the session's stop, because answering an invisible dialog
+is worse than leaving it. IDs are random, so a form left over from an earlier
+runtime cannot answer a newer request. `POST /sessions/:id/ui/:requestId`
+resolves the SDK's promise, so the first tab to answer wins. A cancel carries no
+value, which is how the SDK spells its default (`undefined`, or `false` for
+`confirm`). Stop closes both hosts for good: pending and later requests get the
+cancel default, factories cannot start, and components already created are
+disposed. Aborting a turn does not close them.
 
-  Root ordering and selected ancestry are certified against the discovered
-  revisions, not an atomic filesystem snapshot. Directory enumeration, headers,
-  classification and row reads are a rolling observation. Changed or unreadable
-  classifications are omitted rather than cached; later refreshes reconcile
-  external arrivals and changes. Runtime priority is captured for each request.
-  Visible rows use their own revision's metadata, sharing the classification
-  pass when possible. Untitled and empty sessions keep fallback labels; sibling
-  offsets still include unreadable rows.
+A custom UI is a pi-tui component with no terminal under it.
+`src/adapters/pi/extension-ui.ts` hands the factory a `TUI` that is only a size
+and a `requestRender` callback, and a theme that applies no colour. The panel
+unwraps the box the component drew for a terminal (`normalizeFrame` in
+`src/core/ansi.ts`), because the browser draws its own. Keystrokes go back as
+terminal bytes (`src/core/terminal-input.ts`, shared with the client bundle),
+percent-encoded rather than multipart, because a lone carriage return, which is
+what Enter sends, does not survive a multipart parser. A panel sends one
+keystroke at a time, so the component sees keys in the order they were typed.
+Closing is Ctrl+C, since a pi-tui component has no close command.
 
-  Older incoming child edges, counts and selected-path sibling preloads can be
-  incomplete even when the root page is certified. Rows show plain counts of
-  known direct children and omit the disclosure when none are known. This
-  deliberately accepts rare undercounts and omitted older children rather than
-  adding checking controls. Opening an unloaded disclosure classifies candidates
-  whose parsed header creation time is at least the requested parent's creation
-  time, plus concrete ancestor and duplicate-ID context. Every eligible
-  candidate is classified through EOF, including late and conflicting origins.
-  This gives exact child/descendant counts within the valid-edge contract below.
-  A missing or unreadable parent returns an empty child page without unrelated
-  body reads; an already-owned, unflushed parent uses its runtime summary under
-  the existing missing-file contract. Child pages contain 50 siblings and
-  numeric cursors, ordered by subtree activity rather than creation time.
-  Selected-path preloads use the known tree without another discovery pass. Root
-  pagination reaches older sessions without a permanent cutoff. Refreshes may
-  discard loaded pages as before. Old parents and complete-list consumers can
-  still cost nearly a full archive scan; only an opened saved transcript polls
-  its known file for updates. No background transcript watcher or external
-  live-status promise is added.
+Extensions write status lines and widgets for a terminal. `src/core/ansi.ts`
+turns SGR colour and bold into `<span style>` and escapes everything else, so
+extension text never becomes markup; other escape sequences are dropped. A
+widget whose content is a component renders through the same headless pi-tui as
+a custom UI. Raw HTML in Markdown is escaped, not sanitised: there is no
+allowlist to maintain, and no script can pass.
 
-- **Delegation origin is separate from Pi fork ancestry.** The
-  `pi-subagent:delegation` custom entry has data
-  `{version:1, childSessionId, parentSessionId, agent, handle}`. An origin
-  belongs only to the header whose ID equals `childSessionId`; copied entries in
-  forks and parent-seeded children do not establish ownership. Conflicting,
-  malformed or self-origin claims create no edge. All edges within a cycle are
-  discarded. A valid tree edge also requires
-  `child.createdAt >= parent.createdAt`, comparing parsed authoritative header
-  timestamps; equal times are valid. The same rule applies to adaptive roots and
-  explicit child pages. Clock rollback or imported future-dated parents can
-  violate recorded creation order: those edges are intentionally excluded
-  without changing stored histories or making own-origin sessions writable.
-  Names, mtimes and copied message times do not establish creation order.
-  Missing parents become roots without losing their descendants. Pi's header
-  `parentSession`/summary `parentId` never creates a delegation edge. Deleting
-  an ordinary parent does not delete or rewrite delegated children; refresh
-  promotes them. Cloning an ordinary session does not clone its delegation tree.
-  Only new named persisted children receive producer records; there is no
-  backfill, historical reconstruction, registry, or ephemeral child row.
-- **Delegated conversations are strictly inspection-only.** Own-ID origin claims
-  (even malformed ones) and legacy `subagent.*` IDs are read-only. Legacy IDs
-  alone imply no ancestry. The workspace refuses all source mutations, runtime
-  attachment, extension input and runtime-starting panels, including direct HTTP
-  requests. Saved transcript pages, earlier messages, thinking, tools, images
-  and copy use catalog snapshots, never an external runtime. The conversation
-  shows an inspection notice and no composer or mutation controls; sidebar cards
-  have no activity or menu icon. Exact admission checks are independent of the
-  adaptive root prefix: unreadable or unstable classification never authorizes a
-  writer. A missing file is usable only by an already-owned local runtime, whose
-  first reply may not have flushed yet. The native disclosure footer counts
-  known direct children without marking potentially incomplete counts.
-  Browser-local expansion preferences survive row/list swaps; selected ancestors
-  are revealed without changing those preferences. Row-only actions replace the
-  card body inside a stable tree wrapper, and keyboard shortcuts number only
-  visible rows.
-- **The conversation rail is server-rendered and positioned in percentages.**
-  `src/core/conversation-rail.ts` is pi-web's `lib/conversation-rail.ts` fed
-  from the flat entry list rather than a compressed tree: web-pi already holds
-  every entry with its parent, so the tree walk disappears and the layout
-  (active path, lanes, rows, target leaf per lane) is what is left. Marks sit at
-  `calc(12px + (100% - 42px) * row/rows)`, so the server needs no measurement of
-  the reader's viewport, and the connector SVG is stretched over the same box.
-  The rail covers the whole session from the first render — the marks come from
-  the entries, not from the page, so paging never changes it. Even a single mark
-  is shown. The stream re-sends it when its marks or branch state change,
-  independently of transcript settlement. `src/web/client/rail.ts` measures the
-  transcript for the active mark, the hover preview, and press-and-drag; a mark
-  whose entry the page has not loaded is reached through the "load earlier"
-  sentinel with `through=`.
-- **An extension dialog is a pending request, not a message.**
-  `src/core/extension-ui.ts` holds both state machines: unanswered dialogs with
-  their timeouts and abort signals, and the custom UIs whose frames the panel
-  shows. Several of each may be open — the SDK keys them by id and an extension
-  may ask twice — and only the newest is on screen; an older one waits for its
-  own timeout or for the session to stop, because answering an invisible dialog
-  is worse than leaving it. `POST /sessions/:id/ui/:requestId` resolves the
-  SDK's promise, so the first tab to answer wins and the others watch the dialog
-  disappear on the next render. A cancel carries no value at all, which is
-  exactly how the SDK spells its default (`undefined`, or `false` for
-  `confirm`): an extension cannot tell a cancel from an empty answer. Session
-  Stop permanently closes both hosts. Pending and future requests receive those
-  cancellation defaults, including UI requested by an admitted reload's startup
-  hook. Custom and widget factories cannot start after closure; already-created
-  components are disposed, including components returned by an asynchronous
-  factory after closure. Ordinary turn abort does not close the hosts.
-- **A custom UI is a pi-tui component with no terminal under it.**
-  `src/adapters/pi/extension-ui.ts` hands the factory a `TUI` that is a size and
-  a `requestRender` callback, and a theme that applies no colour.
-  `render(width)` returns lines; the panel unwraps the box the component drew
-  for a terminal (`normalizeFrame` in `src/core/ansi.ts`) because the browser
-  supplies its own, and converts what is left through the same ANSI converter as
-  the shelf. Keystrokes go back as terminal bytes (`src/core/terminal-input.ts`,
-  shared by the client bundle), percent-encoded rather than multipart, because a
-  lone carriage return — which is what Enter sends — does not survive a
-  multipart parser. Closing is Ctrl+C: a pi-tui component has no close command
-  to receive.
-- **Push enrollment is manual and belongs to this browser.** General prepares
-  worker registration/activation and the public key before enabling Subscribe.
-  The click calls `pushManager.subscribe` directly with `userVisibleOnly: true`,
-  preserving the user gesture. Permission alone or a browser subscription does
-  not establish server enrollment; status checks the matching server record.
-  Unsubscribe removes only that record and browser subscription, not permission,
-  the worker or other browsers. Nothing automatically subscribes on load or
-  completion. Missing capabilities and blocked permission have disabled controls
-  with explanations; failed preparation ends with a reload instruction.
-- **Notifications key off the agent's own idle, not off the turn ending.**
-  `src/core/turn-completion.ts` is pi-web's rule: a run has to have started, and
-  the session has to be idle when it settles. A stop, an abort before the model
-  answered, or a shell command on its own never notifies. The adapter turns that
-  into a `completed` runtime event; the workspace synchronously reads the owned
-  runtime snapshot and folds its own-ID delegation records to exclude
-  inspection-only completions. It admits eligible completions to `PushNotifier`
-  before any asynchronous metadata lookup can cross a foreground return or shift
-  the grace deadline. The session stream sends `done` to the page for the shared
-  completion tone. The service worker alone displays completion notifications,
-  for every received push even if a window is visible, as Apple requires.
-  Extension input requests retain their dialog and tone, not a second
-  system-notification path. This covers completed runs in this web server, not
-  terminal Pi; OS delivery is not guaranteed.
-- **Outbound push suppression belongs to the server, not the worker.** Every
-  document reports visible-and-focused presence independently of session,
-  Settings and enrollment. The cached offline page loads the same client bundle
-  in presence-only mode, so it can reconfirm when connectivity returns without
-  initializing the ordinary app or HTMX. A foreground lease refreshes every 20 s
-  and expires after 60 s. `src/core/push-suppression.ts` aggregates leases,
-  rejects older report sequences within the lease window, and synchronously
-  claims the one away broadcast. `PushNotifier` starts one unref'd in-memory
-  grace timer at the first eligible completion while away, coalesces later
-  completions without extending it, and cancels pending work on accepted
-  foreground reports. At the deadline it rechecks suppression and persists its
-  latch in `web-pi/push.json` before sending to every subscription; a foreground
-  return durably rearms it. Server configuration supplies the delay in minutes
-  through `WEB_PI_NOTIFICATION_GRACE_PERIOD` (default 15). Shutdown disposes the
-  notifier, cancelling pending scheduling without recalling admitted delivery.
-  Live leases and pending completions are memory-only and lost on restart. No
-  suppressed completion is queued, and delivery failures do not refund the
-  allowance. One server owns one agent directory. The
-  [behavior contract](behavior.md#extensions-and-notifications) and
-  [persistence failure rules](deployment.md#push-allowance-persistence-and-failures)
-  describe the best-effort and restart limits.
-- **The service worker is generated, not shipped.** Its precache list has to
-  name this build's hashed asset URLs, so `src/web/pwa.ts` writes the script and
-  `/sw.js` serves it uncached with the asset hash as its version. It caches
-  `/static/*` and the offline page and nothing else: every session page, stream
-  and command goes to the network, because a cached answer from this server is
-  always the wrong one.
-- **Extension output is converted server-side.** Extensions write status lines
-  and widgets for a terminal. `src/core/ansi.ts` turns SGR colour and bold into
-  `<span style>` and escapes everything else, so extension text can never become
-  markup; every other escape sequence is dropped. The shelf below the composer
-  holds the one status line and a chip per widget, with at most one panel open
-  (`<details name>`, no script). A widget whose content is a component is
-  rendered through the same headless pi-tui as a custom UI.
-- **Session edits go through Pi's `SessionManager`.** Renames, stars, forks and
-  clones use the SDK, so the CLI and web-pi agree on the JSONL format; stars are
-  `web-pi:star` custom entries. Catalog reads instead parse raw JSONL and
-  project it through an in-memory manager: they never open the source with a
-  writable `SessionManager`, repair a partial append, initialize an empty file,
-  lock it, or persist a migration. Old-format migration stays in memory, with
-  stable IDs for repeated inspection requests. If an ordinary session's writer
-  later migrates those IDs, saved links resolve against the current entries
-  without another file read; star responses use the writer's target ID. A stale
-  SSE cursor still resets the transcript so mounted element IDs catch up. The
-  old `pi-web:star` type is not recognized or migrated. Only delete
-  (re-parenting children) and rewind rewrite a file, because the SDK cannot
-  remove entries. Delegated children are not Pi fork children and are never
-  rewritten by parent deletion. Fork and rewind return an `EditableMessage`
-  containing the selected user's text and images, extracted before any rewrite.
-  The replacement composer consumes images through the queue-recall slot,
-  without recompressing stored bytes. A restored-draft marker makes even empty
-  history text authoritative over localStorage. Images still do not persist as
-  drafts across reloads.
-- **HTML export spawns the Pi CLI** for ordinary sessions: the SDK's exporter is
-  behind the package export map. It receives a temporary snapshot, not the
-  source path, because the CLI opens a writable manager. The exported page's
-  recursive tree walks are rewritten as iterative ones, or a long session
-  overflows the browser's stack; if a rewrite no longer matches the SDK's
-  template the page is still served.
-- **The transcript pages backwards, and defers old reasoning.** A page holds the
-  last 50 items of the branch, extended back to a turn boundary, and a sentinel
-  with `hx-trigger="intersect once"` swaps itself for the page before it; the
-  client keeps the distance to the bottom so the text does not move under the
-  reader. `through=<entryId>` widens a page until a given entry is on it, which
-  is how a link into an unloaded part of a long session works. Once a page
-  carries more than 20,000 characters of thinking, the older blocks are sent as
-  placeholders that fetch their text when opened.
-- **Code fences keep their source and Copy action.** highlight.js is part of
-  `static/client.js` and colours settled code blocks (never the running turn,
-  whose text changes every frame). Unsupported languages, including Mermaid,
-  remain plain code; web-pi does not render diagrams.
-- **One client bundle besides htmx.** `src/web/client/main.ts` (scroll-follow,
-  theme, keyboard shortcuts) is bundled by esbuild into `static/client.js` and
-  loaded as a module with a content hash in its URL. The only inline script is
-  the two-line theme read in `<head>`, which has to run before the first paint.
-  Global delegated handlers install once. `client/lifecycle.ts` mounts stateful
-  regions on initial load and native HTMX `after:process`, keyed by owner node.
-  Replacing an owner aborts its listeners, requests and timers and disconnects
-  its observers. HTMX emits cleanup only for powered elements, so processing and
-  settlement also remove detached plain owners. Inner fragment swaps keep their
-  enclosing owner and its state; no whole-page setup rerun is needed.
-- **The composer's rules live in `src/core/composer.ts`**, and the client bundle
-  imports them (esbuild resolves `@core` the same way tsconfig does). Slash
-  ranking, `@`-token extraction, fuzzy scoring, insert text, history cycling,
-  and the attachment limits are one implementation, unit-tested server-side and
-  executed in the browser where a round trip would be felt. The `@` menu uses
-  JSON endpoints because a keystroke cannot wait for a rendered fragment. Shared
-  web settings and push enrollment also use JSON. Everything else the composer
-  opens — the slash menu, the queue panel, the notice shelf — is server-rendered
-  HTML.
-- **One containment policy, in one function.** `authorize` in
-  `src/core/workspace/deps.ts` answers every file request the same way, and
-  `src/core/path-access.ts` holds the rules it applies: a lexical check before
-  any file system call, then the same check on the resolved path against the
-  resolved roots. The roots are the open session's folder and the repository it
-  belongs to, plus the folders a reader validated through
-  `POST /workspaces/validate` (in memory, forgotten on restart, as in pi-web); a
-  path outside those widens the search to every session's folder before it is
-  refused. The one exception is a file the session's transcript literally names
-  (`referencesPath`): the agent already showed its contents, so it may be read —
-  but never listed, because naming a file does not open its folder. Failures
-  carry the status the route sends (400, 403, 404, 413). Shell-output captures
-  need both a `<tmpdir>/pi-bash-*.log` name and a persisted `bashExecution`
-  entry in that session that references the file.
-- **The file panel is server-rendered; the browser keeps only the tabs.** Each
-  directory is fetched when it is opened (`hx-get` per node), the changes list
-  and the tree re-render when a turn settles (`settled from:body`), and the
-  viewer is one fragment per mode. `src/web/client/files.ts` owns what the
-  server cannot know: the panel width (`web-pi-right-panel-width`), which paths
-  are open, each tab's mode, wrap and scroll position, the `EventSource` on the
-  active tab, and the text selection a line-range mention comes from. Syntax
-  colouring for a file happens on the server (`src/web/syntax.ts`, shared with
-  the transcript's browser-side highlighter), because a whole file has to be
-  split into numbered rows and highlight.js colours a block, not a line.
-- **Completed tool bodies are fetched when opened, including in the live turn.**
-  `GET /sessions/:id/entries/:entryId/tool-result/:callId` renders the
-  arguments, output and diff of an ordinary tool, cut to 16 KB of text and 200
-  diff rows, with a button for the rest. The same endpoint renders a subagent's
-  results, prompts, run details and raw payloads without truncation. The result
-  entry identifies its branch within that session, including alternate stored or
-  live branches. Body requests read folder context without consuming pending
-  notices or composer insertions. Initial pages, stored turns and every live
-  frame carry only a placeholder for these bodies. An open card fetches
-  automatically when its running call completes; closed cards wait for an
-  opening toggle. HTMX drops duplicate requests while one is pending, and a
-  failed fetch can be retried by closing and reopening the card. Loaded bodies
-  survive later live morphs without another render or transfer. Unfinished tool
-  arguments, subagent progress and partial thinking remain inline and continue
-  updating. Settlement still appends fresh stored-turn cards and clears the live
-  tail.
-- **Project commands run in the project's environment.** See
-  [ADR 0001](adr/0001-project-command-environment.md).
-- **The chosen folder is a cookie, and validating it is what grants access.**
-  `web-pi-cwd` holds the folder new sessions start in, `web-pi-settings` the
-  open settings section, and `web-pi-skill` the skill that folder was last
-  reading. Existing session navigation updates only `web-pi-session`, not cwd.
-  These navigation cookies are local; General preferences are shared in the
-  server's web settings store. The picker commits through
-  `POST /workspaces/validate`, which adds the folder to the in-memory allowed
-  roots — so the new-session composer gets `@` completion, the slash menu and a
-  model picker, and `/new` re-validates its cookie on every load rather than
-  trusting it. Browsing (`GET /workspaces/browse`) is deliberately outside that
-  policy: it exposes directory _names_ only, and a reader has to be able to see
-  a folder before asking for it. pi-web keeps the last custom path in
-  `localStorage`; here the cookie is the memory and `web-pi:last-cwd` only
-  pre-fills the browse box.
-- **Worktree discovery is a rule plus a map.** `src/core/workspaces.ts` holds
-  the identity rules (bare repositories, linked worktrees, subdirectories keep
-  their own identity) and the parse of `git worktree list --porcelain -z`; the
-  adapter runs git, caches for 60 s and answers an expired entry as it stands
-  while refreshing it behind the reply (a sidebar render resolves every folder
-  at once, and a branch switch may show up one render late), checks availability
-  _before_ the cache so a deleted folder can never be masked, and writes
-  `<agentDir>/web-pi/worktree-projects.json` atomically at mode 0600 and only
-  when a mapping actually changed. Git forgets a worktree the moment it is
-  deleted; that map is what keeps its sessions grouped under the repository.
-- **A missing working folder is read-only, not an error.** The session still
-  reads, exports, shows statistics and stops; sending, branching, forking,
-  cloning, compacting, rewinding, switching model and activating all disappear,
-  and `createWorkspace` refuses them server-side with the same sentence the page
-  shows. One `requireFolder` guard, in the workspace, so a new route cannot
-  forget it.
-- **Trust is a gate, not a setting.** `hasTrustRequiringProjectResources`
-  decides whether a folder is gated at all; a grant writes Pi's own `trust.json`
-  through `ProjectTrustStore`, is refused while a session in that folder is
-  mid-turn, and then **stops** that folder's sessions so they restart with
-  project resources loaded. Untrusted projects keep working, with their
-  extensions, skills and prompts dormant.
-- **Settings is a route that renders as a dialog.** `/settings` re-renders the
-  page the reader was on — the open session, else the new-session view — and
-  puts the modal over it, because that is where pi-web keeps it. Its four
-  sections (general, models, skills, plugins) are server-rendered, the last one
-  remembered in a cookie rather than `localStorage`, and the mobile navigation
-  is the same list as a native `<select>` — no script. A section that fails to
-  load says so; falling back to general would quietly show the wrong page under
-  the right tab.
-- **Dialogs are `<dialog open>` from the server, upgraded in the browser.**
-  `src/web/client/dialogs.ts` removes the `open` attribute and calls
-  `showModal()` for backdrop, focus trap, top layer and focus restore, and
-  removes the element when it closes. It must not call `close()` first: that
-  queues a `close` event which would fire after the listener is attached and
-  take the dialog straight back out of the page.
-- **The skill toggle is a line edit, never a re-serialisation.**
-  `src/core/skill-toggle.ts` inserts, rewrites or deletes one
-  `disable-model-invocation` line inside the frontmatter block. Presence is
-  tested, not truthiness, so an explicit `false` is rewritten in place instead
-  of collecting a duplicate key — which would make the file unparseable and drop
-  the skill. A shape the line edit cannot reach is refused rather than guessed
-  at. The file belongs to whoever wrote it.
-- **Startup model preferences are written only when Pi honoured them.**
-  `src/core/models.ts` is pi-web's `persistExplicitStartupPreferences`: the
-  default model is written when the session really started on the requested one,
-  the reasoning level unless it was clamped to `off` on a model that cannot
-  reason. The session is constructed with the choice, so `setModel` is never
-  called a second time; repeating it would append a duplicate session entry and
-  a duplicate extension event.
-- **Only unbound preparations are cached, not model projections.** A terminal
-  login or model metadata change invalidates the next folder preparation through
-  an auth-content fingerprint and the `models.json` file stamp. Trust and
-  project settings stamps, non-model global settings and the web system prompt
-  addition also participate. Model preferences are reprojected without
-  rebuilding global extensions; Pi creating an empty auth file does not
-  invalidate its own preparation. Trust grants, package and skill changes, and
-  explicit reloads invalidate affected unbound preparations. User-scope package
-  changes invalidate every folder. These changes do not silently restart
-  already-running sessions.
-- **Re-enabling a package loses its filters.** Disabling rewrites the entry as
-  an object whose four resource lists are empty; enabling writes the plain
-  source string back, so per-resource filters an entry carried do not survive
-  the round trip. That is Pi's own spelling and pi-web's behaviour; the UI says
-  so in the button's title rather than pretending otherwise.
+The extension API is limited where a browser page has no counterpart:
 
-## Remaining work
+- `addAutocompleteProvider` is a no-op and `getEditorText` returns an empty
+  string: the `@` and `/` menus are the server's, and the composer belongs to
+  the reader, not the session. `setEditorText` and `pasteToEditor` insert text
+  at the cursor.
+- An extension cannot replace the session it runs in: `newSession`, `fork` and
+  `switchSession` answer `{cancelled: true}`, while `navigateTree`,
+  `waitForIdle` and `reload` work. The page follows one session, and swapping it
+  underneath the reader is not something HTMX could follow. A shutdown request
+  shows a notice and stops the session.
+- Themes and terminal chrome are stubbed: `setTheme` refuses, `getAllThemes` is
+  empty, and the footer, header, working indicator and `setToolsExpanded` do
+  nothing.
 
-[Behavior and remaining work](behavior.md) retains the unfinished port
-requirements: ANSI in tool cards, read-only historical branch browsing, explorer
-mutations and expanded-state persistence, and a running-session cap. These are
-not part of the documentation migration.
+## Notifications
 
-Live token count and tokens-per-second displays are deliberately omitted.
-Streaming partials and activity status remain, as do completed provider usage,
-session totals, cost reporting, and context accounting.
+`src/core/turn-completion.ts` decides when a run completed: a run has to have
+started, and the session has to be idle when it settles, so a stop, an abort
+before the model answered, or a shell command alone never notifies. The adapter
+turns that into the `completed` event. The workspace reads the owned runtime's
+snapshot synchronously, skips inspection-only sessions, and hands the completion
+to `PushNotifier` before any await, so a foreground return cannot slip in
+between. The session stream sends `done` for the page's tone.
 
-## Deliberately not carried over
+`src/core/push-suppression.ts` aggregates foreground leases, which each page
+refreshes every 20 seconds and which expire after 60, rejects out-of-order
+reports, and claims the single away broadcast synchronously. `PushNotifier`
+(`src/adapters/pi/web-push.ts`) starts one unref'd timer at the first eligible
+completion while away, collects later ones without extending it, cancels on an
+accepted foreground report, and at the deadline persists its latch in
+`web-pi/push.json` before sending. Subscribing calls `pushManager.subscribe`
+from the click itself, with `userVisibleOnly: true`, to keep the user gesture.
+The service worker shows every push it receives; suppression happens before
+sending. [Behavior](behavior.md#extensions-and-notifications) and
+[Deployment](deployment.md#push-allowance-persistence-and-failures) describe the
+user-facing rules and the persistence limits.
 
-Decisions, not gaps:
+The service worker is generated, not shipped: its precache list names this
+build's hashed asset URLs, so `src/web/pwa.ts` writes it and `/sw.js` serves it
+uncached with the asset hash as its version. It caches `/static/*` and the
+offline page and nothing else, because a cached answer from this server is
+always the wrong one.
 
-- **Attachments survive in-app navigation, not reloads.** Unsent Files stay in
-  session/folder-keyed memory. Only text reaches localStorage; image bytes are
-  never serialized there. Reloading the browser discards attachment drafts.
-- **No message layer.** pi-web's 477 English keys are one locale behind an
-  indirection; web-pi is English only and the strings live where they are read,
-  in the views.
-- **`addAutocompleteProvider` is a no-op**, as in pi-web. The `@` and `/` menus
-  are server-rendered from the workspace, and an extension cannot reach into
-  them. `getEditorText` returns the empty string for the same reason: the
-  composer is the browser's, not the session's.
-- **An extension cannot replace the session it runs in.** `newSession`, `fork`
-  and `switchSession` on the command context answer `{cancelled: true}`; only
-  `navigateTree`, `waitForIdle` and `reload` do anything. The page follows one
-  session, and swapping it underneath the reader is not something HTMX could
-  follow. A `shutdownHandler` request is honoured — a notice, then the session
-  stops — because here that is a real operation.
-- **Themes and the terminal chrome stay stubbed.** `setTheme` refuses,
-  `getAllThemes` is empty, and the footer, header, working indicator and
-  `setToolsExpanded` do nothing: they describe a terminal's furniture, and this
-  one has none.
+## Settings
+
+`/settings` re-renders the page the reader was on (the open session, else the
+new-session view) with the settings dialog over it. Its sections are
+server-rendered, the last one is kept in the `web-pi-settings` cookie, and the
+mobile navigation is the same list as a native `<select>`. A section that fails
+to load says so, because falling back to General would show the wrong page under
+the right tab.
+
+Trust is a gate, not a setting. Pi's `hasTrustRequiringProjectResources` decides
+whether a folder needs it; a grant writes Pi's own trust store, is refused while
+a session in that folder is running a turn, and then stops the folder's sessions
+so they restart with project resources loaded. Untrusted projects keep working
+with their extensions, skills and prompts dormant.
+
+The skill toggle is a line edit, never a re-serialisation:
+`src/core/skill-toggle.ts` inserts, rewrites or deletes one
+`disable-model-invocation` line in the front matter, after a byte-order mark if
+there is one. Presence is tested, not truthiness, so an explicit `false` is
+rewritten in place instead of gaining a duplicate key, which would make the file
+unparseable and drop the skill. A shape the edit cannot reach is refused rather
+than guessed at.
+
+Disabling a package rewrites its entry as an object with four empty resource
+lists, and enabling writes the plain source string back, so filters the entry
+carried are lost. That is Pi's own representation; the button's title says so.
+
+## Packaging and process
+
+Pi is a package-owned runtime, refreshed at build time; see
+[ADR 0002](adr/0002-package-owned-pi-runtime.md).
+
+The package ships a bundle, and the checkout runs the sources. `just build`
+bundles `src/server.ts`, `src/server-runtime.ts` and `src/cli.ts` into `dist/`,
+leaving the Pi SDK, `web-push` and `undici` external, so a consumer install has
+its own runtime and no build toolchain. `just dev` runs the TypeScript through
+`tsx` and the tests run it through Vitest; tests that ran against `dist/` would
+test the bundler. `just smoke` (`tests/smoke/packaging.smoke.test.ts`) is the
+one check of the package: it packs, installs into a throwaway project and serves
+a fixture session from the result, which is the only way to catch a missing
+`files` entry or an import that resolves only in a checkout. `dist/` is not
+minified, so a stack trace from an install names real functions.
+
+`bin/web-pi.js` only imports `dist/cli.js`. `src/cli.ts` parses the flags into
+the environment `loadConfig()` reads and then imports the server, so flags
+arrive before configuration loads and `--help` and `--version` never start a
+server. `src/server-runtime.ts` warns when the bind address is not loopback.
+
+`src/http.ts` installs undici's `EnvHttpProxyAgent` as the global dispatcher, so
+every server-side fetch honours `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`;
+Node's built-in fetch ignores them. It keeps undici's 300-second idle timeout,
+which a streaming turn that pauses between tokens needs, and attaches an error
+listener to every client it creates, because undici can emit an internal `error`
+while tearing a response down and an unhandled one would stop the server.
+
+UI strings are English and live in the views that show them; one locale does not
+justify a message layer.

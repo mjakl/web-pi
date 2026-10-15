@@ -3,9 +3,9 @@ import type { ExtensionWidget, LiveStatus } from "@core/ports";
 import { raw } from "hono/html";
 import { WidgetPlacementIcon } from "./icons.tsx";
 
-// pi-web's ExtensionStatusBar and ExtensionWidgets (§4.11): the strip under
-// the composer, with one status line and a 108px trigger per widget, at most
-// one panel open. Extensions write for a terminal, so every string here goes
+// pi-web's ExtensionStatusBar and ExtensionWidgets: the strip under the
+// composer, with one status line and a 108px trigger per widget, at most one
+// panel open. Extensions write for a terminal, so every string here goes
 // through the ANSI converter, which escapes as it goes.
 
 /** A widget with two or three lines is small enough to show unasked. */

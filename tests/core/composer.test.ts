@@ -4,15 +4,16 @@ import {
   useVisualViewport,
   BUILTIN_COMMANDS,
   buildAtInsertText,
-  buildEntriesFromFiles,
   cycleHistory,
   exactBuiltin,
   extractAtQuery,
-  filterFileEntries,
+  fileSearch,
   imageLimitError,
   inputHistory,
   isFilePathQuery,
+  parseBuiltin,
   rankCommands,
+  skillsConflict,
   slashQuery,
   slashCompletionQuery,
   type SlashCommand,
@@ -65,6 +66,34 @@ describe("slash commands", () => {
     expect(exactBuiltin("/sess")).toBeUndefined();
     expect(exactBuiltin("/name Bob")).toBeUndefined();
   });
+
+  it("parses every built-in with its argument, and nothing else", () => {
+    for (const { name } of BUILTIN_COMMANDS) {
+      expect(parseBuiltin(`/${name}`)).toEqual({ name, argument: "" });
+    }
+    expect(parseBuiltin("/name  Fix the “quotes” bug ")).toEqual({
+      name: "name",
+      argument: "Fix the “quotes” bug",
+    });
+    expect(parseBuiltin("/compact\nkeep the plan")).toEqual({
+      name: "compact",
+      argument: "keep the plan",
+    });
+    for (const text of ["/compactly", "/review", " /name x", "/Name x", "x"]) {
+      expect(parseBuiltin(text)).toBeUndefined();
+    }
+  });
+
+  it("lets selected skills go with a request or a leading skill, not another command", () => {
+    for (const text of ["", "explain this", "/skill:alpha go", "a /name"]) {
+      expect(skillsConflict(text)).toBeUndefined();
+    }
+    for (const text of ["/name x", "  /session", "!ls", "!!git status"]) {
+      expect(skillsConflict(text)).toBe(
+        "Remove selected skills before sending a slash or shell command.",
+      );
+    }
+  });
 });
 
 describe("@ file completion", () => {
@@ -109,52 +138,102 @@ describe("@ file completion", () => {
     expect(quoted.caret).toBe(9);
   });
 
-  it("derives directories from files, shallow first", () => {
-    expect(buildEntriesFromFiles(["src/web/app.tsx", "README.md"])).toEqual([
-      { path: "README.md", isDir: false },
+  it("derives folders from files and lists an empty query in one fixed order", () => {
+    const search = fileSearch([
+      "src/web/app.tsx",
+      "README.md",
+      "src/b.ts",
+      "docs/a.md",
+    ]);
+    // Shallow first, folders before files, then by path.
+    expect(search("")).toEqual([
+      { path: "docs", isDir: true },
       { path: "src", isDir: true },
+      { path: "README.md", isDir: false },
       { path: "src/web", isDir: true },
+      { path: "docs/a.md", isDir: false },
+      { path: "src/b.ts", isDir: false },
       { path: "src/web/app.tsx", isDir: false },
     ]);
   });
 
-  it("ranks exact, prefix, and substring matches, preferring a matching directory", () => {
-    const entries = [
-      { path: "myapp.tsx", isDir: false },
-      { path: "apple.tsx", isDir: false },
-      { path: "app", isDir: false },
-      { path: "src/app", isDir: true },
-      { path: "other.tsx", isDir: false },
-    ];
-    expect(
-      filterFileEntries(entries, "app").map((entry) => entry.path),
-    ).toEqual(["src/app", "app", "apple.tsx", "myapp.tsx"]);
+  it("matches abbreviations across folder and file names, as fzf does", () => {
+    // Every path of this repository that holds r, t, c, o, m, p in that
+    // order when this was written, so no other path could outrank them,
+    // and two near misses.
+    const search = fileSearch([
+      "scripts/check-composer-layout.ts",
+      "src/core/composer.ts",
+      "src/core/turn-completion.ts",
+      "src/web/client/at-complete.ts",
+      "src/web/client/composer.ts",
+      "src/web/routes/composer.tsx",
+      "src/web/styles/areas/composer.css",
+      "src/web/views/Composer.tsx",
+      "tests/adapters/context-compaction.test.ts",
+      "tests/core/turn-completion.test.ts",
+    ]);
+    const found = search("rtcomp").map((entry) => entry.path);
+    expect(found[0]).toBe("src/web/routes/composer.tsx");
+    expect(found).toHaveLength(8);
+    expect(found).not.toContain("src/web/views/Composer.tsx");
   });
 
-  it("matches a query with a slash against paths", () => {
-    const entries = [
-      { path: "src/web/app.tsx", isDir: false },
-      { path: "web/app.tsx", isDir: false },
-      { path: "src/app.tsx", isDir: false },
-    ];
-    expect(
-      filterFileEntries(entries, "web/app").map((entry) => entry.path),
-    ).toEqual(["web/app.tsx", "src/web/app.tsx"]);
+  it("needs a slash in the query to match one, and breaks ties shallow first", () => {
+    const search = fileSearch([
+      "src/web/app.tsx",
+      "web/app.tsx",
+      "src/app.tsx",
+      "webapp.ts",
+    ]);
+    expect(search("web/app").map((entry) => entry.path)).toEqual([
+      "web/app.tsx",
+      "src/web/app.tsx",
+    ]);
   });
 
-  it("caps the menu and returns the base order for an empty query", () => {
-    const entries = buildEntriesFromFiles(
-      Array.from({ length: 40 }, (_, index) => `f${String(index)}.ts`),
+  it("lists folders beside files, files alone on request, and caps the menu", () => {
+    const search = fileSearch(
+      Array.from({ length: 40 }, (_, index) => `src/f${String(index)}.ts`),
     );
-    expect(filterFileEntries(entries, "")).toHaveLength(20);
-    expect(filterFileEntries(entries, "f1")).toHaveLength(13);
+    expect(search("src")[0]).toEqual({ path: "src", isDir: true });
+    expect(search("src")).toHaveLength(20);
+    const files = search("src", 50, "files");
+    expect(files).toHaveLength(40);
+    expect(files.every((entry) => !entry.isDir)).toBe(true);
+    expect(search("")).toHaveLength(20);
   });
 });
 
 describe("input history", () => {
   it("keeps the last distinct texts, oldest first", () => {
-    expect(inputHistory(["a", "b", "a", "  ", "c"])).toEqual(["b", "a", "c"]);
-    expect(inputHistory(["a", "b", "c"], 2)).toEqual(["b", "c"]);
+    const plain = (...texts: string[]) => texts.map((text) => ({ text }));
+    const recalled = (...texts: string[]) =>
+      texts.map((text) => ({ text, skills: [] }));
+    expect(inputHistory(plain("a", " b\n", "a", "  ", "c"))).toEqual(
+      recalled("b", "a", "c"),
+    );
+    expect(inputHistory(plain("a", "b", "c"), 2)).toEqual(recalled("b", "c"));
+  });
+
+  it("keeps a request's skills, and its text exactly when it recorded them", () => {
+    const alpha = { id: "/skills/alpha/SKILL.md", name: "alpha" };
+    const beta = { id: "/skills/beta/SKILL.md", name: "beta" };
+    expect(
+      inputHistory([
+        { text: "same", skills: [alpha] },
+        { text: "same", skills: [beta] },
+        { text: "same", skills: [alpha] },
+        { text: "  exact\n", skills: [] },
+        { text: "", skills: [beta] },
+        { text: "", skills: [] },
+      ]),
+    ).toEqual([
+      { text: "same", skills: [beta] },
+      { text: "same", skills: [alpha] },
+      { text: "  exact\n", skills: [] },
+      { text: "", skills: [beta] },
+    ]);
   });
 
   it("walks back on up and empties the composer past the newest", () => {

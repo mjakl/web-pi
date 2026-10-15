@@ -1,75 +1,10 @@
 import {
-  parseWorktreeList,
   projectIdentity,
   rememberProjects,
   removedProject,
-  selectableWorktrees,
   shortPath,
 } from "@core/workspaces";
 import { describe, expect, it } from "vitest";
-
-/** `git worktree list --porcelain -z` writes NUL after every field. */
-function porcelain(...fields: string[]): string {
-  return fields.map((field) => `${field}\0`).join("");
-}
-
-describe("worktree list parsing", () => {
-  it("starts a record per worktree and strips the branch prefix", () => {
-    const records = parseWorktreeList(
-      porcelain(
-        "worktree /repo",
-        "HEAD abc",
-        "branch refs/heads/main",
-        "",
-        "worktree /repo/wt",
-        "HEAD def",
-        "branch refs/heads/feature/x",
-      ),
-    );
-    expect(records).toEqual([
-      { path: "/repo", branch: "main", bare: false, prunable: false },
-      { path: "/repo/wt", branch: "feature/x", bare: false, prunable: false },
-    ]);
-  });
-
-  it("marks bare and prunable records and keeps a detached head branchless", () => {
-    const records = parseWorktreeList(
-      porcelain(
-        "worktree /repo.git",
-        "bare",
-        "",
-        "worktree /repo/gone",
-        "HEAD abc",
-        "detached",
-        "prunable gitdir file points to non-existent location",
-      ),
-    );
-    expect(records[0]?.bare).toBe(true);
-    expect(records[1]?.prunable).toBe(true);
-    expect(records[1]?.branch).toBe(null);
-  });
-
-  it("offers neither bare, prunable, nor missing folders", () => {
-    const records = parseWorktreeList(
-      porcelain(
-        "worktree /repo.git",
-        "bare",
-        "",
-        "worktree /repo/gone",
-        "prunable stale",
-        "",
-        "worktree /repo/main",
-        "branch refs/heads/main",
-        "",
-        "worktree /repo/deleted",
-        "branch refs/heads/old",
-      ),
-    );
-    expect(
-      selectableWorktrees(records, (path) => path !== "/repo/deleted"),
-    ).toEqual([{ path: "/repo/main", branch: "main" }]);
-  });
-});
 
 describe("project identity", () => {
   const base = {

@@ -2,13 +2,8 @@ import { createFakeWorld, userEntry } from "@adapters/fake/index";
 import type { PushPresence } from "@core/ports";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { htmxBrowser } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
 
 describe("assembled app-wide presence", () => {
   it("gives separate tabs/devices distinct leases and waits for the last one to leave", async () => {
@@ -38,7 +33,6 @@ describe("assembled app-wide presence", () => {
           },
         },
       );
-      browsers.push(browser);
       return browser;
     };
     // Presence works before enrollment exists on any device.
@@ -117,7 +111,6 @@ describe("assembled app-wide presence", () => {
           },
         },
       );
-      browsers.push(browser);
       expect(reports[0]?.foreground).toBe(true);
       const message = {
         title: "done",

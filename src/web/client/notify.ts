@@ -1,7 +1,9 @@
 // Completion tones follow server events. System notifications belong solely
 // to the push subscription, so an unsubscribed browser stays unsubscribed.
 
+import { displayedSessionId } from "./navigation.ts";
 import { soundEnabled } from "./preferences.ts";
+import { finishedId } from "./sidebar.ts";
 
 let audio: AudioContext | undefined;
 
@@ -54,25 +56,16 @@ function setUpCompletion(): void {
 }
 
 /**
- * A run that finished in another session: the tone belongs to it too, because
- * the whole point of leaving a session running is not having to watch it. The
- * sidebar stream already reports every finished session; the unread handler
- * skips the one on screen, and so does this.
+ * A run that completed in another session: the tone belongs to it too,
+ * because the whole point of leaving a session running is not having to
+ * watch it. The sidebar stream reports completions by the same rule as the
+ * session stream's `done`, so a shell command, a failed prompt or an abort
+ * stays quiet. The one on screen already rang through `done`.
  */
 function setUpBackgroundCompletion(): void {
-  document.body.addEventListener("finished", (event) => {
-    const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
-    if (typeof text !== "string") return;
-    let finished: { id?: string } = {};
-    try {
-      finished = JSON.parse(text) as typeof finished;
-    } catch {
-      return;
-    }
-    if (!finished || typeof finished.id !== "string") return;
-    const current =
-      document.querySelector("main")?.getAttribute("data-session-id") ?? "";
-    if (finished.id && finished.id !== current) playDone();
+  document.body.addEventListener("completed", (event) => {
+    const id = finishedId(event);
+    if (id !== undefined && id !== displayedSessionId()) playDone();
   });
 }
 

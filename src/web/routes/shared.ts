@@ -1,20 +1,22 @@
-// What every route module needs: the dependencies, the few request helpers
-// that answer in more than one area, and the cookie names the server keeps its
-// own state in. Each area's routes live in its own module beside this one;
-// createWebApp in src/web/app.tsx builds the context and composes them.
+// What every route module needs: the dependencies and the few request helpers
+// that answer in more than one area. Each area's routes live in its own module
+// beside this one; createWebApp in src/web/app.tsx builds the context and
+// composes them.
 
 import { imageLimitError } from "@core/composer";
+import { SESSION_COOKIE } from "@core/cookies";
+import { baseName } from "@core/file-types";
 import { FileAccessError } from "@core/path-access";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
-import { uniqueSkills } from "@core/skill-prompt";
+import { skillSelections } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
-import type { SidebarView, Workspace } from "@core/workspace";
+import type { SessionView, SidebarView, Workspace } from "@core/workspace";
 import type { StaticAssets } from "@web/assets";
-import type { honoFactory } from "@web/hono";
-import type { Context } from "hono";
+import type { SessionPage } from "@web/views/SessionPage";
+import type { Context, Env, Hono } from "hono";
 import { getCookie } from "hono/cookie";
 
-export type WebApp = ReturnType<typeof honoFactory.createApp>;
+export type WebApp = Hono;
 
 export type WebDeps = {
   workspace: Workspace;
@@ -41,7 +43,11 @@ export type RouteContext = {
   remember: (c: Context, name: string, value: string) => void;
   newCwd: (c: Context) => string;
   currentCwd: (c: Context) => Promise<string>;
-  warnTokens: (c: Context) => { warnTokens: number };
+  /** A session page, with the trust status its top bar shows. */
+  sessionPage: (
+    view: SessionView,
+    props: Omit<Parameters<typeof SessionPage>[0], "view" | "trust">,
+  ) => Promise<ReturnType<typeof SessionPage>>;
   page: (
     c: Context,
     id: string,
@@ -53,6 +59,29 @@ export type RouteContext = {
   guard: (c: Context, action: () => Promise<Response>) => Promise<Response>;
 };
 
+/**
+ * Refuses an inspection-only session before any of these actions runs, with
+ * the one 403 and toast `guard` gives it. Some handlers, such as the model
+ * selector, have no other check.
+ */
+export function requireWritable(
+  app: WebApp,
+  { deps, guard }: RouteContext,
+  actions: readonly string[],
+): void {
+  for (const action of actions) {
+    app.use(
+      `/sessions/:id/${action}`,
+      (c: Context<Env, `/sessions/:id/${string}`>, next) =>
+        guard(c, async () => {
+          await deps.workspace.requireWritableSession(c.req.param("id"));
+          await next();
+          return c.res;
+        }),
+    );
+  }
+}
+
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -62,29 +91,6 @@ export function html(node: {
 }): Promise<string> {
   return Promise.resolve(node.toString());
 }
-
-export const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/** The working folder the picker last committed: where `/new` starts. */
-export const CWD_COOKIE = "web-pi-cwd";
-
-/**
- * The session the reader has open. pi-web keeps settings and the top-bar
- * panels over the workspace it was opened from, which a page reached by its
- * own URL cannot tell from the referrer alone.
- */
-export const SESSION_COOKIE = "web-pi-session";
-
-/** Which settings section was open last. */
-export const SETTINGS_COOKIE = "web-pi-settings";
-
-/** The skill last opened, and the folder it belongs to. */
-export const SKILL_COOKIE = "web-pi-skill";
-
-export const YEAR = 60 * 60 * 24 * 365;
 
 /** Navigate without discarding the surrounding shell or in-memory drafts. */
 export function sessionLocation(c: Context, path: string): void {
@@ -99,12 +105,30 @@ export function sessionLocation(c: Context, path: string): void {
   );
 }
 
-/** An explicit displayed identity wins, including no open session. */
+/**
+ * The folder the page shows. The browser percent-encodes it, because a header
+ * cannot carry characters above U+00FF; a tab loaded before that sends the
+ * path itself, which is used as it is when it does not decode.
+ */
+export function displayedCwd(c: Context): string | undefined {
+  const value = c.req.header("X-Web-Pi-Cwd");
+  if (value === undefined) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * The session the page shows. Every htmx request names it in a header,
+ * including none open; a full page load has only its referrer and cookie.
+ */
 export function currentSessionId(c: Context): string | undefined {
   const displayed = c.req.header("X-Web-Pi-Session");
   if (displayed !== undefined)
     return isSessionId(displayed) ? displayed : undefined;
-  const url = c.req.header("HX-Current-URL") ?? c.req.header("Referer") ?? "";
+  const url = c.req.header("Referer") ?? "";
   const id = /\/sessions\/([^/?#]+)/.exec(url)?.[1];
   if (id !== undefined && isSessionId(id)) return id;
   // Typed, bookmarked or opened in a new tab: no referrer names the session,
@@ -116,7 +140,7 @@ export function currentSessionId(c: Context): string | undefined {
     : undefined;
 }
 
-/** Only an https endpoint with both keys can receive an encrypted payload. */
+/** A text field without surrounding whitespace; a missing one is empty. */
 export function field(form: FormData, name: string): string {
   return rawField(form, name).trim();
 }
@@ -127,16 +151,35 @@ export function rawField(form: FormData, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * Adds events to the response's HX-Trigger header, beside any set already.
+ * A header cannot carry characters above U+00FF, and the action has run by
+ * the time it is written, so everything outside ASCII is escaped as `\uXXXX`;
+ * htmx reads the header with JSON.parse, which restores the text.
+ */
+export function hxTrigger(c: Context, events: Record<string, unknown>): void {
+  const set = c.res.headers.get("HX-Trigger");
+  const merged = {
+    ...(set ? (JSON.parse(set) as Record<string, unknown>) : {}),
+    ...events,
+  };
+  c.header(
+    "HX-Trigger",
+    JSON.stringify(merged).replaceAll(
+      /[^\x20-\x7E]/g,
+      // UTF-16 code units, so an emoji becomes its escaped surrogate pair.
+      (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    ),
+  );
+}
+
 /** Errors reach the reader as a toast, wherever the request came from. */
 export function toastHeader(
   c: Context,
   message: string,
   level: "info" | "warning" | "error" = "error",
 ): void {
-  c.header(
-    "HX-Trigger",
-    JSON.stringify({ "web-pi:toast": { level, message } }),
-  );
+  hxTrigger(c, { "web-pi:toast": { level, message } });
 }
 
 export type Submission = {
@@ -150,31 +193,12 @@ export type Submission = {
 export async function readSubmission(
   form: FormData,
 ): Promise<Submission | { error: string }> {
-  let skills: SkillSelection[] = [];
   const selection = rawField(form, "skills");
-  if (selection) {
-    try {
-      const value: unknown = JSON.parse(selection);
-      if (!Array.isArray(value)) throw new Error("Expected selections");
-      for (const item of value as unknown[]) {
-        if (typeof item !== "object" || item === null)
-          throw new Error("Expected a skill");
-        const skill = item as Record<string, unknown>;
-        if (
-          typeof skill["id"] !== "string" ||
-          !skill["id"] ||
-          typeof skill["name"] !== "string" ||
-          !skill["name"]
-        )
-          throw new Error("Expected a skill identity");
-        skills.push({ id: skill["id"], name: skill["name"] });
-      }
-      skills = uniqueSkills(skills);
-    } catch {
-      return {
-        error: "Invalid skill selection. Reload the Skills menu and try again.",
-      };
-    }
+  const skills = selection ? skillSelections(selection) : [];
+  if (!skills) {
+    return {
+      error: "Invalid skill selection. Reload the Skills menu and try again.",
+    };
   }
   const files = form
     .getAll("images[]")
@@ -211,7 +235,7 @@ export function fileFailure(c: Context, error: unknown): Response {
 
 /** A file name safe in a header, plus the encoded form for everyone else. */
 export function disposition(path: string, attachment: boolean): string {
-  const name = path.split(/[\\/]/).pop() ?? "download";
+  const name = baseName(path);
   const ascii = name.replaceAll(/[^\x20-\x7E]/g, "_").replaceAll('"', "");
   const kind = attachment ? "attachment" : "inline";
   return `${kind}; filename="${ascii === "" ? "download" : ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;

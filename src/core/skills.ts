@@ -1,4 +1,5 @@
 import { stripAnsi } from "./ansi.ts";
+import { preview } from "./transcript.ts";
 
 // What a skill is, and everything `npx skills` and skills.sh need spelled
 // out. Only rules here: reading lock files, running npx and talking to
@@ -257,10 +258,9 @@ export function installSucceeded(output: string): boolean {
   return INSTALLED.test(stripAnsi(output));
 }
 
-/** What the panel shows of a long install log. */
+/** What the panel shows of a long install log: its end, where the outcome is. */
 export function installMessage(output: string, limit = 300): string {
-  const text = stripAnsi(output).trim();
-  return text.length > limit ? text.slice(-limit) : text;
+  return preview(stripAnsi(output), -limit);
 }
 
 /** Grouped exactly as pi-web's skill sidebar groups them. */

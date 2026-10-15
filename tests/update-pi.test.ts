@@ -118,25 +118,21 @@ it("normal builds refresh a locked Pi, freeze the version, and fail before compi
     }
     for (const name of piPackages)
       for (const version of ["1.0.0", "1.0.1", "1.0.2"]) publish(name, version);
-    publish("build-tools", "1.0.0", {
-      esbuild: "tool.js",
-      tsc: "tool.js",
-      tsx: "tool.js",
-    });
+    publish("build-tools", "1.0.0", { esbuild: "tool.js", tsc: "tool.js" });
     publish("too-young", "1.0.0");
     for (const name of piPackages)
       publish(name, "1.0.3", undefined, { "too-young": "1.0.0" });
     const checkout = join(root, "checkout");
     mkdirSync(join(checkout, "scripts"), { recursive: true });
-    copyFileSync(resolve("justfile"), join(checkout, "justfile"));
-    copyFileSync(
-      resolve("pnpm-workspace.yaml"),
-      join(checkout, "pnpm-workspace.yaml"),
-    );
-    copyFileSync(
-      resolve("scripts/update-pi.ts"),
-      join(checkout, "scripts", "update-pi.ts"),
-    );
+    mkdirSync(join(checkout, "src"));
+    for (const file of [
+      "justfile",
+      "pnpm-workspace.yaml",
+      "scripts/update-pi.ts",
+      "scripts/doctor.ts",
+      "src/pi-version.ts",
+    ])
+      copyFileSync(resolve(file), join(checkout, file));
     writeFileSync(
       join(checkout, "package.json"),
       JSON.stringify({

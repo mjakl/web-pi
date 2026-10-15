@@ -1,12 +1,14 @@
 import { assistantEntry, userEntry } from "@adapters/fake/index";
 import {
-  branchLeaves,
   editableUserMessage,
+  forkPoint,
   lastAssistantText,
   readStars,
+  rewindSelection,
   rowMetadata,
   sessionStats,
   STAR_TYPE,
+  starTarget,
 } from "@core/session-entries";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -182,6 +184,89 @@ describe("stars", () => {
   });
 });
 
+describe("the rules both session writers apply", () => {
+  const imageOnly: SessionEntry = {
+    type: "message",
+    id: "u2",
+    parentId: "a1",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    message: {
+      role: "user",
+      content: [{ type: "image", data: "AAAA", mimeType: "image/png" }],
+      timestamp: 1,
+    },
+  };
+  const entries: SessionEntry[] = [
+    userEntry("u1", null, "first"),
+    assistantEntry("a1", "u1", "one", 100),
+    imageOnly,
+    assistantEntry("a2", "u2", "two", 200),
+  ];
+
+  it("lets a star mark an assistant answer and nothing else", () => {
+    expect(starTarget(entries[1])).toBe(entries[1]);
+    for (const entry of [entries[0], undefined]) {
+      expect(() => starTarget(entry)).toThrow(
+        "Star target must be an assistant answer",
+      );
+    }
+  });
+
+  it("forks before a question and through anything else", () => {
+    // An image-only question is still a question.
+    expect(forkPoint(imageOnly)).toEqual({
+      leafId: "a1",
+      draft: { text: "", images: [{ data: "AAAA", mimeType: "image/png" }] },
+    });
+    expect(forkPoint(entries[3])).toEqual({
+      leafId: "a2",
+      draft: { text: "", images: [] },
+    });
+    expect(() => forkPoint(entries[0])).toThrow("Nothing precedes");
+    expect(() => forkPoint(undefined)).toThrow(
+      "Select an existing conversation message",
+    );
+  });
+
+  it("rewinds to a question, keeping later preferences and stars of kept answers", () => {
+    const later = [
+      ...entries,
+      star("s1", "a2", "a1", true),
+      star("s2", "s1", "a2", true),
+      {
+        type: "session_info",
+        id: "n1",
+        parentId: "s2",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        name: "Named later",
+      } as SessionEntry,
+      star("s3", "n1", "a1", false),
+    ];
+    const { kept, tail, removed } = rewindSelection(later, "u2", "marker");
+    expect(kept).toBe(2);
+    expect(removed).toEqual(forkPoint(imageOnly).draft);
+    // Re-chained after the cut: the star and unstar of the kept answer and
+    // the name, but not the star of the removed one.
+    expect(tail.map((entry) => [entry.id, entry.parentId])).toEqual([
+      ["s1", "a1"],
+      ["n1", "s1"],
+      ["s3", "n1"],
+      ["marker", "s3"],
+    ]);
+    expect(tail.at(-1)).toMatchObject({
+      type: "custom",
+      customType: "web-pi-rewind",
+    });
+    expect(readStars([...later.slice(0, kept), ...tail])).toEqual(new Set());
+    expect(() => rewindSelection(later, "a1", "marker")).toThrow(
+      "Rewind requires an existing user message",
+    );
+    expect(() => rewindSelection(later, "gone", "marker")).toThrow(
+      "Rewind requires an existing user message",
+    );
+  });
+});
+
 describe("session statistics", () => {
   it("counts every branch and skips the time a human spent typing", () => {
     const entries = [
@@ -204,28 +289,6 @@ describe("session statistics", () => {
     });
     expect(stats.tokens.total).toBe(400);
     expect(stats.cacheHitRate).toBeNull();
-  });
-});
-
-describe("branch leaves", () => {
-  it("lists one tip per branch, labelled by its last request", () => {
-    const entries = [
-      userEntry("u1", null, "start"),
-      assistantEntry("a1", "u1", "one", 100),
-      userEntry("u2", "a1", "left"),
-      userEntry("u3", "a1", "right"),
-    ];
-    const leaves = branchLeaves(entries, "u3");
-    expect(leaves.map((leaf) => leaf.label)).toEqual(["right", "left"]);
-    expect(leaves.map((leaf) => leaf.current)).toEqual([true, false]);
-  });
-
-  it("has a single leaf while nothing has branched", () => {
-    const entries = [
-      userEntry("u1", null, "start"),
-      assistantEntry("a1", "u1", "one", 100),
-    ];
-    expect(branchLeaves(entries, "a1")).toHaveLength(1);
   });
 });
 
@@ -259,5 +322,14 @@ describe("row metadata", () => {
       modifiedAt: "2026-01-01",
       fileSize: 12,
     });
+  });
+
+  it("keeps only a title's worth of a long first request", () => {
+    const request = `${"x".repeat(298)}😀${"y".repeat(5000)}`;
+    const { firstMessage } = rowMetadata([userEntry("u1", null, request)], {
+      modifiedAt: "2026-01-01",
+      fileSize: 1,
+    });
+    expect(firstMessage).toBe(`${"x".repeat(298)}…`);
   });
 });

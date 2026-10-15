@@ -1,6 +1,7 @@
 import {
   assistantEntry,
   createFakeWorld,
+  FAKE_COMMANDS,
   userEntry,
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
@@ -54,6 +55,16 @@ describe("workspace over the fake runtime", () => {
       level: "ok",
     });
     expect(Math.round(after?.usage.percent ?? 0)).toBe(2);
+  });
+
+  it("measures context against the shared warning threshold", async () => {
+    const world = createFakeWorld({ delayMs: 2, reply: () => "one two three" });
+    const workspace = createWorkspace(world);
+    const id = await sendFirst(workspace, "/tmp/project", "hi");
+    await waitForIdle(workspace, id);
+    world.webSettings.update({ warnTokens: 1000 });
+    expect((await workspace.viewSession(id))?.usage.level).toBe("warn");
+    expect((await workspace.sessionStats(id))?.usage.level).toBe("warn");
   });
 
   it("lists sessions globally and derives directory choices separately", async () => {
@@ -185,9 +196,11 @@ describe("workspace over the fake runtime", () => {
       images: [{ data: "AAAA", mimeType: "image/png" }],
     });
 
-    const recalled = await workspace.recallQueue(id);
-    expect(recalled.text).toBe("second");
-    expect(recalled.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
+    const recalled = await workspace.recallQueue(id, { text: "typed" });
+    expect(recalled?.text).toBe("second\n\ntyped");
+    expect(recalled?.images).toEqual([{ data: "AAAA", mimeType: "image/png" }]);
+    // The queue is empty now: nothing comes back to touch the draft.
+    expect(await workspace.recallQueue(id, { text: "typed" })).toBeUndefined();
   });
 
   it("recalls selected prompts separately and keeps manual skill identities discoverable while running", async () => {
@@ -211,6 +224,111 @@ describe("workspace over the fake runtime", () => {
         }),
       ]),
     );
+  });
+
+  describe("a stopped session", () => {
+    function stopped(options: Parameters<typeof createFakeWorld>[0] = {}) {
+      const world = createFakeWorld({
+        sessions: [
+          {
+            summary: {
+              id: "s1",
+              cwd: "/repo/one",
+              createdAt: "2026-09-01T00:00:00.000Z",
+              modifiedAt: "2026-09-01T00:00:00.000Z",
+              fileSize: 2,
+            },
+            entries: [
+              userEntry("u1", null, "question"),
+              assistantEntry("a1", "u1", "answer", 100),
+            ],
+          },
+        ],
+        ...options,
+      });
+      return { world, workspace: createWorkspace(world) };
+    }
+
+    it("checks its folder and lists its commands without reading the transcript", async () => {
+      const { world, workspace } = stopped();
+      const read = vi.spyOn(world.sessions, "read");
+      const folder = vi.spyOn(world.sessions, "folder");
+      expect(await workspace.commands("s1", "review")).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "review" })]),
+      );
+      await workspace.activate("s1");
+      expect(folder).toHaveBeenCalledWith("s1");
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("refuses to run in a folder that is gone, naming the folder", async () => {
+      const { workspace } = stopped({ missingFolders: ["/repo/one"] });
+      await expect(workspace.activate("s1")).rejects.toThrow(
+        "Working folder is unavailable. This session is read-only: /repo/one",
+      );
+    });
+
+    it("offers the slash commands its own world was given", async () => {
+      const given = [
+        ...FAKE_COMMANDS,
+        {
+          name: "skill:release",
+          description: "Plan a release",
+          source: "skill" as const,
+          skillId: "/fake/skills/release/SKILL.md",
+        },
+      ];
+      const { workspace } = stopped({ commands: given });
+      // The world keeps its own copy, so neither list leaks into the other.
+      given.length = 0;
+      const names = async (from: typeof workspace) =>
+        (await from.commands("s1", "")).map((command) => command.name);
+      expect(await names(workspace)).toContain("skill:release");
+      await workspace.activate("s1");
+      expect(await names(workspace)).toContain("skill:release");
+      expect(await names(stopped().workspace)).not.toContain("skill:release");
+    });
+
+    it("is read without classifying it: only a runtime needs the check", async () => {
+      const { world, workspace } = stopped();
+      const classification = vi.spyOn(world.sessions, "classification");
+      expect((await workspace.viewSession("s1"))?.items).toHaveLength(2);
+      expect(await workspace.sessionFolder("s1")).toBe("/repo/one");
+      expect(await workspace.lastAssistantText("s1")).toBe("answer");
+      expect((await workspace.row("s1"))?.metadata.messageCount).toBe(2);
+      expect(classification).not.toHaveBeenCalled();
+    });
+  });
+
+  it("keeps stopped sessions' reads within their bound, oldest out first", async () => {
+    const large = (id: string) => ({
+      summary: {
+        id,
+        cwd: "/repo",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        modifiedAt: "2026-09-01T00:00:00.000Z",
+        fileSize: 20 * 1024 * 1024,
+      },
+      entries: [
+        userEntry(`${id}-u`, null, "question"),
+        assistantEntry(`${id}-a`, `${id}-u`, "answer", 100),
+      ],
+    });
+    const world = createFakeWorld({ sessions: [large("a"), large("b")] });
+    const workspace = createWorkspace(world);
+    const readSaved = vi.spyOn(world.sessions, "readSaved");
+    // A kept read is checked against its revision; a new one has none.
+    const kept = async (id: string) => {
+      readSaved.mockClear();
+      expect(await workspace.lastAssistantText(id)).toBe("answer");
+      return readSaved.mock.calls[0]?.[1] !== undefined;
+    };
+    expect(await kept("a")).toBe(false);
+    expect(await kept("a")).toBe(true);
+    // Two 20 MiB files do not fit the 32 MiB bound: the older read goes.
+    expect(await kept("b")).toBe(false);
+    expect(await kept("b")).toBe(true);
+    expect(await kept("a")).toBe(false);
   });
 
   it("puts the post-compaction estimate on the compaction card", async () => {
@@ -245,5 +363,71 @@ describe("workspace over the fake runtime", () => {
     const view = await workspace.viewSession("c1");
     const card = view?.items.find((item) => item.kind === "compaction");
     expect(card).toMatchObject({ tokensBefore: 40_000, tokensAfter: 1_234 });
+  });
+});
+
+// Every web test runs against the fake world, so where it differs from the
+// Pi adapter the suite cannot see it. These are the rules it once had wrong.
+describe("the fake runtime, as Pi does it", () => {
+  it("keeps a star of a kept answer through a rewind, ending at Pi's marker", async () => {
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: "/repo",
+            createdAt: "2026-09-01T00:00:00Z",
+            modifiedAt: "2026-09-01T00:00:00Z",
+            fileSize: 4,
+          },
+          entries: [
+            userEntry("u1", null, "first"),
+            assistantEntry("a1", "u1", "first answer", 100),
+            userEntry("u2", "a1", "edit this"),
+            assistantEntry("a2", "u2", "second answer", 100),
+          ],
+        },
+      ],
+    });
+    const workspace = createWorkspace(world);
+    await workspace.setStar("s1", "a1", true);
+    await workspace.rewind("s1", "u2");
+    const view = await workspace.viewSession("s1");
+    expect(view?.items.map((item) => item.entryId)).toEqual(["u1", "a1"]);
+    expect(view?.starred).toEqual(new Set(["a1"]));
+    expect(world.store.get("s1")?.entries.at(-1)).toMatchObject({
+      type: "custom",
+      customType: "web-pi-rewind",
+    });
+  });
+
+  it("announces a shell command and writes the session it ran in", async () => {
+    const world = createFakeWorld({ delayMs: 2 });
+    const workspace = createWorkspace(world);
+    const id = await workspace.createSession("/repo");
+    const events: string[] = [];
+    const finished = new Promise<void>((resolve) => {
+      workspace.subscribeSessions((event) => {
+        events.push(event.type);
+        if (event.type === "finished") resolve();
+      });
+    });
+    expect(world.store.has(id)).toBe(false);
+    await workspace.runBash(id, "ls", false);
+    await finished;
+    expect(events).toEqual(["started", "finished"]);
+    expect(world.store.has(id)).toBe(true);
+  });
+
+  it("writes a new session with its first question, long before the answer", async () => {
+    const world = createFakeWorld({ delayMs: 1_000 });
+    const workspace = createWorkspace(world);
+    const id = await workspace.createSession("/repo");
+    expect(world.store.has(id)).toBe(false);
+    await workspace.send(id, "hi");
+    expect(
+      world.store.get(id)?.entries.map((entry) => entry.type === "message"),
+    ).toEqual([true]);
+    await workspace.stop(id);
   });
 });

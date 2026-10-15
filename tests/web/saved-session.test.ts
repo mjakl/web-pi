@@ -7,23 +7,11 @@ import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { HTMLDetailsElement, HTMLElement } from "happy-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
+import { nextEvent, required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 import { disconnectable } from "#/web/fixtures/disconnect";
 
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-const stopRuntimes: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  try {
-    await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-  } finally {
-    await Promise.all(stopRuntimes.splice(0).map((stop) => stop()));
-  }
-});
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing saved-session fixture element");
-  return value;
-}
 function result(
   id: string,
   parentId: string,
@@ -79,8 +67,9 @@ function fixture(child: boolean, entries: SessionEntry[]) {
   const open = vi.spyOn(world.runtime, "open");
   const models = vi.spyOn(world.models, "list");
   const workspace = createWorkspace(world);
+  // Registered before any page, so pages close before the runtime stops.
   if (!child)
-    stopRuntimes.push(async () => {
+    onTestFinished(async () => {
       await world.runtime.get(id)?.stop();
     });
   const app = createWebApp({
@@ -218,7 +207,6 @@ it.each([false, true])(
       (request) => f.app.request(request),
       { clock: true },
     );
-    browsers.push(browser);
     const { document, window, requests } = browser;
     const owner = required(document.querySelector("main[data-saved-session]"));
     expect(owner.hasAttribute("hx-sse:connect")).toBe(false);
@@ -274,12 +262,14 @@ it.each([false, true])(
         "Newly completed tool output",
       ),
     );
+    // The saved check swaps a changed transcript, then says so on the log.
+    const log = required(document.querySelector("#log"));
+    let refreshed = nextEvent(log, "web-pi:saved-after");
     await browser.advanceTime(2000);
-    await expect
-      .poll(() => document.querySelector("#tool-pending-call")?.textContent, {
-        timeout: 4000,
-      })
-      .toContain("Newly completed tool output");
+    await refreshed;
+    expect(document.querySelector("#tool-pending-call")?.textContent).toContain(
+      "Newly completed tool output",
+    );
     expect(document.querySelectorAll("#messages .message-row")).toHaveLength(
       itemCount,
     );
@@ -291,12 +281,12 @@ it.each([false, true])(
         100,
       ),
     );
+    refreshed = nextEvent(log, "web-pi:saved-after");
     await browser.advanceTime(2000);
-    await expect
-      .poll(() => document.querySelector("#entry-completed")?.textContent, {
-        timeout: 4000,
-      })
-      .toContain("Completed answer");
+    await refreshed;
+    expect(document.querySelector("#entry-completed")?.textContent).toContain(
+      "Completed answer",
+    );
     expect(
       document
         .querySelector(
@@ -339,7 +329,78 @@ it.each([false, true])(
       expect(document.querySelector("#messages [hx-post]")).toBeNull();
     }
   },
-  10000,
+);
+
+it("keeps coloured code through a saved update instead of colouring it again", async () => {
+  const f = fixture(false, [
+    userEntry("u1", null, "Show me code"),
+    assistantEntry("a1", "u1", "Here:\n\n```ts\nconst a = 1;\n```", 100),
+  ]);
+  const browser = await htmxBrowser(
+    await (await f.app.request(`/sessions/${f.id}`)).text(),
+    (request) => f.app.request(request),
+    { clock: true },
+  );
+  const { document } = browser;
+  const code = required(document.querySelector("#entry-a1 code"));
+  expect(code.getAttribute("data-highlighted")).toBe("1");
+  // Colouring writes its own markup; a mark in it shows whether it was redone.
+  required(code.querySelector(".linenumber")).setAttribute("data-probe", "");
+  f.stored.entries.push(
+    userEntry("u2", "a1", "And more?"),
+    assistantEntry("a2", "u2", "Also:\n\n```ts\nlet b = 2;\n```", 100),
+  );
+  const refreshed = nextEvent(
+    required(document.querySelector("#log")),
+    "web-pi:saved-after",
+  );
+  await browser.advanceTime(2000);
+  await refreshed;
+  expect(document.querySelector("#entry-a1 code")).toBe(code);
+  expect(code.querySelector("[data-probe]")).not.toBeNull();
+  expect(
+    document.querySelector("#entry-a2 code")?.getAttribute("data-highlighted"),
+  ).toBe("1");
+});
+
+it.each([
+  "![chart](https://img.test/chart.png)",
+  "[![chart](https://img.test/chart.png)](./report.md)",
+  "[![chart](https://img.test/chart.png)](https://docs.test/report)",
+])(
+  "keeps a loaded remote image and its link through a saved update: %s",
+  async (markdown) => {
+    const f = fixture(false, [
+      userEntry("u1", null, "Show me the chart"),
+      assistantEntry("a1", "u1", markdown, 100),
+    ]);
+    const browser = await htmxBrowser(
+      await (await f.app.request(`/sessions/${f.id}`)).text(),
+      (request) => f.app.request(request),
+      { clock: true },
+    );
+    const { document } = browser;
+    expect(document.querySelector("#entry-a1 img")).toBeNull();
+    required(
+      document.querySelector<HTMLElement>("#entry-a1 [data-remote-image]"),
+    ).click();
+    const image = required(document.querySelector("#entry-a1 img"));
+    const navigation = image.closest("[data-file-path], a");
+    if (markdown.startsWith("[")) expect(navigation).not.toBeNull();
+    f.stored.entries.push(
+      userEntry("u2", "a1", "Thanks"),
+      assistantEntry("a2", "u2", "You are welcome", 100),
+    );
+    const refreshed = nextEvent(
+      required(document.querySelector("#log")),
+      "web-pi:saved-after",
+    );
+    await browser.advanceTime(2000);
+    await refreshed;
+    expect(document.querySelector("#entry-a2")).not.toBeNull();
+    expect(document.querySelector("#entry-a1 img")).toBe(image);
+    expect(image.closest("[data-file-path], a")).toBe(navigation);
+  },
 );
 
 it("uses fresh streams for repeated ownership and resumes saved observation after each stop", async () => {
@@ -349,7 +410,6 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
     (request) => f.app.request(request),
     { clock: true },
   );
-  browsers.push(browser);
   browser.window.eval(
     'window.savedTransfers = []; document.addEventListener("web-pi:saved", event => window.savedTransfers.push(JSON.parse(event.detail.data)))',
   );
@@ -361,7 +421,7 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(1);
+  await expect.poll(() => sessionStreams().length).toBe(1);
   expect(
     new URL(required(sessionStreams()[0]).url).searchParams.get("saved"),
   ).toBe("1");
@@ -394,13 +454,12 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-one")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External answer one");
   expect(f.open).not.toHaveBeenCalled();
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => sessionStreams().length, { timeout: 4000 }).toBe(2);
+  await expect.poll(() => sessionStreams().length).toBe(2);
   const secondStream = required(
     browser.document.querySelector("main [hx-sse\\:connect]"),
   );
@@ -431,12 +490,11 @@ it("uses fresh streams for repeated ownership and resumes saved observation afte
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-two")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External question two");
   expect(f.open).not.toHaveBeenCalled();
   expect(sessionStreams()).toHaveLength(2);
-}, 10000);
+});
 
 it("resets a saved window absent from the owned branch without losing pending notices", async () => {
   const f = fixture(false, [
@@ -450,7 +508,6 @@ it("resets a saved window absent from the owned branch without losing pending no
     (request) => f.app.request(request),
     { clock: true },
   );
-  browsers.push(browser);
   const oldLog = required(browser.document.querySelector("#log"));
   expect(browser.document.querySelector("#entry-old-answer")).not.toBeNull();
   expect(browser.document.querySelector("#entry-active-answer")).toBeNull();
@@ -458,9 +515,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   await f.workspace.reload(f.id);
   await browser.advanceTime(2000);
   await expect
-    .poll(() => browser.document.querySelector("#entry-active-answer"), {
-      timeout: 4000,
-    })
+    .poll(() => browser.document.querySelector("#entry-active-answer"))
     .not.toBeNull();
   expect(browser.document.querySelector("#entry-old-answer")).toBeNull();
   expect(browser.document.querySelector("#log")).not.toBe(oldLog);
@@ -470,7 +525,7 @@ it("resets a saved window absent from the owned branch without losing pending no
   expect(browser.document.querySelector("#toasts")?.textContent).not.toContain(
     "Live updates failed",
   );
-}, 10000);
+});
 
 it("returns to saved observation when ownership ends before the stream connects", async () => {
   const f = fixture(false, [userEntry("u1", null, "Saved question")]);
@@ -486,10 +541,9 @@ it("returns to saved observation when ownership ends before the stream connects"
     },
     { clock: true },
   );
-  browsers.push(browser);
   await f.workspace.activate(f.id);
   await browser.advanceTime(2000);
-  await expect.poll(() => stoppedBeforeConnect, { timeout: 4000 }).toBe(true);
+  await expect.poll(() => stoppedBeforeConnect).toBe(true);
   await expect
     .poll(() => browser.document.querySelector("main [hx-sse\\:connect]"))
     .toBeNull();
@@ -507,11 +561,10 @@ it("returns to saved observation when ownership ends before the stream connects"
   await expect
     .poll(
       () => browser.document.querySelector("#entry-external-race")?.textContent,
-      { timeout: 4000 },
     )
     .toContain("External answer after race");
   expect(f.open).not.toHaveBeenCalled();
-}, 10000);
+});
 
 it.each(["initial", "reconnect"])(
   "recovers a missed stop on %s from the rendered branch without losing history or accepting a rewind",
@@ -640,7 +693,6 @@ it.each(["initial", "reconnect"])(
           : transport.request(request),
       { clock: true },
     );
-    browsers.push(browser);
     const { document, window } = browser;
     const sentinel = required(document.querySelector(".load-earlier"));
     await window.eval(
@@ -750,9 +802,7 @@ it.each(["initial", "reconnect"])(
       },
     );
     await browser.advanceTime(4000);
-    await expect
-      .poll(() => observations, { timeout: 5000 })
-      .toContain("unavailable");
+    await expect.poll(() => observations).toContain("unavailable");
     const savedRequest = required(
       browser.requests.find((request) =>
         new URL(request.url).pathname.endsWith("/saved"),
@@ -789,7 +839,6 @@ it.each(["initial", "reconnect"])(
     await expect
       .poll(
         () => document.querySelector("#entry-external-recovered")?.textContent,
-        { timeout: 4000 },
       )
       .toContain("Recovered external answer");
     expect(document.querySelector("#entry-sibling")).toBeNull();
@@ -807,7 +856,6 @@ it.each(["initial", "reconnect"])(
     expect(availableModels).not.toHaveBeenCalled();
     expect(thinking).not.toHaveBeenCalled();
   },
-  15000,
 );
 
 it("observes an empty saved session and keeps its last good content when the file disappears", async () => {
@@ -825,7 +873,6 @@ it("observes an empty saved session and keeps its last good content when the fil
     },
     { clock: true },
   );
-  browsers.push(browser);
   const { document } = browser;
   expect(
     document.querySelector("main")?.getAttribute("data-saved-content-leaf"),
@@ -840,9 +887,7 @@ it("observes an empty saved session and keeps its last good content when the fil
   ).toBe(false);
   await browser.advanceTime(1);
   await expect
-    .poll(() => document.querySelector("#entry-first")?.textContent, {
-      timeout: 4000,
-    })
+    .poll(() => document.querySelector("#entry-first")?.textContent)
     .toContain("First saved message");
   const owner = required(
     document.querySelector<HTMLElement>("main[data-saved-session]"),
@@ -855,10 +900,10 @@ it("observes an empty saved session and keeps its last good content when the fil
   expect(response.status).toBe(204);
   expect(response.headers.get("X-Web-Pi-Saved")).toBe("unavailable");
   await browser.advanceTime(2000);
-  await expect.poll(() => unavailable, { timeout: 4000 }).toBe(true);
+  await expect.poll(() => unavailable).toBe(true);
   expect(document.querySelector("#entry-first")?.textContent).toContain(
     "First saved message",
   );
   expect(f.open).not.toHaveBeenCalled();
   expect(f.models).not.toHaveBeenCalled();
-}, 10000);
+});

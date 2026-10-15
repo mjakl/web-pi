@@ -210,12 +210,13 @@ export function normalizeFrame(lines: readonly string[]): string[] {
       text = cut(text, right);
       chars = visibleChars(text);
     }
-    while (chars.length > 0) {
-      const last = chars.at(-1);
-      if (!last || last.char.trim() !== "") break;
-      text = cut(text, last);
-      chars = visibleChars(text);
-    }
+    // Only escapes follow a trailing blank, so cutting one changes neither the
+    // offsets nor the reading of anything before it: one scan serves every
+    // cut, made right to left. Re-reading the line after each cut made a
+    // padded frame quadratic.
+    const kept = chars.findLastIndex((char) => char.char.trim() !== "");
+    for (const blank of chars.slice(kept + 1).reverse())
+      text = cut(text, blank);
     normalized.push(text);
   }
   const content = (line: string) => stripAnsi(line).trim() !== "";

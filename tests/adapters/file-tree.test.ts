@@ -48,6 +48,59 @@ describe("file tree", () => {
     await rm(plain, { recursive: true, force: true });
   });
 
+  it("hands the browser the first 5,000 paths and searches all of them", async () => {
+    const big = await mkdtemp(join(tmpdir(), "web-pi-big-"));
+    try {
+      // One at a time: thousands of parallel writes can run out of handles.
+      for (let index = 0; index < 5_000; index += 1) {
+        await writeFile(join(big, `f${String(index)}.txt`), "");
+      }
+      await mkdir(join(big, "zebra"));
+      await writeFile(join(big, "zebra", "late.ts"), "");
+      const files = createFileTree();
+      const index = await files.index(big);
+      expect(index.truncated).toBe(true);
+      expect(index.files).toHaveLength(5_000);
+      expect(index.files).not.toContain("zebra/late.ts");
+      expect(await files.search(big, "zelate", 20)).toEqual([
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+      expect(await files.search(big, "zebra", 20)).toEqual([
+        { path: "zebra", isDir: true },
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+      expect(await files.search(big, "zebra", 20, "files")).toEqual([
+        { path: "zebra/late.ts", isDir: false },
+      ]);
+    } finally {
+      await rm(big, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the listings of the two folders searched last", async () => {
+    const folder = (name: string) => mkdtemp(join(tmpdir(), `web-pi-${name}-`));
+    const [first, second, third] = await Promise.all([
+      folder("first"),
+      folder("second"),
+      folder("third"),
+    ]);
+    try {
+      const files = createFileTree();
+      for (const listed of [first, second, third]) await files.index(listed);
+      // A file added since: a kept listing does not know it yet.
+      for (const listed of [first, second, third])
+        await writeFile(join(listed, "added.txt"), "");
+      const sees = async (listed: string) =>
+        (await files.search(listed, "added", 20)).length > 0;
+      expect(await sees(third)).toBe(false);
+      // The third folder released the first one's listing.
+      expect(await sees(first)).toBe(true);
+    } finally {
+      for (const listed of [first, second, third])
+        await rm(listed, { recursive: true, force: true });
+    }
+  });
+
   it("completes immediate children by prefix, directories first", async () => {
     const files = createFileTree();
     const children = await files.children("./src/", root);
@@ -82,6 +135,21 @@ describe("file tree", () => {
     const text = `${"é".repeat(131_073)}\nend of file\n`;
     await writeFile(path, text);
     expect(await createFileTree().readText(path)).toBe(text);
+  });
+
+  it("never reads a file whole when a NUL byte sits in its first 8 KiB", async () => {
+    const files = createFileTree();
+    const binary = join(root, "early-nul.bin");
+    await writeFile(
+      binary,
+      Buffer.concat([Buffer.alloc(8191, 0x61), Buffer.from([0])]),
+    );
+    expect(await files.readText(binary)).toBeUndefined();
+    // Past the first 8 KiB, as for Git, a NUL byte is just text.
+    const late = join(root, "late-nul.txt");
+    const text = `${"a".repeat(8192)}\0tail`;
+    await writeFile(late, text);
+    expect(await files.readText(late)).toBe(text);
   });
 
   it("streams a byte range", async () => {

@@ -113,23 +113,12 @@ describe("project identity against a real checkout", () => {
     });
   });
 
-  it("lists every worktree once, with its branch", async () => {
-    const wt = join(root, "wt");
-    await git(repo, "worktree", "add", "-b", "feature", wt);
-    const listing = await createPiProjectResolver({ agentDir }).worktrees(repo);
-    expect(listing.isGit).toBe(true);
-    expect(
-      listing.worktrees
-        .map((tree) => tree.branch)
-        .sort((a, b) => String(a).localeCompare(String(b))),
-    ).toEqual(["feature", "main"]);
-  });
-
   it("writes the folder-to-repository map privately and only once", async () => {
     const wt = join(root, "wt");
     await git(repo, "worktree", "add", "-b", "feature", wt);
     const resolver = createPiProjectResolver({ agentDir });
-    await resolver.worktrees(repo);
+    await resolver.resolve(repo);
+    await resolver.resolve(wt);
     const file = join(agentDir, "web-pi", "worktree-projects.json");
     const written: unknown = JSON.parse(await readFile(file, "utf8"));
     const canonicalRepo = await realpath(repo);
@@ -142,7 +131,8 @@ describe("project identity against a real checkout", () => {
     // A fixed old timestamp detects same-content rewrites without a sleep.
     await utimes(file, new Date(0), new Date(0));
     const before = await stat(file);
-    await resolver.worktrees(repo);
+    // A fresh resolver runs Git again rather than answering from its cache.
+    await createPiProjectResolver({ agentDir }).resolve(wt);
     const after = await stat(file);
     expect(after.mtimeMs).toBe(before.mtimeMs);
     expect(after.ino).toBe(before.ino);
@@ -152,21 +142,11 @@ describe("project identity against a real checkout", () => {
     const wt = join(root, "wt");
     await git(repo, "worktree", "add", "-b", "feature", wt);
     const resolver = createPiProjectResolver({ agentDir });
-    await resolver.worktrees(repo);
+    await resolver.resolve(wt);
     await rm(wt, { recursive: true, force: true });
     expect(await resolver.available(wt)).toBe(false);
     const project = await createPiProjectResolver({ agentDir }).resolve(wt);
     expect(project.isWorktree).toBe(true);
     expect(project.root).toBe(await realpath(repo));
-  });
-
-  it("still lists the repository's worktrees when the folder is gone", async () => {
-    const wt = join(root, "wt");
-    await git(repo, "worktree", "add", "-b", "feature", wt);
-    const resolver = createPiProjectResolver({ agentDir });
-    await resolver.worktrees(repo);
-    await rm(wt, { recursive: true, force: true });
-    const listing = await resolver.worktrees(wt);
-    expect(listing.worktrees.map((tree) => tree.branch)).toEqual(["main"]);
   });
 });

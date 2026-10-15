@@ -78,10 +78,13 @@ export type WebPushOptions = {
 export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
   migrateWebState(options.agentDir, "web-push.json", FILE, parseState);
   const path = webStatePath(options.agentDir, FILE);
-  let state: State = readWebState(path, parseState) ?? {
+  const loaded = readWebState(path, parseState);
+  let state: State = loaded ?? {
     vapidKeys: webpush.generateVAPIDKeys(),
     subscriptions: [],
   };
+  // A pair generated here exists only in memory until its first save.
+  let unsaved = loaded === undefined;
   const send =
     options.send ??
     (async (subscription, payload, keys) => {
@@ -96,6 +99,7 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
   const save = (next: State = state) => {
     writeWebState(path, next);
     state = next;
+    unsaved = false;
   };
 
   const gracePeriodMs = options.gracePeriodMs ?? 15 * 60_000;
@@ -166,7 +170,7 @@ export function createWebPushNotifier(options: WebPushOptions): PushNotifier {
     publicKey(): string {
       // Reading the key is what first persists a freshly generated pair: a
       // browser cannot subscribe to keys the next restart would throw away.
-      save();
+      if (unsaved) save();
       return state.vapidKeys.publicKey;
     },
     subscribe(subscription): void {

@@ -1,8 +1,21 @@
 import {
+  type Api,
   clampThinkingLevel,
   getSupportedThinkingLevels,
+  type Model,
 } from "@earendil-works/pi-ai";
-import type { ModelCatalog, ModelListing, ModelOption } from "@core/ports";
+import {
+  initialModel,
+  initialThinking,
+  type StartupChoice,
+} from "@core/models";
+import { sameModel } from "@core/model-settings";
+import type {
+  ModelCatalog,
+  ModelListing,
+  ModelOption,
+  ThinkingLevel,
+} from "@core/ports";
 import {
   type AgentSessionServices,
   type ModelRuntime,
@@ -56,6 +69,39 @@ export async function resolveModelListing(
   return { models: scoped, warnings, ...preferred };
 }
 
+/**
+ * The model and reasoning level a new session starts on: the reader's choice,
+ * else Pi's preferred or first model in scope. Pi's cycling scope supplies
+ * defaults and reasoning pins, not an allowlist for deliberate web choices.
+ */
+export async function startupModel(
+  runtime: ModelRuntime,
+  settings: SettingsManager,
+  startup: StartupChoice,
+): Promise<{ model?: Model<Api>; thinkingLevel?: ThinkingLevel }> {
+  const listing = await resolveModelListing(runtime, settings);
+  const requested = startup.model;
+  const selected = requested
+    ? (await resolveModelListing(runtime, settings, true)).models.find(
+        (model) => sameModel(model, requested),
+      )
+    : initialModel(listing.models, listing.preferred);
+  if (requested && !selected) {
+    throw new Error(
+      `Model is not available: ${requested.provider}/${requested.id}`,
+    );
+  }
+  const scoped =
+    selected && listing.models.find((model) => sameModel(model, selected));
+  const thinkingLevel =
+    startup.thinkingLevel ?? initialThinking(scoped ?? selected);
+  const model = selected && runtime.getModel(selected.provider, selected.id);
+  return {
+    ...(model ? { model } : {}),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+  };
+}
+
 export function serviceDiagnostics(services: AgentSessionServices): string[] {
   const extensions = services.resourceLoader.getExtensions();
   return [
@@ -106,10 +152,7 @@ export function createPiModelCatalog(options: {
       const scoped = await resolveModelListing(runtime, settings);
       return available.models.map(
         (model) =>
-          scoped.models.find(
-            (option) =>
-              option.provider === model.provider && option.id === model.id,
-          ) ?? model,
+          scoped.models.find((option) => sameModel(option, model)) ?? model,
       );
     },
     async list(cwd, sessionId) {

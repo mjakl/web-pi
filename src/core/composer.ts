@@ -1,8 +1,12 @@
-// Everything the composer decides from the text in the box: which slash
-// command menu to show, where an `@` token starts and what completing it
-// inserts, and where ArrowUp lands in the input history. Pure rules, shared
-// by the server (which renders the command menu) and the client bundle
-// (which owns the keyboard and the local file index).
+// The composer's rules, shared by the server (which renders the command menu
+// and checks a submission) and the client bundle (which owns the keyboard and
+// the local file index): the slash menu and the built-ins, what selected
+// skills may go with, `@` tokens and the file search behind them, the input
+// history, shell commands, the recalled follow-up queue, attachment limits,
+// and when an on-screen keyboard sizes the page.
+
+import { Fzf } from "fzf";
+import type { SkillSelection } from "./ports.ts";
 
 export type SlashSource = "builtin" | "extension" | "prompt" | "skill";
 
@@ -124,6 +128,29 @@ export function exactBuiltin(value: string): SlashCommand | undefined {
   return BUILTIN_COMMANDS.find((command) => command.name === query);
 }
 
+/** A built-in as submitted, `/name Fix it`: its name and trimmed argument. */
+export function parseBuiltin(
+  text: string,
+): { name: string; argument: string } | undefined {
+  const [, name = "", argument = ""] =
+    /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text) ?? [];
+  return BUILTIN_COMMANDS.some((command) => command.name === name)
+    ? { name, argument: argument.trim() }
+    : undefined;
+}
+
+/**
+ * Selected skills go with a request or a leading `/skill:` command, never
+ * with another slash command or a shell command; this says why not.
+ */
+export function skillsConflict(text: string): string | undefined {
+  const start = text.trimStart();
+  return (start.startsWith("/") && !start.startsWith("/skill:")) ||
+    start.startsWith("!")
+    ? "Remove selected skills before sending a slash or shell command."
+    : undefined;
+}
+
 export type AtQuery = { start: number; query: string; quoted: boolean };
 
 const QUOTED_AT = /(?:^|\s)@"([^"\n]*)$/;
@@ -158,10 +185,6 @@ export function isFilePathQuery(query: string): boolean {
 
 export type FileEntry = { path: string; isDir: boolean };
 
-/**
- * Completing a directory leaves the token open so the next keystroke drills
- * into it; completing a file closes it with a trailing space.
- */
 /** `:12` or `:12-20`, clamped to real line numbers and put back in order. */
 function lineSuffix(range: { start: number; end?: number }): string {
   const first = Math.max(1, Math.trunc(range.start));
@@ -171,6 +194,10 @@ function lineSuffix(range: { start: number; end?: number }): string {
   return from === to ? `:${String(from)}` : `:${String(from)}-${String(to)}`;
 }
 
+/**
+ * Completing a directory leaves the token open so the next keystroke drills
+ * into it; completing a file closes it with a trailing space.
+ */
 export function buildAtInsertText(
   entry: FileEntry,
   quoted: boolean,
@@ -189,75 +216,57 @@ export function buildAtInsertText(
   return { text, caret: text.length };
 }
 
-function depth(path: string): number {
-  return path.split("/").length;
-}
-
-/** Files plus the directories they imply, shallow first. */
-export function buildEntriesFromFiles(files: readonly string[]): FileEntry[] {
-  const directories = new Set<string>();
-  for (const file of files) {
-    const parts = file.split("/");
-    for (let index = 1; index < parts.length; index += 1) {
-      directories.add(parts.slice(0, index).join("/"));
-    }
-  }
-  const entries: FileEntry[] = [
-    ...[...directories].map((path) => ({ path, isDir: true })),
-    ...files.map((path) => ({ path, isDir: false })),
-  ];
-  return entries.sort(
-    (a, b) => depth(a.path) - depth(b.path) || a.path.localeCompare(b.path),
-  );
-}
-
-function isSubsequence(needle: string, haystack: string): boolean {
-  let index = 0;
-  for (const character of haystack) {
-    if (character === needle[index]) index += 1;
-    if (index === needle.length) return true;
-  }
-  return needle.length === 0;
-}
-
-/** Higher is better; 0 means "not a match". */
-export function scoreEntry(entry: FileEntry, query: string): number {
-  const needle = query.toLowerCase();
-  const path = entry.path.toLowerCase();
-  const base = path.slice(path.lastIndexOf("/") + 1);
-  let score = 0;
-  if (needle.includes("/")) {
-    if (path === needle) score = 100;
-    else if (path.startsWith(needle)) score = 80;
-    else if (path.includes(needle)) score = 50;
-    else if (isSubsequence(needle, path)) score = 10;
-  } else if (base === needle) score = 100;
-  else if (base.startsWith(needle)) score = 80;
-  else if (base.includes(needle)) score = 50;
-  else if (path.includes(needle)) score = 30;
-  else if (isSubsequence(needle, base)) score = 10;
-  return score > 0 && entry.isDir ? score + 10 : score;
-}
-
 export const AT_RESULT_LIMIT = 20;
 
-export function filterFileEntries(
-  entries: readonly FileEntry[],
+/** The best `limit` entries for a query; `"files"` leaves the folders out. */
+export type FileSearch = (
   query: string,
-  limit = AT_RESULT_LIMIT,
-): FileEntry[] {
-  if (query === "") return entries.slice(0, limit);
-  return entries
-    .map((entry) => ({ entry, score: scoreEntry(entry, query) }))
-    .filter((scored) => scored.score > 0)
+  limit?: number,
+  only?: "files",
+) => FileEntry[];
+
+/**
+ * A listing's files and the folders they imply, ranked with fzf's algorithm
+ * so the browser and the server order matches alike: abbreviations match
+ * across folder and file names, and a `/` in the query has to match one.
+ * An empty query and every tie keep one fixed order: shallow first, folders
+ * before files, then by path. Built once per listing; the first query
+ * prepares the matcher, and each query after it is one pass.
+ */
+export function fileSearch(files: readonly string[]): FileSearch {
+  const folders = new Set<string>();
+  for (const file of files) {
+    for (
+      let at = file.indexOf("/");
+      at !== -1;
+      at = file.indexOf("/", at + 1)
+    ) {
+      folders.add(file.slice(0, at));
+    }
+  }
+  const entries = [
+    ...[...folders].map((path) => ({ path, isDir: true })),
+    ...files.map((path) => ({ path, isDir: false })),
+  ]
+    .map((entry) => ({ entry, depth: entry.path.split("/").length }))
     .sort(
       (a, b) =>
-        b.score - a.score ||
-        depth(a.entry.path) - depth(b.entry.path) ||
+        a.depth - b.depth ||
+        Number(b.entry.isDir) - Number(a.entry.isDir) ||
         a.entry.path.localeCompare(b.entry.path, "en"),
     )
-    .slice(0, limit)
-    .map((scored) => scored.entry);
+    .map(({ entry }) => entry);
+  let matcher: Fzf<FileEntry[]> | undefined;
+  return (query, limit = AT_RESULT_LIMIT, only) => {
+    let ranked = entries;
+    if (query !== "") {
+      matcher ??= new Fzf(entries, { selector: (entry) => entry.path });
+      ranked = matcher.find(query).map((found) => found.item);
+    }
+    const wanted =
+      only === "files" ? ranked.filter((entry) => !entry.isDir) : ranked;
+    return wanted.slice(0, limit);
+  };
 }
 
 /** ArrowUp walks back through `history` (oldest first); down past 0 exits. */
@@ -276,15 +285,30 @@ export function cycleHistory(
   return { cycle: next, text: history[history.length - 1 - next] ?? "" };
 }
 
-/** Last 50 distinct user texts, oldest first, newest kept on a repeat. */
-export function inputHistory(texts: readonly string[], cap = 50): string[] {
+/** A sent request as history shows it; `skills` only when it recorded them. */
+export type SentRequest = { text: string; skills?: SkillSelection[] };
+
+/**
+ * The last 50 distinct requests, oldest first, a repeat keeping its newest
+ * place. A request that recorded its skills comes back exactly as typed, and
+ * the same words with other skills stay distinct; plain text is trimmed.
+ */
+export function inputHistory(
+  sent: readonly SentRequest[],
+  cap = 50,
+): Required<SentRequest>[] {
   const seen = new Set<string>();
-  const collected: string[] = [];
-  for (let index = texts.length - 1; index >= 0; index -= 1) {
-    const text = texts[index]?.trim() ?? "";
-    if (text === "" || seen.has(text)) continue;
-    seen.add(text);
-    collected.push(text);
+  const collected: Required<SentRequest>[] = [];
+  for (let index = sent.length - 1; index >= 0; index -= 1) {
+    const request = sent[index];
+    if (!request) continue;
+    const skills = request.skills ?? [];
+    const text =
+      request.skills === undefined ? request.text.trim() : request.text;
+    const key = JSON.stringify([text, skills]);
+    if ((text === "" && skills.length === 0) || seen.has(key)) continue;
+    seen.add(key);
+    collected.push({ text, skills });
     if (collected.length === cap) break;
   }
   return collected.reverse();

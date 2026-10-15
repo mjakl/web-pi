@@ -1,10 +1,6 @@
-import {
-  BUILTIN_COMMANDS,
-  rankCommands,
-  type SlashCommand,
-} from "@core/composer";
+import type { SlashCommand } from "@core/composer";
 import { initialModel, type StartupChoice } from "@core/models";
-import { modelSettingsEdit } from "@core/model-settings";
+import { modelSettingsEdit, sameModel } from "@core/model-settings";
 import type { PackagesView, PackageScope } from "@core/packages";
 import { FileAccessError, isAbsolutePath, samePath } from "@core/path-access";
 import type {
@@ -14,7 +10,7 @@ import type {
   SkillUpdate,
 } from "@core/skills";
 import type { Shared } from "./deps.ts";
-import type { FolderChoice, NewSessionView } from "./views.ts";
+import type { NewSessionView } from "./views.ts";
 
 // Everything before and around a session: choosing a folder, what `/new`
 // offers there, project trust, skills and extension packages.
@@ -26,6 +22,8 @@ export function configUseCases({
   inspectionOnly,
   modelsFor,
   projectRootOf,
+  refreshRoots,
+  slashMenu,
   validatedRoots,
 }: Shared) {
   /**
@@ -68,6 +66,7 @@ export function configUseCases({
     validatedRoots.add(cwd);
     const projectRoot = (await projectRootOf(cwd)) ?? cwd;
     validatedRoots.add(projectRoot);
+    refreshRoots();
     return { cwd, projectRoot };
   }
 
@@ -109,37 +108,6 @@ export function configUseCases({
       return deps.browser.browse(path);
     },
 
-    /**
-     * One project row of the picker: its worktrees, freshly probed. Probing
-     * runs git in the folder, so the folder has to be one this reader may
-     * already reach; the worktrees it reports join the allowed roots, which is
-     * how a session in a sibling worktree stays readable after a restart.
-     */
-    async folders(cwd: string): Promise<FolderChoice> {
-      const available = await folderAvailable(cwd);
-      // A folder that is gone is never probed, so there is nothing to gate;
-      // one that is there has git run in it, and that needs a folder this
-      // reader may already reach.
-      if (available) await authorize(cwd, { listing: true });
-      const listing = await deps.projects.worktrees(cwd);
-      const worktrees =
-        listing.worktrees.length > 0
-          ? listing.worktrees
-          : available
-            ? [{ path: cwd, branch: listing.project.branch }]
-            : [];
-      for (const tree of worktrees) validatedRoots.add(tree.path);
-      return {
-        cwd,
-        available,
-        project: listing.project,
-        isGit: listing.isGit,
-        worktrees,
-        current:
-          worktrees.find((tree) => samePath(tree.path, cwd))?.path ?? null,
-      };
-    },
-
     /** What `/new` renders: models and trust for the chosen folder. */
     async newSession(
       cwd: string,
@@ -170,12 +138,10 @@ export function configUseCases({
         usable && choice.model
           ? await deps.models.listAvailable(cwd).catch(() => listing.models)
           : listing.models;
+      const wanted = choice.model;
       const model =
-        candidates.find(
-          (option) =>
-            option.provider === choice.model?.provider &&
-            option.id === choice.model?.modelId,
-        ) ?? initialModel(listing.models, listing.preferred);
+        (wanted && candidates.find((option) => sameModel(option, wanted))) ??
+        initialModel(listing.models, listing.preferred);
       return {
         cwd,
         available,
@@ -196,15 +162,10 @@ export function configUseCases({
       };
     },
 
-    /** The slash menu before a session exists: prompts and skills of a folder. */
+    /** The slash menu before a session exists in the folder. */
     async folderCommands(cwd: string, query: string): Promise<SlashCommand[]> {
       await authorize(cwd, { listing: true });
-      const listed = await deps.resources
-        .commands(cwd)
-        .catch(() => [] as SlashCommand[]);
-      return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
-        running: false,
-      });
+      return slashMenu(query, cwd);
     },
 
     // --- Project trust ----------------------------------------------------

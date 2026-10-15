@@ -1,4 +1,5 @@
 import type { SlashCommand, SlashSource } from "@core/composer";
+import { sameModel } from "@core/model-settings";
 import type {
   ImageAttachment,
   ModelOption,
@@ -154,7 +155,7 @@ export function RecalledImages({
     <div
       id="recalled-images"
       hidden
-      {...(oob === false ? {} : { "hx-swap-oob": "innerHTML" })}
+      hx-swap-oob={oob === false ? undefined : "innerHTML"}
     >
       {images.map((image) => (
         <span data-image={image.data} data-mime={image.mimeType} />
@@ -189,7 +190,7 @@ export function ComposerText({
   );
 }
 
-/** pi-web's ModelNoticeBanner (§6.2), for the one tone web-pi raises. */
+/** pi-web's ModelNoticeBanner, for the one tone web-pi raises. */
 export function ModelScopeWarning({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return <></>;
   return (
@@ -286,7 +287,7 @@ function pickAttributes(pick: ModelPick, value: string) {
   };
 }
 
-/** pi-web's reasoning row: the label and the level select (§6.1). */
+/** pi-web's reasoning row: the label and the level select. */
 function ReasoningField({ pick }: { pick: ModelPick }) {
   const current = pick.current;
   const value =
@@ -348,10 +349,10 @@ function compareModels(a: ModelOption, b: ModelOption): number {
 }
 
 /**
- * pi-web's ModelSelector (§6.5): the toolbar trigger and the listbox it
- * anchors. The popover is the browser's — `popovertarget` opens it, light
- * dismiss and Escape close it — and CSS anchor positioning pins it to the
- * trigger, so nothing here needs a script.
+ * pi-web's ModelSelector: the toolbar trigger and the listbox it anchors.
+ * The popover is the browser's — `popovertarget` opens it, light dismiss and
+ * Escape close it — and CSS anchor positioning pins it to the trigger, so
+ * nothing here needs a script.
  */
 export function ModelSelector({
   pick,
@@ -379,7 +380,7 @@ export function ModelSelector({
       hx-target="this"
       hx-swap="outerHTML"
       class={`model-selector is-composer${disabled === true ? " is-disabled" : ""}`}
-      {...(oob === true ? { "hx-swap-oob": "outerHTML" } : {})}
+      hx-swap-oob={oob === true ? "outerHTML" : undefined}
     >
       {/* `/new` posts the pick with the first prompt instead of applying it. */}
       {pick.sessionId === undefined ? (
@@ -419,7 +420,7 @@ export function ModelSelector({
       >
         <ReasoningField pick={pick} />
         {models.length > FILTER_FROM ? (
-          <div class="composer-model-filter">
+          <div class="menu-filter-row">
             <input
               id="model-filter"
               class="menu-filter composer-model-filter-input"
@@ -459,8 +460,7 @@ export function ModelSelector({
                   .filter((model) => model.provider === provider)
                   .map((model) => {
                     const active =
-                      current?.provider === model.provider &&
-                      current.id === model.id;
+                      current !== null && sameModel(current, model);
                     return (
                       <button
                         type="button"
@@ -494,9 +494,9 @@ export function ModelSelector({
 }
 
 /**
- * pi-web's mobile "more" menu (§6.1): a phone has no Alt key and no room for
- * the extension status line, so both live here. `.composer-more` is hidden
- * above 640px by areas/composer.css, which is where pi-web's `isMobile` was.
+ * pi-web's mobile "more" menu: a phone has no Alt key and no room for the
+ * extension status line, so both live here. `.composer-more` is hidden above
+ * 640px by areas/composer.css, which is where pi-web's `isMobile` was.
  */
 function MoreControls({ sessionId }: { sessionId?: string }) {
   return (
@@ -549,7 +549,7 @@ function MoreControls({ sessionId }: { sessionId?: string }) {
   );
 }
 
-/** pi-web's drag-and-drop overlay (§4.1); the client bundle unhides it. */
+/** pi-web's drag-and-drop overlay; the client bundle unhides it. */
 export function DropZone() {
   return (
     <div class="chat-drop-zone" hidden>
@@ -609,9 +609,9 @@ export function Composer({
       hx-sync="this:drop"
       hx-target="#toasts"
       hx-swap="beforeend"
-      {...(sessionId === undefined ? {} : { "data-session-id": sessionId })}
-      {...(cwd === undefined ? {} : { "data-cwd": cwd })}
-      {...(start?.usable === true ? { "data-complete": "folder" } : {})}
+      data-session-id={sessionId}
+      data-cwd={cwd}
+      data-complete={start?.usable === true ? "folder" : undefined}
     >
       <input
         id="image-input"
@@ -663,15 +663,9 @@ export function Composer({
               >
                 <AttachImageIcon />
               </button>
-              <MoreControls
-                {...(sessionId === undefined ? {} : { sessionId })}
-              />
+              <MoreControls sessionId={sessionId} />
               {pick === undefined ? null : <ModelSelector pick={pick} />}
-              <SkillsSelector
-                {...(sessionId === undefined ? {} : { sessionId })}
-                {...(cwd === undefined ? {} : { cwd })}
-                skills={skills}
-              />
+              <SkillsSelector sessionId={sessionId} cwd={cwd} skills={skills} />
               <button
                 type="submit"
                 class="composer-action-primary"

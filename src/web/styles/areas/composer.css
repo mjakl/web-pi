@@ -208,14 +208,6 @@
   flex-direction: column;
   overflow: hidden;
 }
-.composer-skills-filter {
-  flex-shrink: 0;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
-.composer-skills-filter .menu-filter {
-  width: 100%;
-}
 .composer-skills-results {
   min-height: 0;
   overflow-y: auto;
@@ -265,6 +257,14 @@
   justify-content: flex-end;
   padding: 0 var(--space-8);
   pointer-events: none;
+}
+/* pi-web's notice shelf is a right-anchored column whose cards keep their
+   own widths; the gap is its `marginBottom: index === last ? 0 : 6`. */
+#toasts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
 }
 .chat-drop-zone {
   pointer-events: none;
@@ -328,9 +328,6 @@
   overflow: auto hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
-}
-.extension-widget-triggers::-webkit-scrollbar {
-  display: none;
 }
 .extension-widget-trigger {
   position: relative;
@@ -442,7 +439,6 @@ button.extension-widget-trigger:focus-visible {
   bottom: calc(100% + 8px);
   z-index: var(--layer-completion);
   overflow: hidden;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   max-height: min(48vh, 400px);
@@ -532,15 +528,6 @@ button.extension-widget-trigger:focus-visible {
 .composer-file-prefix {
   color: var(--text-dim);
 }
-.composer-file-icon-host {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-.composer-file-icon {
-  width: 14px;
-  height: 14px;
-}
 .composer-file-name {
   min-width: 0;
   overflow: hidden;
@@ -583,11 +570,6 @@ button.extension-widget-trigger:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.composer-model-filter {
-  flex-shrink: 0;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
 }
 .composer-model-filter-input {
   min-width: 220px;
@@ -778,9 +760,6 @@ button.extension-widget-trigger:focus-visible {
   flex-shrink: 0;
   margin-top: 21px;
 }
-.model-switching-icon {
-  animation: spin 0.8s linear infinite;
-}
 .notice-shelf-item.is-warning .notice-shelf-dot {
   background: var(--warning);
 }
@@ -823,7 +802,6 @@ button.extension-widget-trigger:focus-visible {
   .composer-textarea {
     min-height: 0;
     padding-bottom: 0;
-    font-size: 16px;
   }
 
   .composer-toolbar {

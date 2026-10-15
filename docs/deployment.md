@@ -7,10 +7,9 @@ journal.
 ## Install
 
 Build a tarball from a checkout and install it globally, as
-[the README](../README.md) describes. The package installs its own exact Pi
-runtime; a separate system Pi and a writable package directory are not needed at
-startup. A Pi upgrade reaches web-pi through a new build and reinstall, not
-through a system Pi update.
+[the README](../README.md#install-and-run) describes. The package brings its own
+Pi ([ADR 0002](adr/0002-package-owned-pi-runtime.md)), so the service needs no
+system Pi, and a Pi upgrade reaches it only through a new build and reinstall.
 
 ## The unit
 
@@ -44,40 +43,33 @@ journalctl --user -u web-pi -f
 loginctl enable-linger "$USER"   # keep it running while you are logged out
 ```
 
+## Upgrade
+
 Upgrading is a new tarball, `npm install -g`, and
-`systemctl --user restart web-pi`. Builds resolve stable latest Pi over the
-network and update `package.json` and `pnpm-lock.yaml`. Run `just ci` against
-the refreshed dependency set before installing it; this checks sources and the
+`systemctl --user restart web-pi`. Builds move Pi to its latest stable release
+and record it in `package.json` and `pnpm-lock.yaml`. Run `just ci` against the
+refreshed dependency set before installing it; this checks sources and the
 installed tarball without a model call. A failed refresh or validation is not a
-deployable upgrade. Record `web-pi --version` with deployment evidence.
+deployable upgrade. Keep a note of what `web-pi --version` reports: it names the
+web-pi and Pi versions you deployed.
 
-### Completion-notification grace period
+When a build has changed `package.json` and `pnpm-lock.yaml` and you have not
+committed them, a later `git pull` can refuse to overwrite them. The changes
+only record the Pi release that build installed, so discard them and update; the
+next build refreshes Pi again:
 
-Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the
-fixed delay after the first eligible completion while away. The default is **15
-minutes**. Acceptable values are decimal whole minutes from **0 to 35791**, with
-surrounding whitespace allowed. **0** means immediate delivery while away, not
-disabled notifications. Empty, fractional, negative, nonnumeric or larger values
-fail startup with a configuration error. The upper bound keeps timers within
-Node's signed 32-bit millisecond limit instead of overflowing into immediate
-delivery. Changing the setting takes effect on the next server start; there is
-no UI preference.
-
-For example, `WEB_PI_NOTIFICATION_GRACE_PERIOD=30` delays the broadcast thirty
-minutes from the first completion. More completions do not extend that deadline,
-and any visible, focused web-pi page cancels the pending broadcast. Pending
-timers and counts live only in memory; a restart loses them without consuming
-the durable away allowance. See the
-[notification contract](behavior.md#extensions-and-notifications).
+```bash
+git restore package.json pnpm-lock.yaml
+git pull
+pnpm install --frozen-lockfile
+```
 
 ### Pi upgrade compatibility
 
-The eight named Pi runtime packages in `pnpm-workspace.yaml` bypass pnpm's
-24-hour release-age delay; all other dependencies retain it. This exception
-applies to `pi-coding-agent`, `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-codemode`,
-`pi-mcp`, `pi-telemetry`, and `chord` under `@earendil-works`, not the whole
-scope. Builds can therefore adopt breaking stable releases immediately. They
-fail on update/type errors rather than silently keeping a stale SDK.
+A build adopts a new stable Pi as soon as it is published, breaking changes
+included, because Pi's runtime packages are exempt from pnpm's 24-hour
+release-age delay ([ADR 0002](adr/0002-package-owned-pi-runtime.md)). It fails
+on update or type errors rather than silently keeping a stale SDK.
 
 The bundled SDK still uses the existing agent directory and does not reset or
 move sessions, credentials, settings, trust, skills or extensions. Upstream Pi
@@ -100,9 +92,26 @@ assume an older terminal Pi can read sessions subsequently changed by a newer
 bundled Pi. Keep backups and one writer per session; downgrading web-pi does not
 undo newer writes.
 
+## Completion-notification grace period
+
+Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the
+fixed delay after the first eligible completion while away. The default is **15
+minutes**. Acceptable values are decimal whole minutes from **0 to 35791**, with
+surrounding whitespace allowed. **0** means immediate delivery while away, not
+disabled notifications. Empty, fractional, negative, nonnumeric or larger values
+fail startup with a configuration error. The upper bound keeps timers within
+Node's signed 32-bit millisecond limit instead of overflowing into immediate
+delivery. Changing the setting takes effect on the next server start; there is
+no UI preference.
+
+For example, `WEB_PI_NOTIFICATION_GRACE_PERIOD=30` delays the broadcast thirty
+minutes from the first completion. The
+[notification contract](behavior.md#extensions-and-notifications) describes
+which completions it collects and what cancels it.
+
 ## Running from a checkout
 
-For a checkout-based installation, install dependencies with
+To run the service from a checkout instead, install dependencies with
 `pnpm install --frozen-lockfile` and run `just build` using the tools in
 `mise.toml`. Keep the checkout and its `node_modules` available to the service.
 Instead of the global package's `ExecStart`, use these service settings,
@@ -113,67 +122,42 @@ WorkingDirectory=%h/Projects/web-pi
 ExecStart=/usr/bin/mise exec -- node bin/web-pi.js
 ```
 
-On lab, `~/.local/bin/web-pi-deploy` rebuilds the primary checkout and restarts
-`web-pi.service`. The checkout stays at `/home/mjakl/Projects/pi-web` while the
-live service and linked worktrees depend on that path; the unit's
-`WorkingDirectory` stays there too. The helper contains:
+The service then runs whatever that checkout's `dist/`, `static/` and
+`node_modules` hold. A pull, a dependency install or a build can change them
+under the running process, so stop the service before updating or building that
+checkout and start it again afterwards. Develop in another checkout or a linked
+worktree.
 
-```sh
-#!/bin/sh
-set -eu
-cd /home/mjakl/Projects/pi-web
-/usr/bin/mise exec -- just build
-/usr/bin/systemctl --user restart web-pi.service
-```
+## One agent directory, one writer
 
-Run `~/.local/bin/web-pi-deploy` only when ready to interrupt the service and
-all its Pi workers. The command does not pull, merge, or install dependencies.
-First update the primary checkout to the merged commit, and run
-`pnpm install --frozen-lockfile` if dependencies changed. The old helper name is
-not an alias. Renaming the helper or repository does not deploy anything; the
-service name, `WEB_PI_*` variables, loopback port 30142, and existing
-`svc:web-pi` Tailnet mapping stay unchanged.
+web-pi reads and writes the same agent directory as terminal Pi and any other
+interface pointed at it, so each sees the other's sessions. Nothing coordinates
+their writes:
 
-When moving a running installation, build the destination before downtime, stop
-the old instance, change the unit's checkout path, run
-`systemctl --user daemon-reload`, then start it. Verify the process working
-directory, listener, and HTTP response through the existing URL before retiring
-the old checkout. Preserve local refs, reflogs, ignored files, and any
-checkout-local runtime data outside that checkout first. The default Pi agent
-directory remains `~/.pi/agent`; do not replace it during a source-path cutover.
-
-## Two apps, one agent directory
-
-pi-web (the Next.js interface this one replaces) runs the same way, and both
-read and write the same `~/.pi/agent`. That is the point — each sees the other's
-sessions — but it has consequences:
-
-- **Give them different ports.** pi-web defaults to 30141 and web-pi to 30142.
-- **Web state is no longer shared with old interfaces.** Current web-pi uses
-  `<agentDir>/web-pi/`; older web runtimes use top-level legacy files. Stop all
-  affected old web runtimes before the cutover below, and do not restart them
-  against that agent directory. Run only one web-pi server per agent directory;
-  push state is held in memory and whole-file writes do not coordinate servers.
-- **Use one writer per session.** The apps and terminal Pi do not coordinate
+- **Run one web-pi server per agent directory.** Push state is held in memory,
+  and whole-file writes do not coordinate servers.
+- **Use one writer per session.** web-pi and other Pi runtimes do not coordinate
   cross-process writes or live in-memory state. Do not run simultaneous live
   turns, rename, star, rewind, delete, or otherwise edit the same session from
-  both. SDK appends are format-compatible, not a concurrency guarantee. Stop the
-  other runtime before handing a session over.
+  two of them. SDK appends are format-compatible, not a concurrency guarantee.
+  Stop the other runtime before handing a session over.
 
-Point either app at a different agent directory with `PI_CODING_AGENT_DIR` if
-you would rather keep them apart.
+Point another server at a different agent directory with `PI_CODING_AGENT_DIR`
+to keep them apart.
 
 ## Web state cutover and reset
 
 Pi resolves the agent directory normally: `PI_CODING_AGENT_DIR` when set,
 otherwise usually `~/.pi/agent`. Current web-pi owns these standalone files:
 
-- `<agentDir>/web-pi/settings.json`: shared `warnTokens` (default **100000**,
-  positive safe integer), `theme` (**auto**, or light/dark), and `sound`
-  (**true**, or false). Auto follows each device's OS appearance. Models is not
-  stored here: Settings → Models edits Pi's global `enabledModels` in
-  `<agentDir>/settings.json`, shared with terminal Pi. Project overrides remain
-  in `.pi/settings.json` and apply only in trusted projects.
+- `<agentDir>/web-pi/settings.json`: General's shared settings, `warnTokens` (a
+  positive safe integer), `theme` (`auto`, `light` or `dark`), `sound` (`true`
+  or `false`) and `systemPromptAddition` (`null` for the built-in note, or the
+  text that replaces it). [Behavior](behavior.md#workspaces-and-configuration)
+  gives their defaults. Models is not stored here: Settings → Models edits Pi's
+  global `enabledModels` in `<agentDir>/settings.json`, shared with terminal Pi.
+  Project overrides remain in `.pi/settings.json` and apply only in trusted
+  projects.
 - `<agentDir>/web-pi/push.json`: private VAPID identity, browser subscriptions,
   and the global `awayConsumed` latch. `true` means the one away broadcast has
   been used; `false` means a foreground return has rearmed it. A legacy file
@@ -223,8 +207,9 @@ remains available. Reporting remains best effort while clients reconnect.
 
 1. Build the new version without starting it against live state. Identify the
    agent directory and every old web runtime using it. Stop those runtimes
-   before starting the new version, including any old Next.js interface. Keep a
-   private backup of the two legacy files outside the new `web-pi` folder.
+   before starting the new version, including any old Next.js interface, and do
+   not start them against that agent directory again. Keep a private backup of
+   the two legacy files outside the new `web-pi` folder.
 2. Start the new version once. It moves `<agentDir>/web-push.json` to
    `web-pi/push.json` and `<agentDir>/web-worktree-projects.json` to
    `web-pi/worktree-projects.json`. Valid keys, subscriptions and mappings are
@@ -266,132 +251,6 @@ affected web runtimes stopped. Later subscriptions, unsubscribe decisions and
 mappings are not in that backup. Do not overwrite newer state or copy files back
 automatically. Returning to the new version with different legacy and new copies
 will stop on a conflict. Shared Pi writes are not undone by either path.
-
-## Migration from Next.js
-
-[mjakl/web-pi](https://github.com/mjakl/web-pi) contains web-pi's Hono
-application. The history-preserving integration joins the old pi-web main as its
-first parent and web-pi main as its second parent; neither history is squashed
-or rebased.
-
-The final Next.js main is
-[`archive/nextjs-final`](https://github.com/mjakl/web-pi/tree/archive/nextjs-final),
-commit `2e27b3ea067b654a8f28c2a16a44aa3a748e5eb0`. That tag retains the old
-application and its documentation. The imported web-pi main is
-`997b7374d6d06d5231f9ffffe8523fad0ea08a93`, including the performance hot-path
-improvements. Both MIT notices remain in `LICENSE` and `LICENSE.pi-web`.
-
-A repository update does not install or start a service, move Pi data, or rename
-the runtime. The executable remains `web-pi`, with `WEB_PI_*` variables and
-default port 30142. Retire an old Next.js service only after identifying its
-exact unit and saving its definition and state outside the checkout. Preserve
-its application data and configuration; do not stop a separate web-pi runtime.
-
-For a local trial without touching live state:
-
-1. Stop writers before taking a consistent backup of the Pi agent directory.
-   Keep the backup private: it can contain credentials, transcripts, trust
-   decisions, and push keys.
-2. Make a separate trial copy and set `PI_CODING_AGENT_DIR` to that copy. To
-   test resource loading in isolation, also set `HOME` to a temporary home; Pi
-   can discover `~/.agents/skills` independently of its agent directory. Review
-   the copied settings and executable extensions before starting live turns.
-3. Build and install the web-pi tarball using the README commands, with Node 24+
-   and its bundled Pi runtime. Start it explicitly:
-
-   ```bash
-   PI_CODING_AGENT_DIR=/absolute/path/to/trial-agent \
-     web-pi --host 127.0.0.1 --port 30142
-   ```
-
-4. Read representative saved sessions, stars, branches, and file paths. The
-   local test suite covers Pi SessionManager fixtures, not every historical
-   session or installed extension. Verify your needed extensions before moving
-   normal work; the retained limitations are in [Behavior](behavior.md).
-5. For the eventual cutover, stop the old server and terminal writers before
-   pointing web-pi at the live directory. Change the service executable and
-   environment deliberately; the command remains `web-pi`, with `WEB_PI_*`
-   variables. Old Next.js startup commands and `PI_WEB_*` options are not
-   aliases.
-
-### Compatibility and rollback limits
-
-Both apps use Pi's session JSONL format. Current web-pi uses its bundled SDK;
-compatibility therefore also depends on the Pi versions used by each app.
-App-owned custom metadata is no longer shared, as described below. No database
-conversion is required, but this is not a guarantee that an older Pi can read
-files changed by a newer Pi, nor a guarantee of all extension/UI behavior.
-
-Web-owned push and worktree state now has a one-time cutover into `web-pi/`,
-with the reset and rollback limits described above. Pi settings, model
-configuration, and trust remain user-owned. The installed-package smoke test
-reads a disposable SessionManager session without a provider call.
-
-The old and new HTTP interfaces differ. Ports also create different browser
-origins: localStorage drafts, service workers, PWA installs, and notification
-permissions are not automatically transferred from port 30141 to 30142. Cookies
-are **not port-scoped**; do not treat two ports on one hostname as cookie
-isolation. If a later cutover reuses an origin, remove the old PWA and
-service-worker registration and reload before installing the new one. Re-enable
-notifications only in the chosen app.
-
-Rollback means stopping web-pi and restarting the verified old version with a
-compatible Pi install. Rewind/delete and newer writes are not undone by changing
-the executable. Restore a backup only after deciding which later work would be
-lost; never overwrite a live agent directory as an automatic rollback step.
-
-### Clean-cut naming
-
-The repository is `mjakl/web-pi`, renamed from `mjakl/pi-web`. Existing clones
-should set their remote and GitHub CLI default explicitly:
-
-```bash
-git remote set-url origin git@github.com:mjakl/web-pi.git
-gh repo set-default mjakl/web-pi
-```
-
-Owned runtime names use `web-pi`, without migration or compatibility aliases:
-
-- Stars use `web-pi:star`. Old `pi-web:star` entries no longer count as stars;
-  star an answer again to record it under the new name.
-- New rewinds write `web-pi-rewind`, not `pi-web-rewind`. Existing rewind leaves
-  remain ordinary Pi custom entries; the parent chain still defines the branch.
-- Only `web-pi:subagent` exempts a child transcript from reparenting when its
-  parent is deleted. Old `pi-web:subagent` markers no longer grant that
-  exemption.
-- Explorer folding uses `web-pi:file-explorer:open`; panel widths use
-  `web-pi-sidebar-width` and `web-pi-right-panel-width`. Their former
-  `pi-web:file-explorer:open`, `pi-sidebar-width` and `pi-right-panel-width`
-  keys are ignored. Theme is now a shared web setting; neither `pi-theme` nor
-  `web-pi-theme` is read. Other local presentation state and drafts keep their
-  existing keys.
-
-The naming change does not rewrite existing session files, remove old browser
-keys, or alter Git history. Normal explicit session edits still write files. Pi
-SDK identifiers, license notices and historical upstream references retain their
-names. The later web-state cutover above supersedes the legacy storage paths.
-
-### Validation workflow
-
-The GitHub workflow's application lane runs `just ci` on Node 24 with pnpm
-12.3.4. That command includes build, lint, typecheck, tests, and the
-installed-package smoke. CI installs no system Pi: the build refreshes the
-package-owned runtime to stable latest, and the smoke launches without system Pi
-on `PATH`.
-
-Changes limited to the workflow's explicit prose-documentation allowlist run
-only whitespace and documentation-path checks, without application installs,
-builds, tests, or smoke. Unknown or mixed changes use the application lane.
-Packaged documentation ships on the next release; a docs-only success does not
-validate a new tarball.
-
-The required GitHub Actions check is **Source validation**. It reports the
-selected lane's result and fails if required validation fails or is cancelled.
-It replaces the old pair of **Source validation** and **Node 22.19 runtime
-smoke** checks; Node 22 is no longer a supported runtime. Keep strict up-to-date
-checks and unrelated repository protections unchanged. Merge the migration PR
-with a genuine merge commit, never squash or rebase, so main retains both
-complete histories.
 
 ## Exposing it
 

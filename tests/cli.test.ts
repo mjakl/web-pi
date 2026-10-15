@@ -1,6 +1,7 @@
 import { parseOptions } from "@/cli";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { type AddressInfo, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -31,7 +32,7 @@ describe("web-pi flags", () => {
   });
 
   it.each([
-    ["--help", /Usage: web-pi \[options\]/],
+    ["--help", /Usage: web-pi \[options\][^]*WEB_PI_NOTIFICATION_GRACE_PERIOD/],
     ["--version", /^web-pi \d+\.\d+\.\d+\npi \d+\.\d+\.\d+\n$/],
   ])(
     "executes %s without a system Pi or starting the app",
@@ -101,8 +102,50 @@ describe("web-pi flags", () => {
     }
   });
 
-  it("rejects an invalid notification grace period before opening a server or writing state", async () => {
-    const home = await mkdtemp(join(tmpdir(), "web-pi-grace-cli-"));
+  it("refuses an empty host before binding every interface or warning about it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "web-pi-host-cli-"));
+    try {
+      await expect(
+        promisify(execFile)(
+          process.execPath,
+          // The invalid port stops a regression before it binds anything.
+          [
+            "--import",
+            "tsx",
+            "src/dev.ts",
+            "--runtime",
+            "fake",
+            "--host",
+            "",
+            "--port",
+            "not-a-port",
+          ],
+          {
+            timeout: 5000,
+            env: {
+              PATH: "",
+              HOME: home,
+              PI_CODING_AGENT_DIR: join(home, "agent"),
+            },
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: "web-pi: WEB_PI_HOST must not be empty\n",
+      });
+      expect(await readdir(home)).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("explains a busy port instead of crashing with a stack trace", async () => {
+    const home = await mkdtemp(join(tmpdir(), "web-pi-port-cli-"));
+    const blocker = createServer();
+    await new Promise<void>((resolve) => {
+      blocker.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = blocker.address() as AddressInfo;
     try {
       await expect(
         promisify(execFile)(
@@ -114,7 +157,7 @@ describe("web-pi flags", () => {
             "--runtime",
             "fake",
             "--port",
-            "30142",
+            String(port),
           ],
           {
             timeout: 5000,
@@ -122,13 +165,16 @@ describe("web-pi flags", () => {
               PATH: "",
               HOME: home,
               PI_CODING_AGENT_DIR: join(home, "agent"),
-              WEB_PI_NOTIFICATION_GRACE_PERIOD: "invalid",
             },
           },
         ),
-      ).rejects.toThrow(/WEB_PI_NOTIFICATION_GRACE_PERIOD/);
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: `web-pi: port ${String(port)} is already in use\n`,
+      });
       expect(await readdir(home)).toEqual([]);
     } finally {
+      blocker.close();
       await rm(home, { recursive: true, force: true });
     }
   });

@@ -4,7 +4,7 @@ import {
   formatBytes,
   hasPreview,
 } from "@core/file-types";
-import { frontmatterCard, parseFrontmatter } from "@core/frontmatter";
+import { parseFrontmatter } from "@core/frontmatter";
 import { type GitFileStatus, statusLabel } from "@core/git-status";
 import { type UnifiedRow, unifiedRows } from "@core/patch";
 import type { GitChangeFile, GitStatus } from "@core/ports";
@@ -12,21 +12,26 @@ import { directoryWithin } from "@core/path-access";
 import type { FileView } from "@core/workspace";
 import { escapeHtml, rawFileUrl, renderMarkdown } from "@web/markdown";
 import { highlightLines } from "@web/syntax";
+import { FrontmatterCard } from "@web/views/Items";
 import {
+  ChangedFilesIcon,
   DirectoryLoadingIcon,
   DownloadIcon,
   FileIcon,
   FolderIcon,
   MentionIcon,
+  RefreshIcon,
+  SearchIcon,
   SmallChevronIcon,
   WrapLinesIcon,
 } from "@web/views/icons";
 import { raw } from "hono/html";
 
-// The explorer tree, the working tree's changes, and one viewer per open tab,
-// with presentation owned by areas/files.css.
-// Everything here is server-rendered; the browser only keeps which tabs are
-// open and how each is scrolled.
+// The explorer, from its header in the sidebar down to the tree, the working
+// tree's changes, and one viewer per open tab, with presentation owned by
+// areas/files.css; the header sits in the sidebar and areas/sidebar.css styles
+// it. Everything here is server-rendered; the browser only keeps which tabs
+// are open and how each is scrolled.
 
 /** Paths are joined POSIX-style; the policy compares them segment by segment. */
 function childPath(directory: string, name: string): string {
@@ -96,7 +101,7 @@ function RowActions({
         title="Insert path into chat"
         aria-label="Insert path into chat"
         data-mention={relative}
-        {...(isDir ? { "data-mention-dir": "1" } : {})}
+        data-mention-dir={isDir ? "1" : undefined}
       >
         <MentionIcon size={11} />
         mention
@@ -176,11 +181,7 @@ function TreeNode({
           <span class="file-tree-spacer" />
         )}
         <span class="file-tree-icon">
-          {isDir ? (
-            <FolderIcon open={open === true} />
-          ) : (
-            <FileIcon name={name} />
-          )}
+          {isDir ? <FolderIcon /> : <FileIcon name={name} />}
         </span>
         <span class="file-tree-name" title={path}>
           {name}
@@ -201,20 +202,14 @@ function TreeNode({
           </span>
         ) : null}
         <RowActions
-          {...(context.sessionId === undefined
-            ? {}
-            : { sessionId: context.sessionId })}
+          sessionId={context.sessionId}
           cwd={context.cwd}
           path={path}
           isDir={isDir}
         />
       </div>
       {isDir ? (
-        <div
-          role="group"
-          data-children
-          {...(open === true ? {} : { hidden: true })}
-        >
+        <div role="group" data-children hidden={open !== true}>
           {nodes === undefined ? null : (
             <SearchNodes context={context} nodes={nodes} depth={depth + 1} />
           )}
@@ -302,12 +297,109 @@ function ChangeRow({
   );
 }
 
-/**
- * What the sidebar's explorer body holds. pi-web shows either the changes or
- * the tree, never both (`changesCollapsed` in FileExplorer.tsx), and the
- * search results take the same place while a query is open. All three keep the
- * id so the next swap lands in the same spot.
- */
+/** The explorer's tree is fetched separately into #file-explorer. */
+export function ExplorerSection({
+  sessionId,
+  cwd,
+}: {
+  /** Absent before a session is open: the folder alone roots the tree. */
+  sessionId?: string;
+  cwd: string;
+}) {
+  const scope =
+    sessionId === undefined
+      ? `cwd=${encodeURIComponent(cwd)}`
+      : `session=${encodeURIComponent(sessionId)}`;
+  const explorerUrl = `/files/explorer?${scope}`;
+  // The section's flex, the toggle's min-height and the chevron's rotation
+  // are pi-web's per-state inline values; areas/sidebar.css writes them from
+  // aria-expanded, which client/sidebar.ts flips and remembers.
+  return (
+    <div id="explorer-section" class="sidebar-explorer">
+      <div class="sidebar-explorer-header">
+        <button
+          type="button"
+          id="explorer-toggle"
+          aria-expanded="true"
+          aria-controls="explorer-body"
+          class="sidebar-explorer-toggle"
+        >
+          <span data-explorer-chevron class="sidebar-explorer-chevron">
+            <SmallChevronIcon />
+          </span>
+          Explorer
+        </button>
+        {/* Swaps the changes list in for the tree; the files area fills it in
+            and hides this button while nothing is changed. */}
+        <button
+          type="button"
+          class="sidebar-toolbar-button"
+          id="explorer-changes-toggle"
+          aria-pressed="false"
+          title="Changed files"
+          aria-label="Changed files"
+          hidden
+        >
+          <ChangedFilesIcon />
+        </button>
+        <button
+          type="button"
+          class="sidebar-toolbar-button"
+          id="explorer-search-toggle"
+          aria-pressed="false"
+          title="Search files"
+          aria-label="Search files"
+        >
+          <SearchIcon />
+        </button>
+        <button
+          type="button"
+          class="sidebar-toolbar-button is-refresh"
+          title="Refresh explorer"
+          aria-label="Refresh explorer"
+          hx-get={explorerUrl}
+          hx-target="#file-explorer"
+          hx-swap="innerHTML"
+        >
+          <RefreshIcon size={13} width={2} />
+        </button>
+      </div>
+      <div id="explorer-body" class="sidebar-explorer-body">
+        {/* pi-web keeps the field out of the tree until the magnifier in the
+            header opens it (FileExplorer.tsx, `fileSearchOpen`). */}
+        <div id="file-search-field" class="sidebar-file-search" hidden>
+          <div class="sidebar-file-search-field">
+            <span class="sidebar-file-search-icon">
+              <SearchIcon size={12} />
+            </span>
+            <input
+              id="file-search"
+              type="search"
+              name="q"
+              placeholder="Search files…"
+              aria-label="Search files"
+              autocomplete="off"
+              class="sidebar-file-search-input"
+              hx-get={`/files/search?${scope}`}
+              hx-trigger="input changed delay:150ms, search"
+              hx-target="#file-tree"
+              hx-swap="outerHTML"
+            />
+          </div>
+        </div>
+        <div
+          id="file-explorer"
+          class="explorer"
+          data-cwd={cwd}
+          hx-get={explorerUrl}
+          hx-trigger="revealed, settled from:body"
+          hx-swap="innerHTML"
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
  * What pi-web shows in the explorer body when the folder cannot be read
  * (FileExplorer.tsx `error`): the reason, in the danger colour. A session
@@ -323,6 +415,12 @@ export function ExplorerError({ message }: { message: string }) {
   );
 }
 
+/**
+ * What the sidebar's explorer body holds. pi-web shows either the changes or
+ * the tree, never both (`changesCollapsed` in FileExplorer.tsx), and the
+ * search results take the same place while a query is open. All three keep the
+ * id so the next swap lands in the same spot.
+ */
 export function Explorer({
   context,
   status,
@@ -497,49 +595,6 @@ function SourceView({ view }: { view: FileView }) {
   );
 }
 
-function FrontmatterCard({ source }: { source: string }) {
-  const card = frontmatterCard(parseFrontmatter(source).fields);
-  if (
-    card.title === undefined &&
-    card.chips.length === 0 &&
-    card.rest.length === 0
-  ) {
-    return <></>;
-  }
-  return (
-    <div class="markdown-frontmatter">
-      {card.title === undefined ? null : (
-        <div class="markdown-frontmatter-title">{card.title}</div>
-      )}
-      {card.chips.length === 0 ? null : (
-        <div class="markdown-frontmatter-tags">
-          {card.chips.map((chip) => (
-            <span class="markdown-frontmatter-tag">{chip}</span>
-          ))}
-        </div>
-      )}
-      {card.rest.length === 0 ? null : (
-        <dl class="markdown-frontmatter-rows">
-          {card.rest.map(([key, value]) => (
-            <div class="markdown-frontmatter-row">
-              <dt>{key}</dt>
-              <dd>
-                {/^(https?:\/\/|mailto:)/i.test(value) ? (
-                  <a href={value} target="_blank" rel="noopener noreferrer">
-                    {value}
-                  </a>
-                ) : (
-                  value
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
-  );
-}
-
 function DiffView({ rows }: { rows: UnifiedRow[] }) {
   // pi-web drops the @@ headers: the collapsed spans say what was skipped.
   const lines = rows.filter((row) => row.type !== "hunk");
@@ -574,7 +629,7 @@ function DiffView({ rows }: { rows: UnifiedRow[] }) {
   );
 }
 
-/** The toolbar every media viewer shares (FileViewer.tsx §7.4). */
+/** The toolbar every media viewer shares (pi-web's FileViewer.tsx). */
 function MediaToolbar({
   view,
   sessionId,
@@ -618,6 +673,29 @@ function DownloadLink({
     >
       <DownloadIcon size={14} />
     </a>
+  );
+}
+
+/** A binary file is offered for download rather than printed as text. */
+function BinaryNotice({
+  view,
+  sessionId,
+}: {
+  view: FileView;
+  sessionId: string;
+}) {
+  return (
+    <div class="file-viewer-empty file-viewer-binary">
+      <span>Binary file · {formatBytes(view.size)}</span>
+      <a
+        class="config-button config-button-secondary config-button-default"
+        href={`${rawFileUrl(view.path, sessionId)}&download=1`}
+        download={baseName(view.path)}
+      >
+        <DownloadIcon size={14} />
+        Download
+      </a>
+    </div>
   );
 }
 
@@ -689,10 +767,12 @@ function ViewerContent({
   }
   const text = view.text ?? "";
   if (mode === "preview" && view.language === "html") {
+    // Static: a repository's script or form could still send requests to
+    // this server from the opaque origin a sandbox gives the frame.
     return (
       <iframe
         srcdoc={text}
-        sandbox="allow-scripts"
+        sandbox=""
         class="file-viewer-frame"
         title="HTML preview"
       />
@@ -702,7 +782,7 @@ function ViewerContent({
     const parsed = parseFrontmatter(text);
     return (
       <div class="markdown-file-preview-shell">
-        <FrontmatterCard source={text} />
+        <FrontmatterCard fields={parsed.fields} />
         <div class="markdown-body markdown-file-preview">
           {raw(
             renderMarkdown(parsed.body, {
@@ -743,6 +823,9 @@ export function Viewer({
   );
   if (view.kind !== "text") {
     return shell(<MediaViewer view={view} sessionId={sessionId} />);
+  }
+  if (view.binary === true) {
+    return shell(<BinaryNotice view={view} sessionId={sessionId} />);
   }
   const lines = view.text === undefined ? null : view.text.split("\n").length;
   const meta = deleted
@@ -798,9 +881,11 @@ export function Viewer({
                   type="button"
                   class="file-viewer-mode-button"
                   aria-pressed={option === mode ? "true" : "false"}
-                  {...(option === "diff"
-                    ? { title: "Compare working tree with HEAD" }
-                    : {})}
+                  title={
+                    option === "diff"
+                      ? "Compare working tree with HEAD"
+                      : undefined
+                  }
                   hx-get={url(option)}
                   hx-target="#file-view"
                   hx-swap="innerHTML"

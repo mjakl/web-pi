@@ -1,5 +1,5 @@
 /**
- * Every icon pi-web draws, copied from its components: same viewBox, same
+ * Every icon web-pi draws, copied from pi-web's components: same viewBox, same
  * stroke width, same path data. pi-web has no icon library — each icon is a
  * hand-written SVG — so this file is the whole inventory, and the one place an
  * area may take an icon from. Comment numbers retain the original port's
@@ -11,10 +11,14 @@
  */
 
 import { type CatppuccinIconName, catppuccinIcon } from "@core/file-types";
+import { raw } from "hono/html";
 
 // Browser-created controls use the same inventory without a JSX renderer.
+/* 33 · close tab */
 export const TAB_CLOSE_ICON = `<svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><line x1="2" y1="2" x2="8" y2="8"></line><line x1="8" y1="2" x2="2" y2="8"></line></svg>`;
+/* 49 · remove an attached image */
 export const ATTACHMENT_REMOVE_ICON = `<svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><line x1="1" y1="1" x2="7" y2="7"></line><line x1="7" y1="1" x2="1" y2="7"></line></svg>`;
+/* 57 · close the image lightbox */
 export const IMAGE_PREVIEW_CLOSE_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>`;
 
 type IconProps = { size?: number };
@@ -47,7 +51,7 @@ function Stroked({
       stroke="currentColor"
       stroke-width={String(width)}
       stroke-linecap={cap}
-      {...(join === undefined ? {} : { "stroke-linejoin": join })}
+      stroke-linejoin={join}
       class="pi-icon"
       aria-hidden="true"
     >
@@ -273,27 +277,6 @@ export function CheckIcon({
     <Stroked size={size} width={width}>
       <polyline points="20 6 9 17 4 12" />
     </Stroked>
-  );
-}
-
-/* 16 · get-started arrow */
-export function GetStartedArrowIcon({ size = 44 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--accent)"
-      stroke-width="1.5"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      opacity="0.7"
-      aria-hidden="true"
-    >
-      <line x1="20" y1="12" x2="4" y2="12" />
-      <polyline points="10 6 4 12 10 18" />
-    </svg>
   );
 }
 
@@ -526,53 +509,12 @@ export function DownloadIcon({ size = 14 }: IconProps) {
   );
 }
 
-/* 32 · clear search */
-export function ClearSearchIcon({ size = 10 }: IconProps) {
-  return (
-    <Stroked size={size} width={2.4}>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </Stroked>
-  );
-}
-
-/* 33 · close tab */
-export function TabCloseIcon({ size = 11 }: IconProps) {
-  return (
-    <Stroked size={size} box={10} width={1.8}>
-      <line x1="2" y1="2" x2="8" y2="8" />
-      <line x1="8" y1="2" x2="2" y2="8" />
-    </Stroked>
-  );
-}
-
 /* 34 · folder row in the directory picker */
 export function PickerFolderIcon({ size = 14 }: IconProps) {
   return (
     <Stroked size={size} box={16} width={1.3}>
       <path d="M1.5 3h4l1.5 2h7.5v7.5h-13z" />
     </Stroked>
-  );
-}
-
-/* 35 · drive row in the directory picker */
-export function PickerDriveIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.3"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="2" y="3" width="12" height="10" rx="1.5" />
-      <path d="M2 9h12" />
-      <circle cx="11.5" cy="11" r="0.6" fill="currentColor" />
-    </svg>
   );
 }
 
@@ -762,16 +704,6 @@ export function RecallQueueIcon({ size = 13 }: IconProps) {
   );
 }
 
-/* 49 · remove an attached image */
-export function RemoveImageIcon({ size = 8 }: IconProps) {
-  return (
-    <Stroked size={size} box={8} width={1.5} join={undefined}>
-      <line x1="1" y1="1" x2="7" y2="7" />
-      <line x1="7" y1="1" x2="1" y2="7" />
-    </Stroked>
-  );
-}
-
 /* 50 · attach an image */
 export function AttachImageIcon({ size = 18 }: IconProps) {
   return (
@@ -781,42 +713,25 @@ export function AttachImageIcon({ size = 18 }: IconProps) {
   );
 }
 
-/* 51 · the composer's primary action */
+/* 51 · the composer's primary action. The button keeps its one `<svg>` and
+   the client bundle swaps only the shape inside, so the shapes are markup. */
+export const COMPOSER_ACTION_SHAPES = {
+  send: '<path d="M12 19V5m-7 7 7-7 7 7"></path>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"></rect>',
+  steer: '<path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"></path>',
+  followup: '<path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8"></path>',
+};
+
+export type ComposerAction = keyof typeof COMPOSER_ACTION_SHAPES;
+
 export function ComposerActionIcon({
   size = 16,
   action,
-}: IconProps & { action: "send" | "stop" | "steer" | "followup" }) {
+}: IconProps & { action: ComposerAction }) {
   return (
     <Stroked size={size} width={1.8}>
-      {action === "stop" ? (
-        <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />
-      ) : action === "followup" ? (
-        <path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8" />
-      ) : action === "steer" ? (
-        <path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5" />
-      ) : (
-        <path d="M12 19V5m-7 7 7-7 7 7" />
-      )}
+      {raw(COMPOSER_ACTION_SHAPES[action])}
     </Stroked>
-  );
-}
-
-/* 52 · the model selector while a switch is in flight */
-export function ModelSwitchingIcon({ size = 11 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2.4"
-      stroke-linecap="round"
-      aria-hidden="true"
-      class="model-switching-icon"
-    >
-      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-    </svg>
   );
 }
 
@@ -877,15 +792,6 @@ export function WidgetPlacementIcon({
     >
       <path d={placement === "above" ? "M4 0l4 6H0z" : "M0 0h8L4 6z"} />
     </svg>
-  );
-}
-
-/* 57 · close the image lightbox */
-export function LightboxCloseIcon({ size = 16 }: IconProps) {
-  return (
-    <Stroked size={size} width={2} join={undefined}>
-      <path d="M6 6l12 12M18 6 6 18" />
-    </Stroked>
   );
 }
 
@@ -1027,23 +933,33 @@ export function TrustDialogShieldIcon({ size = 20 }: IconProps) {
 // --- Catppuccin file icons -------------------------------------------------
 //
 // Not shown in their own colours: `.catppuccin-file-icon` (shell.css) masks
-// the SVG with `var(--text-dim)`, and `html.dark` swaps in the mocha file. The
-// two URLs are set per icon, inline, exactly as pi-web does it.
+// the SVG with `var(--text-dim)`, so only its shape counts and one set of
+// files serves both themes. The URL is set per icon, inline, as pi-web does.
 
-const CATPPUCCIN_ROOT = "/static/icons/catppuccin";
+/** Where a vendored icon is served; the client bundle builds rows with it too. */
+export function catppuccinIconUrl(name: CatppuccinIconName): string {
+  return `/static/icons/catppuccin/latte/${name}.svg`;
+}
 
-function CatppuccinIcon({ name }: { name: CatppuccinIconName }) {
+function CatppuccinIcon({
+  name,
+  open,
+}: {
+  name: CatppuccinIconName;
+  open?: CatppuccinIconName;
+}) {
   return (
     <span
       aria-hidden="true"
       class="catppuccin-file-icon"
-      style={`--catppuccin-icon-light: url(${CATPPUCCIN_ROOT}/latte/${name}.svg); --catppuccin-icon-dark: url(${CATPPUCCIN_ROOT}/mocha/${name}.svg)`}
+      style={`--catppuccin-icon: url(${catppuccinIconUrl(name)})${open === undefined ? "" : `; --catppuccin-icon-open: url(${catppuccinIconUrl(open)})`}`}
     />
   );
 }
 
-export function FolderIcon({ open = false }: { open?: boolean }) {
-  return <CatppuccinIcon name={open ? "_folder_open" : "_folder"} />;
+/** A tree folder: files.css draws the open one while its node is expanded. */
+export function FolderIcon() {
+  return <CatppuccinIcon name="_folder" open="_folder_open" />;
 }
 
 /** The icon for a file name; `catppuccinIcon` in the core picks which. */

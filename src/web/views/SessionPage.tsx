@@ -1,8 +1,4 @@
-import {
-  formatCompactCount,
-  formatContextTooltip,
-  formatContextUsage,
-} from "@core/context-usage";
+import { formatCompactCount, formatContextTooltip } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
@@ -27,7 +23,8 @@ import {
   WrenchIcon,
 } from "./icons.tsx";
 import { Transcript } from "./Transcript.tsx";
-import { Sidebar, ProjectSelect } from "./Sidebar.tsx";
+import { Sidebar } from "./Sidebar.tsx";
+import { ProjectSelect } from "./Workspace.tsx";
 import {
   compactDisabled,
   CompactButton,
@@ -41,9 +38,22 @@ import { DialogHost, MissingFolderNotice, TrustBadge } from "./Dialogs.tsx";
 /** The cumulative token totals the stats button reads. */
 type SessionTokens = SessionStats["tokens"];
 
-/** The panel one of the top-bar buttons opens, one at a time. */
-function TopPanelHost() {
-  return <div id="top-panel" class="shell-top-panel" hidden />;
+/**
+ * A panel a top-bar button opens. As a popover the browser keeps one open at
+ * a time and closes it on an outside click or Escape; it fetches its content
+ * each time it opens.
+ */
+function TopPanel({ id, src }: { id: string; src: string }) {
+  return (
+    <div
+      id={id}
+      class="shell-top-panel"
+      popover="auto"
+      hx-get={src}
+      hx-trigger="toggle[newState=='open']"
+      hx-swap="innerHTML"
+    />
+  );
 }
 
 function TopBar({
@@ -148,18 +158,10 @@ function TopBar({
               type="button"
               class="shell-top-bar-tab"
               data-top-bar-tab
-              data-top-panel="system"
+              popovertarget="system-panel"
               data-panel-loaded={panels?.system === true ? "true" : undefined}
-              aria-pressed="false"
               title="System prompt"
               aria-label="System prompt"
-              hx-get={
-                sessionId === undefined
-                  ? "/panels/system"
-                  : `/sessions/${sessionId}/system-prompt`
-              }
-              hx-target="#top-panel"
-              hx-swap="innerHTML"
             >
               {/* pi-web tints both icons with the accent once the session has
                 told it what they hold, and leaves them dim until then
@@ -174,18 +176,10 @@ function TopBar({
               type="button"
               class="shell-top-bar-tab"
               data-top-bar-tab
-              data-top-panel="tools"
+              popovertarget="tools-panel"
               data-panel-loaded={panels?.tools === true ? "true" : undefined}
-              aria-pressed="false"
               title="Tool definitions"
               aria-label="Tool definitions"
-              hx-get={
-                sessionId === undefined
-                  ? "/panels/tools"
-                  : `/sessions/${sessionId}/tools`
-              }
-              hx-target="#top-panel"
-              hx-swap="innerHTML"
             >
               <span data-panel-icon class="shell-panel-icon">
                 <WrenchIcon />
@@ -195,18 +189,14 @@ function TopBar({
           </div>
         )}
         {sessionId === undefined || inspectionOnly ? null : (
-          <SessionStatsButton
-            sessionId={sessionId}
-            {...(usage === undefined ? {} : { usage })}
-            {...(tokens === undefined ? {} : { tokens })}
-          />
+          <SessionStatsButton usage={usage} tokens={tokens} />
         )}
         {sessionId === undefined || inspectionOnly ? null : (
           <>
             <CompactButton
               sessionId={sessionId}
-              {...(usage === undefined ? {} : { usage })}
-              {...(compactOff === true ? { disabled: true } : {})}
+              usage={usage}
+              disabled={compactOff}
               compacting={compacting ?? false}
             />
             <button
@@ -245,7 +235,29 @@ function TopBar({
         >
           <PanelRightIcon />
         </button>
-        <TopPanelHost />
+        {inspectionOnly ? null : (
+          <>
+            <TopPanel
+              id="system-panel"
+              src={
+                sessionId === undefined
+                  ? "/panels/system"
+                  : `/sessions/${sessionId}/system-prompt`
+              }
+            />
+            <TopPanel
+              id="tools-panel"
+              src={
+                sessionId === undefined
+                  ? "/panels/tools"
+                  : `/sessions/${sessionId}/tools`
+              }
+            />
+          </>
+        )}
+        {sessionId === undefined || inspectionOnly ? null : (
+          <TopPanel id="stats-panel" src={`/sessions/${sessionId}/stats`} />
+        )}
       </div>
       {/* pi-web gives the phone its own full-width warning row under the bar
           (AppShell.tsx); only one of the two is ever visible. */}
@@ -259,14 +271,12 @@ function TopBar({
 /**
  * The stats cluster on the right of the bar: cumulative tokens, then the
  * context gauge. pi-web drops a group whose count is zero and puts the exact
- * numbers in the hover text (ui-map 2.3).
+ * numbers in the hover text.
  */
 function SessionStatsButton({
-  sessionId,
   usage,
   tokens,
 }: {
-  sessionId: string;
   usage?: ContextUsage;
   tokens?: SessionTokens;
 }) {
@@ -281,20 +291,14 @@ function SessionStatsButton({
   }
   const context = usage === undefined ? "" : formatContextTooltip(usage);
   if (context !== "") parts.push(context);
-  const readout = usage === undefined ? "" : formatContextUsage(usage);
-  const empty = readout === "" && (tokens === undefined || tokens.input === 0);
   return (
     <button
       type="button"
       id="stats-trigger"
       class="shell-session-stats mobile-session-stats"
-      data-top-panel="stats"
-      aria-pressed="false"
+      popovertarget="stats-panel"
       title={parts.length === 0 ? "Session info" : parts.join("  |  ")}
       aria-label="Session info"
-      hx-get={`/sessions/${sessionId}/stats`}
-      hx-target="#top-panel"
-      hx-swap="innerHTML"
     >
       {tokens !== undefined && tokens.input > 0 ? (
         <span class="mobile-session-stat-io">
@@ -314,10 +318,7 @@ function SessionStatsButton({
           {formatCompactCount(tokens.cacheRead)}
         </span>
       ) : null}
-      <ContextReadout
-        {...(usage === undefined ? {} : { usage })}
-        empty={empty}
-      />
+      <ContextReadout usage={usage} tokens={tokens} />
     </button>
   );
 }
@@ -348,8 +349,6 @@ export function Shell({
   /** The folder on screen: the document title is built from it. */
   cwd?: string;
   cwdAvailable?: boolean | undefined;
-  /** The reader's home folder: the workspace pill shortens paths with it. */
-  home?: string;
   usage?: ContextUsage;
   tokens?: SessionTokens;
   trust?: { requiresTrust: boolean; trusted: boolean };
@@ -369,13 +368,13 @@ export function Shell({
       class="shell-session-region"
     >
       <TopBar
-        {...(activeId === undefined ? {} : { sessionId: activeId })}
-        {...(usage === undefined ? {} : { usage })}
-        {...(tokens === undefined ? {} : { tokens })}
-        {...(cwd === undefined ? {} : { cwd })}
-        {...(trust === undefined ? {} : { trust })}
-        {...(panels === undefined ? {} : { panels })}
-        {...(compactOff === true ? { compactOff } : {})}
+        sessionId={activeId}
+        usage={usage}
+        tokens={tokens}
+        cwd={cwd}
+        trust={trust}
+        panels={panels}
+        compactOff={compactOff}
         compacting={compacting ?? false}
         inspectionOnly={inspectionOnly}
       />
@@ -417,18 +416,12 @@ export function Shell({
   if (fragment) return region;
   return (
     <div class="shell-layout">
-      <div class="sidebar-overlay-backdrop sidebar-mobile-pending" />
+      <div class="sidebar-overlay-backdrop" />
       <div
         id="session-sidebar"
         class="sidebar-container sidebar-open sidebar-mobile-pending"
       >
-        {sidebar && (
-          <Sidebar
-            view={sidebar}
-            {...(activeId === undefined ? {} : { activeId })}
-            {...(cwd === undefined ? {} : { cwd })}
-          />
-        )}
+        {sidebar && <Sidebar view={sidebar} activeId={activeId} cwd={cwd} />}
       </div>
       <div
         class="panel-resize-handle sidebar-resize-handle"
@@ -456,10 +449,7 @@ export function Shell({
         title="Resize the file panel"
         aria-label="Resize the file panel"
       />
-      <FilePanel
-        {...(activeId === undefined ? {} : { sessionId: activeId })}
-        {...(cwd === undefined ? {} : { cwd })}
-      />
+      <FilePanel />
       {overlay}
     </div>
   );
@@ -470,14 +460,9 @@ export function Shell({
  * pi-web keeps it mounted (collapsed) on every route, so the files it lists
  * come from the open session's folder, else from the folder that is picked.
  */
-function FilePanel({ sessionId, cwd }: { sessionId?: string; cwd?: string }) {
+function FilePanel() {
   return (
-    <div
-      id="file-panel"
-      class="right-panel-container right-panel-closed"
-      data-session={sessionId ?? ""}
-      data-cwd={cwd ?? ""}
-    >
+    <div id="file-panel" class="right-panel-container right-panel-closed">
       <div class="shell-file-panel-header">
         <div class="shell-file-tabs-host">
           <div id="file-tabs" class="file-tabs" role="tablist" hidden />
@@ -521,8 +506,7 @@ export function NewSessionPage({
       cwd={view.cwd}
       cwdAvailable={view.available}
       trust={view.trust}
-      {...(home === undefined ? {} : { home })}
-      {...(overlay === undefined ? {} : { overlay })}
+      overlay={overlay}
     >
       <section class="chat-window is-empty" aria-label="Messages">
         <DropZone />
@@ -539,10 +523,7 @@ export function NewSessionPage({
                     <span class="new-session-directory-label">
                       Working directory
                     </span>
-                    <ProjectSelect
-                      cwd={view.cwd}
-                      {...(home === undefined ? {} : { home })}
-                    />
+                    <ProjectSelect cwd={view.cwd} home={home} />
                   </div>
                 </header>
               </div>
@@ -571,7 +552,6 @@ export function SessionPage({
   images,
   skills,
   trust,
-  home,
   overlay,
 }: {
   sidebar?: SidebarView | undefined;
@@ -581,7 +561,6 @@ export function SessionPage({
   images?: ImageAttachment[];
   skills?: SkillSelection[];
   trust?: { requiresTrust: boolean; trusted: boolean };
-  home?: string;
   overlay?: unknown;
 }) {
   const { summary } = view;
@@ -600,20 +579,19 @@ export function SessionPage({
       savedObservation={view.savedObservation}
       cwd={summary.cwd}
       usage={view.usage}
-      {...(home === undefined ? {} : { home })}
       tokens={view.tokens}
-      {...(view.status === null
-        ? {}
-        : {
-            panels: {
+      panels={
+        view.status === null
+          ? undefined
+          : {
               system: view.status.hasSystemPrompt,
               tools: view.status.hasActiveTools,
-            },
-          })}
-      {...(compactDisabled(view) ? { compactOff: true } : {})}
+            }
+      }
+      compactOff={compactDisabled(view)}
       compacting={view.status?.compacting ?? false}
-      {...(trust === undefined || inspectionOnly ? {} : { trust })}
-      {...(overlay === undefined ? {} : { overlay })}
+      trust={inspectionOnly ? undefined : trust}
+      overlay={overlay}
     >
       <section class="chat-window" aria-label="Messages">
         {!inspectionOnly && <DropZone />}

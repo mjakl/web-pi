@@ -1,11 +1,11 @@
 import type { Htmx, HtmxRequestCtx } from "htmx.org";
 import { requestContext } from "./htmx.ts";
 import { buildAtInsertText } from "@core/composer";
-import { catppuccinIcon } from "@core/file-types";
+import { baseName, catppuccinIcon } from "@core/file-types";
 import { replaceRange, textarea } from "./editor.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpResize } from "./resize.ts";
-import { TAB_CLOSE_ICON } from "@web/views/icons";
+import { TAB_CLOSE_ICON, catppuccinIconUrl } from "@web/views/icons";
 
 // The files area's browser half: how wide it is, which tabs are open, where
 // each was scrolled, and the stream that tells the viewer its file moved.
@@ -16,8 +16,6 @@ const WIDTH_KEY = "web-pi-right-panel-width";
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 1200;
 
-const CATPPUCCIN_ROOT = "/static/icons/catppuccin";
-
 function htmx(): Htmx | undefined {
   return (globalThis as { htmx?: Htmx }).htmx;
 }
@@ -26,15 +24,15 @@ function panel(): HTMLElement | null {
   return document.getElementById("file-panel");
 }
 
-function sessionId(): string {
-  return panel()?.dataset["session"] ?? "";
-}
-
-/** Which folder the explorer is about: the open session's, or the picked one. */
+/**
+ * Which folder the files requests are about: the open session's, or the
+ * picked one. Both live on `main`, which every navigation replaces.
+ */
 function scopeQuery(): string {
-  const id = sessionId();
+  const main = document.querySelector<HTMLElement>("main");
+  const id = main?.dataset["sessionId"] ?? "";
   if (id !== "") return `session=${encodeURIComponent(id)}`;
-  return `cwd=${encodeURIComponent(panel()?.dataset["cwd"] ?? "")}`;
+  return `cwd=${encodeURIComponent(main?.dataset["cwd"] ?? "")}`;
 }
 
 /** Per-tab, in memory only: reopening web-pi starts with no tabs, as pi-web. */
@@ -127,23 +125,14 @@ function tabBar(): HTMLElement | null {
   return document.getElementById("file-tabs");
 }
 
-function baseName(path: string): string {
-  return path.replaceAll("\\", "/").split("/").pop() ?? path;
-}
-
 /** The masked Catppuccin span the views render, built without JSX. */
 function fileIcon(name: string): HTMLSpanElement {
   const icon = document.createElement("span");
-  const file = catppuccinIcon(name);
   icon.className = "catppuccin-file-icon";
   icon.ariaHidden = "true";
   icon.style.setProperty(
-    "--catppuccin-icon-light",
-    `url(${CATPPUCCIN_ROOT}/latte/${file}.svg)`,
-  );
-  icon.style.setProperty(
-    "--catppuccin-icon-dark",
-    `url(${CATPPUCCIN_ROOT}/mocha/${file}.svg)`,
+    "--catppuccin-icon",
+    `url(${catppuccinIconUrl(catppuccinIcon(name))})`,
   );
   return icon;
 }
@@ -337,8 +326,9 @@ function connectWatch(): void {
   if (watching === active && stream !== null) return;
   disconnectWatch();
   watching = active;
-  const query = new URLSearchParams({ path: active, session: sessionId() });
-  const source = new EventSource(`/files/watch?${query.toString()}`);
+  const source = new EventSource(
+    `/files/watch?path=${encodeURIComponent(active)}&${scopeQuery()}`,
+  );
   stream = source;
   watchController = new AbortController();
   const { signal } = watchController;
@@ -362,6 +352,15 @@ function connectWatch(): void {
   source.addEventListener(
     "error",
     () => {
+      showWatching(false);
+    },
+    { signal },
+  );
+  // The server gave up on this file; reconnecting would only fail again.
+  source.addEventListener(
+    "watch-error",
+    () => {
+      disconnectWatch();
       showWatching(false);
     },
     { signal },
@@ -436,21 +435,7 @@ function expand(item: HTMLElement, open: boolean): void {
   item.setAttribute("aria-expanded", open ? "true" : "false");
   const children = item.querySelector<HTMLElement>(":scope > [data-children]");
   if (children) children.hidden = !open;
-  const folder = item.querySelector<HTMLElement>(
-    ":scope > .file-tree-row .catppuccin-file-icon",
-  );
-  // The folder icon has an open variant; the chevron is turned by CSS.
-  if (folder) {
-    const name = open ? "_folder_open" : "_folder";
-    folder.style.setProperty(
-      "--catppuccin-icon-light",
-      `url(${CATPPUCCIN_ROOT}/latte/${name}.svg)`,
-    );
-    folder.style.setProperty(
-      "--catppuccin-icon-dark",
-      `url(${CATPPUCCIN_ROOT}/mocha/${name}.svg)`,
-    );
-  }
+  // CSS turns the chevron and opens the folder icon.
   if (open) item.dispatchEvent(new CustomEvent("expand"));
 }
 
@@ -700,7 +685,9 @@ export function setUpFiles(): void {
       setOpen(!isOpen());
       return;
     }
-    if (target.closest("#file-panel-close")) {
+    // Between 641 and 959px the panel overlays the conversation, and the
+    // dimmed backdrop over it closes the panel, as pi-web's does.
+    if (target.closest("#file-panel-close, .right-panel-overlay-backdrop")) {
       setOpen(false);
       return;
     }
@@ -786,14 +773,13 @@ export function setUpFiles(): void {
     onTreeKey(event);
   });
 
-  // The explorer refreshes itself on every settled turn; keep the changed
-  // files showing when that is what the reader asked for.
+  // The explorer refreshes itself on every settled turn, and clearing the
+  // search puts it back; keep the changed files showing when that is what
+  // the reader asked for.
   document.addEventListener("htmx:config:request", (event) => {
     const { request } = requestContext(event);
-    if (
-      new URL(request.action, document.baseURI).pathname !== "/files/explorer"
-    )
-      return;
+    const path = new URL(request.action, document.baseURI).pathname;
+    if (path !== "/files/explorer" && path !== "/files/search") return;
     if (showingChanges() && request.body instanceof FormData) {
       request.body.set("changes", "1");
     }

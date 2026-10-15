@@ -5,9 +5,7 @@ import { html } from "hono/html";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { htmxBrowser, page } from "#/web/htmx4-browser";
 
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
+afterEach(() => {
   vi.restoreAllMocks();
 });
 
@@ -60,7 +58,6 @@ async function open() {
         await region(new URL(request.url).pathname.split("/").at(-1) ?? ""),
       ),
   );
-  browsers.push(browser);
   // Observe a full-page departure without allowing happy-dom to fetch a page.
   const depart = vi
     .spyOn(browser.window.location, "assign")

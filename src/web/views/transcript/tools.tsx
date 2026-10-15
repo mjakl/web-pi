@@ -248,10 +248,7 @@ export function ToolCard({
         {/* pi-web's preview is plain text: a click anywhere on the header
             opens the card, so a link inside it would fire both. The files a
             turn wrote are the chips under the answer instead. */}
-        <span
-          {...(filePath === undefined ? {} : { title: filePath })}
-          class="tool-preview"
-        >
+        <span title={filePath} class="tool-preview">
           {call.partialArguments === undefined
             ? call.preview
             : "Generating parameters..."}

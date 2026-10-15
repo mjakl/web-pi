@@ -12,7 +12,6 @@ import { sessionUseCases } from "./sessions.ts";
 export type {
   FileScope,
   FileView,
-  FolderChoice,
   NewSessionView,
   SavedObservation,
   SavedObservationOptions,
@@ -21,7 +20,7 @@ export type {
   SidebarView,
   ViewOptions,
 } from "./views.ts";
-export { ForbiddenPath, InspectionOnlySession } from "./views.ts";
+export { InspectionOnlySession } from "./views.ts";
 
 export type Workspace = ReturnType<typeof createWorkspace>;
 

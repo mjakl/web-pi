@@ -1,9 +1,5 @@
 import { assistantEntry, userEntry } from "@adapters/fake/index";
-import {
-  conversationRail,
-  hasBranches,
-  messagePreview,
-} from "@core/conversation-rail";
+import { conversationRail, hasBranches } from "@core/conversation-rail";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
@@ -35,19 +31,6 @@ const branched: SessionEntry[] = [
   assistantEntry("a2b", "u2b", "other answer", 200),
 ];
 
-describe("message preview", () => {
-  it("collapses whitespace and stops at 100 characters", () => {
-    expect(messagePreview("  hello   there \n friend ")).toBe(
-      "hello there friend",
-    );
-    const long = "x".repeat(150);
-    const preview = messagePreview(long);
-    expect(preview).toHaveLength(100);
-    expect(preview.endsWith("…")).toBe(true);
-    expect(messagePreview("y".repeat(100))).toHaveLength(100);
-  });
-});
-
 describe("conversation rail", () => {
   it("marks prompts, stars, and compactions of a linear session", () => {
     const entries: SessionEntry[] = [
@@ -69,6 +52,12 @@ describe("conversation rail", () => {
     // Stars and separators carry no preview, as in pi-web.
     expect(marks[1]?.preview).toBeUndefined();
     expect(marks[3]?.preview).toBeUndefined();
+  });
+
+  it("previews a long prompt in 100 characters without splitting an emoji", () => {
+    const prompt = `${"x".repeat(98)}😀 and more`;
+    const [mark] = conversationRail([userEntry("u1", null, prompt)], "u1");
+    expect(mark?.preview).toBe(`${"x".repeat(98)}…`);
   });
 
   it("gives every branch its own lane and keeps the viewed one at lane 0", () => {

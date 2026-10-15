@@ -1,25 +1,28 @@
 // The global session list, directory choices and shared lifecycle stream.
+import { CWD_COOKIE } from "@core/cookies";
 import { FileAccessError } from "@core/path-access";
 import { type RuntimeEvent } from "@core/ports";
 import { isSessionId } from "@core/sessions";
 import {
   SessionNav,
-  ProjectPicker,
   RenameRow,
   SessionList,
   SessionRows,
 } from "@web/views/Sidebar";
-import { BrowsePane, DirectoryPicker, FolderList } from "@web/views/Workspace";
+import {
+  BrowsePane,
+  DirectoryPicker,
+  ProjectPicker,
+} from "@web/views/Workspace";
 import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,
   type WebApp,
-  CWD_COOKIE,
   currentSessionId,
   errorText,
   field,
-  fileFailure,
   html,
+  hxTrigger,
   sessionLocation,
   toastHeader,
 } from "./shared.ts";
@@ -28,19 +31,12 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   const { deps, sidebarOf, remember, currentCwd, newCwd, row, guard } = ctx;
 
   app.get("/sidebar", async (c) => {
-    // Existing folder-selection URLs still open that folder's blank composer.
-    // A project key alone is no longer a filter or a directory selection.
+    // Bookmarked folder-selection URLs still open that folder's blank
+    // composer. A project key alone is no longer a filter or a selection.
     const cwd = c.req.query("cwd");
-    if (cwd) {
-      const path = `/new?cwd=${encodeURIComponent(cwd)}`;
-      if (c.req.header("HX-Request") !== "true") return c.redirect(path);
-      sessionLocation(c, path);
-      return c.body(null, 200);
-    }
+    if (cwd) return c.redirect(`/new?cwd=${encodeURIComponent(cwd)}`);
     const activeId = currentSessionId(c);
-    const view = await deps.workspace.sidebar(
-      activeId === undefined ? {} : { selectedId: activeId },
-    );
+    const view = await sidebarOf(activeId);
     return c.html(<SessionNav view={view} activeId={activeId} />);
   });
 
@@ -50,7 +46,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       <ProjectPicker
         projects={await deps.workspace.projects()}
         cwd={await currentCwd(c)}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        home={deps.home}
       />,
     ),
   );
@@ -60,32 +56,16 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     if (!Number.isInteger(offset) || offset < 0) return c.notFound();
     const parentId = c.req.query("parent");
     if (parentId !== undefined && !isSessionId(parentId)) return c.notFound();
-    const selected = c.req.query("selected");
-    const activeId =
-      c.req.header("X-Web-Pi-Session") !== undefined
-        ? currentSessionId(c)
-        : selected !== undefined
-          ? isSessionId(selected)
-            ? selected
-            : undefined
-          : currentSessionId(c);
+    const activeId = currentSessionId(c);
     const view = await deps.workspace.sidebar({
       offset,
       ...(parentId === undefined ? {} : { parentId }),
       ...(activeId === undefined ? {} : { selectedId: activeId }),
     });
-    return c.html(
-      <SessionRows
-        view={view}
-        {...(activeId === undefined ? {} : { activeId })}
-      />,
-    );
+    return c.html(<SessionRows view={view} activeId={activeId} />);
   });
 
-  app.get("/sessions/:id/row", async (c) => {
-    const id = c.req.param("id");
-    return isSessionId(id) ? row(c, id) : c.notFound();
-  });
+  app.get("/sessions/:id/row", (c) => row(c, c.req.param("id")));
 
   for (const [path, act] of [
     ["stop", (id: string) => deps.workspace.stop(id)],
@@ -94,7 +74,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   ] as const) {
     app.post(`/sessions/:id/${path}`, async (c) => {
       const id = c.req.param("id");
-      if (!isSessionId(id)) return c.notFound();
       return guard(c, async () => {
         await act(id);
         return row(c, id);
@@ -104,7 +83,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.requireWritableSession(id);
       const found = await deps.workspace.row(id);
@@ -114,7 +92,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/rename", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     return guard(c, async () => {
       await deps.workspace.rename(id, field(form, "name"));
@@ -124,7 +101,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/delete", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.remove(id);
       const activeId = currentSessionId(c);
@@ -132,29 +108,17 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
         if (c.req.header("HX-Request") === "true") {
           sessionLocation(c, `/new?cwd=${encodeURIComponent(newCwd(c))}`);
           // HX-Location skips the response body. Refresh the surviving tree too.
-          c.header(
-            "HX-Trigger",
-            JSON.stringify({ "web-pi:sidebar-refresh": {} }),
-          );
+          hxTrigger(c, { "web-pi:sidebar-refresh": {} });
         } else c.header("HX-Redirect", "/new");
         return c.body(null, 200);
       }
-      const view = await deps.workspace.sidebar(
-        activeId === undefined ? {} : { selectedId: activeId },
-      );
-      return c.html(
-        <SessionList
-          view={view}
-          {...(activeId === undefined ? {} : { activeId })}
-          partial
-        />,
-      );
+      const view = await sidebarOf(activeId);
+      return c.html(<SessionList view={view} activeId={activeId} partial />);
     });
   });
 
   app.post("/sessions/:id/clone", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const cloned = await deps.workspace.clone(id);
       sessionLocation(c, `/sessions/${cloned}`);
@@ -167,21 +131,6 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       .browse(await currentCwd(c))
       .catch(() => deps.workspace.browse());
     return c.html(<DirectoryPicker {...browse} />);
-  });
-
-  app.get("/workspaces/folders", async (c) => {
-    const cwd = c.req.query("cwd") ?? "";
-    if (cwd === "") return c.text("cwd is required", 400);
-    try {
-      return await c.html(
-        <FolderList
-          choice={await deps.workspace.folders(cwd)}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
-        />,
-      );
-    } catch (error) {
-      return fileFailure(c, error);
-    }
   });
 
   // Browsing exposes names only. Validation, not browsing, grants file access.
@@ -221,29 +170,42 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  /** Lifecycle changes can change ordering across every directory. */
+  /**
+   * Lifecycle changes can change ordering across every directory. A finished
+   * turn also marks its row unread; a completed run, by the run-completion
+   * rule, is what rings another tab's tone, and changes nothing in the list.
+   */
   app.get("/events", (c) =>
     streamSSE(c, async (stream) => {
       let queue: Promise<void> = Promise.resolve();
+      const enqueue = (task: () => Promise<void>) => {
+        queue = queue.then(task).catch(() => {
+          // A closed stream ends rendering; the abort handler cleans up.
+        });
+      };
+      // A render that has not started yet reads the store after every event
+      // queued before it, so a burst of events costs one scan of the store.
+      let listWaiting = false;
       const send = (event: RuntimeEvent) => {
-        if (event.type === "completed") return;
-        queue = queue
-          .then(async () => {
+        if (event.type !== "completed" && !listWaiting) {
+          listWaiting = true;
+          enqueue(async () => {
+            listWaiting = false;
             await stream.writeSSE({
               data: await html(
                 <SessionList view={await sidebarOf()} partial />,
               ),
             });
-            if (event.type === "finished") {
-              await stream.writeSSE({
-                event: "finished",
-                data: JSON.stringify({ id: event.sessionId }),
-              });
-            }
-          })
-          .catch(() => {
-            // A closed stream ends rendering; the abort handler cleans up.
           });
+        }
+        if (event.type === "finished" || event.type === "completed") {
+          enqueue(() =>
+            stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify({ id: event.sessionId }),
+            }),
+          );
+        }
       };
       const unsubscribe = deps.workspace.subscribeSessions(send);
       let heartbeat: ReturnType<typeof setInterval> | undefined;

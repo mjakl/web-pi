@@ -1,13 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { ExtensionDialog } from "@web/views/Extensions";
+import { describe, expect, it, vi } from "vitest";
 import {
   area,
   byId,
   click,
+  flush,
   htmxEvent,
   keydown,
   mockFetch,
   mount,
   query,
+  render,
   text,
 } from "./helpers.ts";
 
@@ -48,6 +51,48 @@ describe("dialogs", () => {
     expect(cancel(byId("b")).defaultPrevented).toBe(false);
   });
 
+  it("counts down the time an extension gave the reader", async () => {
+    await load(
+      render(
+        ExtensionDialog({
+          sessionId: "s1",
+          dialog: {
+            id: "d",
+            method: "confirm",
+            title: "Push?",
+            expiresAt: Date.now() + 30_000,
+          },
+        }),
+      ),
+    );
+    const line = query(".extension-dialog-timeout");
+    expect(line.textContent).toBe("Closes in 30s if unanswered.");
+    vi.advanceTimersByTime(1000);
+    expect(line.textContent).toBe("Closes in 29s if unanswered.");
+    vi.advanceTimersByTime(40_000);
+    expect(line.textContent).toBe("Closes in 0s if unanswered.");
+  });
+
+  it("counts down from the time left, whatever the browser's clock says", async () => {
+    const html = render(
+      ExtensionDialog({
+        sessionId: "s1",
+        dialog: {
+          id: "d",
+          method: "confirm",
+          title: "Push?",
+          expiresAt: Date.now() + 30_000,
+        },
+      }),
+    );
+    // This browser's clock runs two minutes ahead of the server's.
+    vi.setSystemTime(Date.now() + 120_000);
+    await load(html);
+    const line = query(".extension-dialog-timeout");
+    vi.advanceTimersByTime(1000);
+    expect(line.textContent).toBe("Closes in 29s if unanswered.");
+  });
+
   it("saves the editor dialog on Ctrl+Enter", async () => {
     await load(
       '<form><textarea data-dialog-submit></textarea><textarea id="other"></textarea></form>',
@@ -76,7 +121,9 @@ describe("the custom-UI panel", () => {
     '<div id="custom-frame" tabindex="0"></div>' +
     '<button type="button" data-custom-close>Close</button></div></div>';
 
-  function posted(fetch: ReturnType<typeof mockFetch>): string[] {
+  function posted(fetch: {
+    mock: { calls: [unknown, RequestInit?][] };
+  }): string[] {
     return fetch.mock.calls.map((call) => {
       const body = call[1]?.body;
       return (
@@ -94,6 +141,7 @@ describe("the custom-UI panel", () => {
     expect(keydown(frame, "Enter").defaultPrevented).toBe(true);
     expect(keydown(frame, "v", { ctrlKey: true }).defaultPrevented).toBe(false);
     expect(keydown(frame, "a").defaultPrevented).toBe(false);
+    await flush();
     expect(posted(fetch)).toEqual(["[A", "\r"]);
     expect(fetch.mock.calls[0]?.[0]).toBe("/sessions/s1/custom-ui/input");
     expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({
@@ -113,9 +161,35 @@ describe("the custom-UI panel", () => {
     byId("custom-frame").dispatchEvent(paste);
     expect(paste.defaultPrevented).toBe(true);
     click(query("[data-custom-close]"));
+    await flush();
     expect(posted(fetch)).toEqual(["[200~pasted text[201~", ""]);
     click(query("[data-custom-ui]"));
     expect(document.activeElement).toBe(byId("custom-frame"));
+  });
+
+  it("sends one keystroke at a time, so they arrive in the order typed", async () => {
+    const answers: (() => void)[] = [];
+    const fetch = vi.fn(
+      (_url: unknown, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          answers.push(() => {
+            resolve(text(""));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await load(PANEL);
+    keydown(byId("custom-frame"), "ArrowUp");
+    keydown(byId("custom-frame"), "ArrowDown");
+    keydown(byId("custom-frame"), "Enter");
+    await flush();
+    expect(posted(fetch)).toEqual(["\u001b[A"]);
+    answers[0]?.();
+    await flush();
+    expect(posted(fetch)).toEqual(["\u001b[A", "\u001b[B"]);
+    answers[1]?.();
+    await flush();
+    expect(posted(fetch)).toEqual(["\u001b[A", "\u001b[B", "\r"]);
   });
 
   it("takes focus when a panel arrives", async () => {

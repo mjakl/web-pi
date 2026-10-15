@@ -3,8 +3,12 @@ import {
   buildAtInsertText,
   cycleHistory,
   exactBuiltin,
+  inputHistory,
+  skillsConflict,
 } from "@core/composer";
+import { skillSelections } from "@core/skill-prompt";
 import { setUpAtCompletion } from "./at-complete.ts";
+import { dialogOpen } from "./dialogs.ts";
 import { draftKey, setUpDrafts } from "./drafts.ts";
 import type { HtmxRequestCtx } from "htmx.org";
 import {
@@ -19,55 +23,48 @@ import { requestContext } from "./htmx.ts";
 import { navigationIntent } from "./navigation.ts";
 import { setUpSlashMenu } from "./slash-menu.ts";
 import { setUpSkills } from "./skills.ts";
-import type { SkillSelection } from "@core/ports";
 import {
   focusSessionInput,
   setUpSessionInputFocus,
 } from "./session-input-focus.ts";
 import { showToast } from "./toasts.ts";
+import { COMPOSER_ACTION_SHAPES, type ComposerAction } from "@web/views/icons";
 
 // Everything the composer cannot ask the server for: which key does what, the
 // attachment previews, the local file index, and the draft in localStorage.
 
 const COMPOSITION_GRACE_MS = 100;
 
-type Action = "send" | "stop" | "steer" | "followup";
-
-/**
- * The four states of pi-web's primary button. The shapes are the paths
- * views/icons.tsx draws (#51), repeated here because the button keeps one
- * `<svg>` and only its contents change.
- */
-const ACTIONS: Record<Action, { shape: string; label: string; title: string }> =
-  {
-    send: {
-      shape: '<path d="M12 19V5m-7 7 7-7 7 7"></path>',
-      label: "Send",
-      title: "Send",
-    },
-    stop: {
-      shape:
-        '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"></rect>',
-      label: "Stop agent",
-      title: "Stop agent",
-    },
-    steer: {
-      shape: '<path d="M5 19v-5a4 4 0 0 1 4-4h10m-5-5 5 5-5 5"></path>',
-      label: "Steer",
-      title: "Interrupt the current run and inject this message now",
-    },
-    followup: {
-      shape: '<path d="M4 6h14M4 12h8M4 18h8m6-6v8m-4-4h8"></path>',
-      label: "Queue",
-      title: "Queue after the agent finishes (Option/Alt)",
-    },
-  };
+/** The four states of pi-web's primary button; views/icons.tsx draws them. */
+const ACTIONS: Record<ComposerAction, { label: string; title: string }> = {
+  send: { label: "Send", title: "Send" },
+  stop: { label: "Stop agent", title: "Stop agent" },
+  steer: {
+    label: "Steer",
+    title: "Interrupt the current run and inject this message now",
+  },
+  followup: {
+    label: "Queue",
+    title: "Queue after the agent finishes (Option/Alt)",
+  },
+};
 
 /** Alt turns steer into follow-up while it is down, as pi-web does. */
 let altHeld = false;
 
+/**
+ * What Escape closes before it may stop the turn: the browser closes a dialog
+ * or popover only after the key's listeners have run, so it is still open.
+ */
+export function somethingOpen(): boolean {
+  return dialogOpen() || document.querySelector(":popover-open") !== null;
+}
+
 export function abortTurn(): void {
-  const id = document.querySelector("main")?.getAttribute("data-session-id");
+  // Only a page with a composer can run a turn: an inspection-only or other
+  // read-only page names its session too, and would only be refused.
+  const id =
+    document.querySelector<HTMLElement>("#composer")?.dataset["sessionId"];
   if (id) void fetch(`/sessions/${id}/abort`, { method: "POST" });
 }
 
@@ -156,7 +153,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
       images.count() > 0 ||
       skills.count() > 0;
     const running = form.hasAttribute("data-running");
-    const action: Action = !running
+    const action: ComposerAction = !running
       ? "send"
       : form.hasAttribute("data-bash-running")
         ? "stop"
@@ -168,7 +165,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     if (button.dataset["action"] !== action) {
       button.dataset["action"] = action;
       const svg = button.querySelector("svg");
-      if (svg) svg.innerHTML = ACTIONS[action].shape;
+      if (svg) svg.innerHTML = COMPOSER_ACTION_SHAPES[action];
       button.setAttribute("aria-label", ACTIONS[action].label);
       button.title = ACTIONS[action].title;
     }
@@ -183,48 +180,18 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
   let compositionEndedAt = -Infinity;
   let composing = false;
 
-  function history(): { text: string; skills: SkillSelection[] }[] {
-    const entries = [
-      ...document.querySelectorAll<HTMLElement>("[data-user-text]"),
-    ].map((element) => {
-      let selected: SkillSelection[] = [];
-      try {
-        const value: unknown = JSON.parse(
-          element.dataset["userSkills"] ?? "[]",
-        );
-        if (Array.isArray(value)) {
-          const items: unknown[] = value;
-          selected = items.filter(
-            (item): item is SkillSelection =>
-              item !== null &&
-              typeof item === "object" &&
-              "id" in item &&
-              "name" in item &&
-              typeof item.id === "string" &&
-              typeof item.name === "string",
-          );
-        }
-      } catch {
-        /* Older history has text only. */
-      }
-      const text = element.textContent ?? "";
-      return {
-        text: element.hasAttribute("data-user-skills") ? text : text.trim(),
-        skills: selected,
-      };
-    });
-    // Deduplicate by the full payload, so the same words with different skills remain distinct.
-    const seen = new Set<string>();
-    const distinct: typeof entries = [];
-    for (const entry of entries.reverse()) {
-      if (entry.text === "" && entry.skills.length === 0) continue;
-      const key = JSON.stringify(entry);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      distinct.push(entry);
-      if (distinct.length === 50) break;
-    }
-    return distinct.reverse();
+  function history() {
+    return inputHistory(
+      [...document.querySelectorAll<HTMLElement>("[data-user-text]")].map(
+        (element) => ({
+          text: element.textContent ?? "",
+          // Older history has text only.
+          skills: element.hasAttribute("data-user-skills")
+            ? (skillSelections(element.dataset["userSkills"]) ?? [])
+            : undefined,
+        }),
+      ),
+    );
   }
 
   function shellHint(value: string): void {
@@ -336,15 +303,10 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
   };
 
   function incompatibleSelection(): boolean {
-    if (skills.count() === 0) return false;
-    const text = textarea()?.value.trim() ?? "";
-    if (
-      text.startsWith("/skill:") ||
-      (!text.startsWith("/") && !text.startsWith("!"))
-    )
-      return false;
-    showToast("Remove selected skills before sending a command.", "warning");
-    return true;
+    const conflict =
+      skills.count() > 0 ? skillsConflict(textarea()?.value ?? "") : undefined;
+    if (conflict) showToast(conflict, "warning");
+    return conflict !== undefined;
   }
 
   const submit = (behavior: "steer" | "followUp"): void => {
@@ -467,7 +429,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
         submit(event.altKey ? "followUp" : "steer");
         return;
       }
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !somethingOpen()) {
         event.preventDefault();
         abortTurn();
       }
@@ -657,7 +619,7 @@ function setUpModelMenu(): void {
   });
 }
 
-/** pi-web's drop overlay: the whole chat window takes an image (§4.1). */
+/** pi-web's drop overlay: the whole chat window takes an image. */
 function setUpDropZone(
   images: { add(files: readonly File[]): void },
   signal: AbortSignal,
@@ -721,22 +683,23 @@ function setUpDropZone(
  * menu, because the strip's own line is sr-only there.
  */
 function setUpShelf(): void {
-  // undefined until the reader has said something: null is "all closed", and
-  // that has to survive the next render as much as an open panel does.
-  let open: string | null | undefined;
+  // The reader's choice per session; null is "all closed", and that has to
+  // survive the next render as much as an open panel does. A session the
+  // reader has not chosen in follows the panel the server opens.
+  const picks = new Map<string, string | null>();
+  const owner = (): string =>
+    document.querySelector<HTMLElement>("main")?.dataset["sessionId"] ?? "";
   const paint = (): void => {
     const shelf = document.getElementById("shelf");
     const panels = shelf?.querySelector<HTMLElement>(
       ".extension-widget-panels",
     );
     if (shelf && panels) {
-      // The server picked one; adopt it so the first click closes it.
-      if (open === undefined) {
-        open =
-          shelf.querySelector<HTMLElement>(
+      const open = picks.has(owner())
+        ? picks.get(owner())
+        : shelf.querySelector<HTMLElement>(
             '.extension-widget-trigger[aria-expanded="true"]',
-          )?.dataset["widget"] ?? null;
-      }
+          )?.dataset["widget"];
       let shown = false;
       for (const trigger of shelf.querySelectorAll<HTMLElement>(
         "button.extension-widget-trigger",
@@ -765,8 +728,12 @@ function setUpShelf(): void {
       "button.extension-widget-trigger",
     );
     if (!trigger) return;
-    const key = trigger.dataset["widget"] ?? "";
-    open = open === key ? null : key;
+    picks.set(
+      owner(),
+      trigger.getAttribute("aria-expanded") === "true"
+        ? null
+        : (trigger.dataset["widget"] ?? ""),
+    );
     paint();
   });
   document.body.addEventListener("htmx:after:settle", (event) => {

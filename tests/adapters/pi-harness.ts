@@ -22,6 +22,7 @@ import type {
   BashOperations,
   ExtensionAPI,
   InlineExtension,
+  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -246,6 +247,8 @@ export async function createHarness(
     extensions?: InlineExtension[];
     settings?: Record<string, unknown>;
     bashOperations?: BashOperations;
+    /** Pi's own local shell backend instead of refusing every command. */
+    localShell?: boolean;
     draftIdleMs?: number;
   } = {},
 ) {
@@ -298,12 +301,14 @@ export async function createHarness(
     agentDir,
     catalog,
     extensions: [provider, ...(options.extensions ?? [])],
-    bashOperations: options.bashOperations ?? {
-      exec: () =>
-        Promise.reject(
-          new Error("Unexpected shell execution in an offline test"),
-        ),
-    },
+    bashOperations: options.localShell
+      ? undefined
+      : (options.bashOperations ?? {
+          exec: () =>
+            Promise.reject(
+              new Error("Unexpected shell execution in an offline test"),
+            ),
+        }),
     ...(options.draftIdleMs === undefined
       ? {}
       : { draftIdleMs: options.draftIdleMs }),
@@ -327,9 +332,8 @@ export async function createHarness(
       return runtime.open(target);
     },
     async dispose(): Promise<void> {
-      for (const session of runtime.live()) {
-        if (runtime.get(session.id)) await session.stop();
-      }
+      // Stopping ones too: their last writes must land before the removal.
+      for (const session of runtime.live()) await session.stop();
       await temp.dispose();
     },
   };
@@ -337,7 +341,12 @@ export async function createHarness(
 
 /** Non-system message entries on the branch, as `role:text`. */
 export function messages(session: LiveSession): string[] {
-  return session.snapshot().branch.flatMap((entry) => {
+  return branchMessages(session.snapshot().branch);
+}
+
+/** Non-system message entries of a branch, as `role:text`. */
+export function branchMessages(branch: readonly SessionEntry[]): string[] {
+  return branch.flatMap((entry) => {
     if (
       entry.type !== "message" ||
       entry.message.role === "system" ||

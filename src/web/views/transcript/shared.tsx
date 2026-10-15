@@ -1,3 +1,8 @@
+import {
+  frontmatterCard,
+  type FrontmatterValue,
+  parseFrontmatter,
+} from "@core/frontmatter";
 import { renderMarkdown } from "@web/markdown";
 import {
   CheckIcon,
@@ -36,6 +41,17 @@ export type ItemActions = {
   /** A message is streaming: keep thinking activity and hide completed controls. */
   streaming?: boolean;
 };
+
+/**
+ * An item's id in markup. The streaming message has no entry yet, so its
+ * start time names it; the turn, the message and its thinking all derive
+ * their ids from this one key, which is what lets a morph match them up.
+ */
+export function itemKey(item: { entryId: string; timestamp: string }): string {
+  return item.entryId === "partial"
+    ? `partial-${String(Date.parse(item.timestamp))}`
+    : item.entryId;
+}
 
 /** pi-web's `formatTimestamp`: 24h, and the date once it is not today. */
 export function formatTimestamp(value: string, now = new Date()): string {
@@ -78,6 +94,59 @@ type MarkdownVariant =
   | "markdown-custom-message"
   | "markdown-compaction-message";
 
+/** The key/value card a Markdown document's YAML front matter shows as. */
+export function FrontmatterCard({
+  fields,
+}: {
+  fields: [string, FrontmatterValue][];
+}) {
+  const card = frontmatterCard(fields);
+  if (
+    card.title === undefined &&
+    card.chips.length === 0 &&
+    card.rest.length === 0
+  ) {
+    return <></>;
+  }
+  return (
+    <div class="markdown-frontmatter">
+      {card.title === undefined ? null : (
+        <div class="markdown-frontmatter-title">{card.title}</div>
+      )}
+      {card.chips.length === 0 ? null : (
+        <div class="markdown-frontmatter-tags">
+          {card.chips.map((chip) => (
+            <span class="markdown-frontmatter-tag">{chip}</span>
+          ))}
+        </div>
+      )}
+      {card.rest.length === 0 ? null : (
+        <dl class="markdown-frontmatter-rows">
+          {card.rest.map(([key, value]) => (
+            <div class="markdown-frontmatter-row">
+              <dt>{key}</dt>
+              <dd>
+                {/^(https?:\/\/|mailto:)/i.test(value) ? (
+                  <a href={value} target="_blank" rel="noopener noreferrer">
+                    {value}
+                  </a>
+                ) : (
+                  value
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A message's Markdown. One that opens with YAML front matter shows it as
+ * the file preview's card, but only when the card shows every line of it;
+ * any other `---` block is ordinary Markdown, so nothing is hidden.
+ */
 export function Markdown({
   source,
   actions,
@@ -87,10 +156,13 @@ export function Markdown({
   actions?: ItemActions;
   variant?: MarkdownVariant;
 }) {
+  const front = parseFrontmatter(source);
+  const card = front.complete && front.fields.length > 0;
   return (
     <div class={variant ? `markdown-body ${variant}` : "markdown-body"}>
+      {card ? <FrontmatterCard fields={front.fields} /> : null}
       {raw(
-        renderMarkdown(source, {
+        renderMarkdown(card ? front.body : source, {
           ...(actions
             ? { cwd: actions.cwd, sessionId: actions.sessionId }
             : {}),
@@ -112,7 +184,7 @@ export function CopyButton({
 }: {
   text: string;
   class?: string;
-  /** The extension card's footer copies with a word, not an icon (§4.6). */
+  /** The extension card's footer copies with a word, not an icon. */
   bare?: boolean;
 }) {
   if (text === "") return <></>;
@@ -215,7 +287,6 @@ export function HistoryActionButtons({
     "hx-vals": JSON.stringify({ entryId }),
     "hx-target": "body",
     "hx-swap": "innerHTML",
-    "hx-indicator": "#branch-sync",
   };
   const branchTitle =
     actions.busy === true
@@ -231,7 +302,7 @@ export function HistoryActionButtons({
           title={branchTitle}
           hx-post={post("navigate")}
           {...swap}
-          {...(actions.busy === true ? { disabled: true } : {})}
+          disabled={actions.busy === true}
         >
           <ForkIcon />
           Branch
@@ -275,15 +346,19 @@ export function HistoryActionFrame({
   );
 }
 
+/**
+ * Swaps itself for the toggled button the star route answers with. Only the
+ * caller knows whether the reader may star, so it decides whether to draw it.
+ */
 export function StarButton({
+  sessionId,
   entryId,
-  actions,
+  starred,
 }: {
+  sessionId: string;
   entryId: string;
-  actions: ItemActions;
+  starred: boolean;
 }) {
-  if (actions.inspectionOnly) return null;
-  const starred = actions.starred.has(entryId);
   const label = starred ? "Unstar answer" : "Star answer";
   return (
     <button
@@ -292,7 +367,7 @@ export function StarButton({
       aria-pressed={starred ? "true" : "false"}
       aria-label={label}
       title={label}
-      hx-post={`/sessions/${actions.sessionId}/star`}
+      hx-post={`/sessions/${sessionId}/star`}
       hx-vals={JSON.stringify({ entryId, starred: !starred })}
       hx-target="this"
       hx-swap="outerHTML"

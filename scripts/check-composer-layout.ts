@@ -1,39 +1,13 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { agentBrowser, fixtureUrl } from "./agent-browser.ts";
 
 // Opt-in Chromium layout check against the isolated, fictional screenshot fixture.
 // Start `just screenshots`, then pass its ephemeral loopback URL here.
-const url = new URL(process.argv[2] ?? "http://invalid");
-if (url.hostname !== "127.0.0.1" || !url.port || url.port === "30141") {
-  throw new Error(
-    "Pass the ephemeral loopback URL printed by just screenshots",
-  );
-}
+const url = fixtureUrl();
 const output = resolve(process.argv[3] ?? "dist/composer-layout");
 mkdirSync(output, { recursive: true });
-const session = `composer-layout-${String(process.pid)}`;
-function browser(...args: string[]) {
-  return execFileSync("agent-browser", ["--session", session, ...args], {
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-}
-function evaluate(code: string) {
-  return browser("eval", code);
-}
-function reachable(selector: string) {
-  evaluate(`(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (!element) throw new Error('Missing control: ' + ${JSON.stringify(selector)});
-    const rect = element.getBoundingClientRect();
-    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-    if (!rect.width || !rect.height || rect.top < 0 || rect.bottom > innerHeight || rect.left < 0 || rect.right > innerWidth || !element.contains(hit)) {
-      throw new Error('Clipped or covered control: ' + ${JSON.stringify(selector)});
-    }
-    return true;
-  })()`);
-}
+const { browser, evaluate, reachable } = agentBrowser("composer-layout");
 function measure() {
   return Number(
     evaluate(

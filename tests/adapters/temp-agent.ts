@@ -5,8 +5,8 @@ import { join } from "node:path";
 // A throwaway agent directory and project folder for one test. The root is
 // also HOME and PI_CODING_AGENT_DIR while it lives: MCP uses the process-wide
 // agent directory, and skill discovery uses HOME independently of agentDir.
-// Launch threaded test runs with an isolated HOME too: Node's os.homedir()
-// reads the worker's inherited environment, not its process.env changes.
+// Node's os.homedir() ignores these changes in a worker thread and keeps
+// returning the run's temporary home from tests/global-setup.ts.
 
 export type TempAgent = Awaited<ReturnType<typeof createTempAgent>>;
 

@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildSync } from "esbuild";
 import { Window } from "happy-dom";
-import { vi } from "vitest";
-import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
+import { onTestFinished, vi } from "vitest";
+import { escapeHtml } from "@core/html";
+import { HTMX_CONFIG, HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 
 const client = buildSync({
   stdin: {
@@ -20,15 +21,20 @@ const client = buildSync({
 
 export type Transport = (request: Request) => Promise<Response> | Response;
 
-const realSetTimeout = globalThis.setTimeout;
-
-/** Separate JS realm: no tests/client/setup.ts and no fake HTMX object. */
+/**
+ * Separate JS realm: no tests/client/setup.ts and no fake HTMX object. The
+ * page closes itself when the test finishes, after any afterEach hook.
+ * Resolves once htmx has processed the page; its streams may still be
+ * connecting, so a test that needs one connected waits for that itself.
+ */
 export async function htmxBrowser(
   markup: string,
   transport: Transport,
   options: {
     clientAfterHtmx?: boolean;
     clock?: boolean;
+    /** Reconnect a dropped stream at once, not after htmx's 350–650 ms. */
+    instantReconnect?: boolean;
     afterMarkup?: (window: Window) => void;
   } = {},
 ) {
@@ -94,92 +100,103 @@ export async function htmxBrowser(
       ReturnType<typeof window.fetch>
     >;
   };
-  const close = async () => {
-    try {
-      await window.eval(
-        `globalThis.htmx?.swap({target:document.body,sourceElement:document.body,text:'',swap:'innerHTML'})`,
-      );
-    } finally {
-      controllers.forEach((controller) => {
-        controller.abort();
-      });
+  let closed: Promise<void> | undefined;
+  const close = () =>
+    (closed ??= (async () => {
       try {
-        await window.happyDOM.close();
+        await window.eval(
+          `globalThis.htmx?.swap({target:document.body,sourceElement:document.body,text:'',swap:'innerHTML'})`,
+        );
       } finally {
-        if (options.clock) {
-          vi.clearAllTimers();
-          vi.useRealTimers();
+        controllers.forEach((controller) => {
+          controller.abort();
+        });
+        try {
+          await window.happyDOM.close();
+        } finally {
+          if (options.clock) {
+            vi.clearAllTimers();
+            vi.useRealTimers();
+          }
         }
       }
-    }
-  };
-  try {
-    // Fetch streams are native Node streams, so their decoder must be available in the realm.
-    Object.assign(window, { TextDecoder, TextEncoder });
-    // happy-dom has no XPath. HTMX only uses it to find hx-on attributes;
-    // provide that DOM query, not a replacement for processing or event dispatch.
-    window.eval(`window.XPathEvaluator = class {
-    createExpression() {
-      return { evaluate(root) {
-        const matches = [...root.querySelectorAll('*')].filter(element =>
-          [...element.attributes].some(attr => attr.name.startsWith('hx-on') || attr.name.startsWith('data-hx-on')));
-        let index = 0;
-        return { iterateNext() { return matches[index++] || null; } };
-      } };
-    }
+    })());
+  onTestFinished(close);
+  // Fetch streams are native Node streams, so their decoder must be available in the realm.
+  Object.assign(window, { TextDecoder, TextEncoder });
+  // happy-dom has no XPath. HTMX only uses it to find hx-on attributes;
+  // provide that DOM query, not a replacement for processing or event dispatch.
+  window.eval(`window.XPathEvaluator = class {
+  createExpression() {
+    return { evaluate(root) {
+      const matches = [...root.querySelectorAll('*')].filter(element =>
+        [...element.attributes].some(attr => attr.name.startsWith('hx-on') || attr.name.startsWith('data-hx-on')));
+      let index = 0;
+      return { iterateNext() { return matches[index++] || null; } };
+    } };
+  }
   };`);
-    window.document.write(markup);
-    // Detached realms have no OS window focus. Presence tests supply it explicitly.
-    window.document.hasFocus = () => false;
-    options.afterMarkup?.(window);
-    // happy-dom's ID cache uses insertion order for duplicate IDs. Native
-    // hx-preserve temporarily puts the old ID in a pantry after body; browsers
-    // return the replacement in body first, as querySelector does here.
-    window.eval(
-      `document.getElementById = id => id ? document.querySelector('#' + CSS.escape(id)) : null`,
-    );
-    let htmxProcessed = false;
+  window.document.write(markup);
+  // Detached realms have no OS window focus. Presence tests supply it explicitly.
+  window.document.hasFocus = () => false;
+  options.afterMarkup?.(window);
+  // happy-dom's ID cache uses insertion order for duplicate IDs. Native
+  // hx-preserve temporarily puts the old ID in a pantry after body; browsers
+  // return the replacement in body first, as querySelector does here.
+  window.eval(
+    `document.getElementById = id => id ? document.querySelector('#' + CSS.escape(id)) : null`,
+  );
+  // HTMX initializes by processing the body once.
+  let htmxProcessed = false;
+  const initialized = new Promise<void>((resolve) => {
     window.document.addEventListener(
       "htmx:after:process",
       () => {
         htmxProcessed = true;
+        resolve();
       },
       { once: true },
     );
-    for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
-      window.eval(readFileSync(resolve(process.cwd(), path.slice(1)), "utf8"));
-    }
-    if (options.clientAfterHtmx) {
-      window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-      await new Promise((resolve) => realSetTimeout(resolve, 10));
-      // HTMX may defer initialization with setTimeout instead of waiting for DCL.
-      if (options.clock) await vi.advanceTimersByTimeAsync(0);
-    }
-    const htmxProcessedBeforeClient = htmxProcessed;
-    window.eval(client);
-    if (!options.clientAfterHtmx)
-      window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-    await new Promise((resolve) => realSetTimeout(resolve, 10));
-    if (options.clock) await vi.advanceTimersByTimeAsync(0);
-    return {
-      window,
-      document: window.document,
-      requests,
-      htmxProcessedBeforeClient,
-      advanceTime: async (milliseconds: number) => {
-        if (!options.clock) throw new Error("Browser clock is not enabled");
-        await vi.advanceTimersByTimeAsync(milliseconds);
-      },
-      close,
-    };
-  } catch (error) {
-    await close();
-    throw error;
+  });
+  for (const path of [HTMX_SRC, HTMX_SSE_SRC]) {
+    window.eval(readFileSync(resolve(process.cwd(), path.slice(1)), "utf8"));
   }
+  if (options.instantReconnect)
+    window.eval(
+      "htmx.config.sse = {...htmx.config.sse, reconnectDelay: 0, reconnectJitter: 0}",
+    );
+  // A written document is past loading, so HTMX initializes from setTimeout.
+  const initialize = async () => {
+    if (options.clock) await vi.advanceTimersByTimeAsync(0);
+    await initialized;
+  };
+  if (options.clientAfterHtmx) {
+    window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
+    await initialize();
+  }
+  const htmxProcessedBeforeClient = htmxProcessed;
+  window.eval(client);
+  if (!options.clientAfterHtmx) {
+    window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
+    await initialize();
+  }
+  return {
+    window,
+    document: window.document,
+    requests,
+    htmxProcessedBeforeClient,
+    advanceTime: async (milliseconds: number) => {
+      if (!options.clock) throw new Error("Browser clock is not enabled");
+      // A test that timed out runs on; it must not move the next test's clock.
+      if (closed) throw new Error("The browser is closed");
+      await vi.advanceTimersByTimeAsync(milliseconds);
+    },
+    close,
+  };
 }
 
 export function page(body: string): string {
-  return `<!doctype html><html><head><meta name="htmx-config" content='{"extensions":"sse","sse":{"pauseOnBackground":false},"defaultTimeout":0}'></head><body hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">${body}</body></html>`;
+  return `<!doctype html><html><head><meta name="htmx-config" content="${escapeHtml(JSON.stringify(HTMX_CONFIG))}"></head><body hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">${body}</body></html>`;
 }
 
 export function controlledStream() {

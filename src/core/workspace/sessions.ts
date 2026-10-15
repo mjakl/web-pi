@@ -1,15 +1,16 @@
 import { conversationRail, hasBranches } from "@core/conversation-rail";
 import { contextUsage, type ContextUsage } from "@core/context-usage";
 import { isThinkingLevel } from "@core/models";
+import { sameModel } from "@core/model-settings";
 import type {
   EditableMessage,
+  LiveSession,
   LiveSnapshot,
   ModelListing,
   RuntimeEvent,
   SessionRead,
 } from "@core/ports";
 import {
-  branchLeaves,
   branchTo,
   lastAssistantText,
   readStars,
@@ -20,6 +21,7 @@ import {
 import {
   isSubagentSession,
   recentProjects,
+  stopsInTime,
   type SessionRowMetadata,
   type SessionSummary,
 } from "@core/sessions";
@@ -52,11 +54,15 @@ export function sessionUseCases({
   deps,
   decorate,
   entriesOf,
+  heldRuntime,
   modelsFor,
+  openRuntime,
+  refreshRoots,
   requireFolder,
   requireWritableSession,
-  inspectionOnly,
+  ownedRuntime,
   cwdOf,
+  serialised,
 }: Shared) {
   function liveView(
     snapshot: LiveSnapshot,
@@ -74,6 +80,9 @@ export function sessionUseCases({
     });
     deferThinking(page.items);
     const turn = projectTranscript(snapshot.branch.slice(snapshot.turnStart));
+    // A long run is mostly reasoning too. The partial message has no entry
+    // to fetch its reasoning from, so only finished messages are deferred.
+    deferThinking(turn.items);
     if (snapshot.partial) {
       turn.items.push(
         assistantItem("partial", snapshot.partial, {
@@ -126,14 +135,11 @@ export function sessionUseCases({
         contextWindow: status.model?.contextWindow,
         estimated:
           reported === null ? fallback !== null : status.contextTokensEstimated,
-        ...(options.warnTokens === undefined
-          ? {}
-          : { warnTokens: options.warnTokens }),
+        warnTokens: deps.webSettings.get().warnTokens,
       }),
       models: models.models,
       modelWarnings: models.warnings,
       starred,
-      leaves: branchLeaves(snapshot.entries, leafId),
       otherBranch:
         options.leaf !== undefined && options.leaf !== (leafId ?? undefined),
       rail: conversationRail(snapshot.entries, leafId, starred),
@@ -173,17 +179,14 @@ export function sessionUseCases({
     const listing = readOnly
       ? { models: [], warnings: [] }
       : await modelsFor(stored.summary.cwd, stored.summary.id);
+    const { lastModel } = transcript;
     const model =
-      !readOnly && transcript.lastModel
+      !readOnly && lastModel
         ? (
             await deps.models
               .listAvailable(stored.summary.cwd, stored.summary.id)
               .catch(() => listing.models)
-          ).find(
-            (option) =>
-              option.provider === transcript.lastModel?.provider &&
-              option.id === transcript.lastModel.id,
-          )
+          ).find((option) => sameModel(option, lastModel))
         : undefined;
     return {
       summary,
@@ -233,7 +236,6 @@ export function sessionUseCases({
         : {}),
       modelWarnings: listing.warnings,
       starred,
-      leaves: branchLeaves(stored.entries, leafId),
       otherBranch: options.leaf !== undefined && options.leaf !== stored.leafId,
       rail: conversationRail(stored.entries, leafId, starred),
       branched: hasBranches(stored.entries),
@@ -261,7 +263,7 @@ export function sessionUseCases({
   ): Promise<SessionView | undefined> {
     // A running session owns its file, so even another branch of it is read
     // from the runtime: the file on disk may be a flush behind.
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
+    const live = await ownedRuntime(id);
     if (live) {
       const snapshot = live.snapshot();
       const resolved = resolveViewOptions(snapshot.entries, options);
@@ -312,11 +314,7 @@ export function sessionUseCases({
   async function savedOwned(id: string): Promise<boolean> {
     // Only a potential handoff needs the persisted authority check. On the
     // ordinary unchanged polling path, readSaved must be the first file read.
-    return (
-      !id.startsWith("subagent.") &&
-      deps.runtime.get(id) !== undefined &&
-      !(await inspectionOnly(id))
-    );
+    return (await ownedRuntime(id)) !== undefined;
   }
 
   async function observeSavedSession(
@@ -387,9 +385,18 @@ export function sessionUseCases({
     }
   }
 
+  /**
+   * Resolves once nothing writes the file, also when a stop was under way.
+   * Delete and rewind go through here, so a stop that hangs fails them before
+   * they touch a file the runtime may still write.
+   */
   async function stop(id: string): Promise<void> {
     await requireWritableSession(id);
-    await deps.runtime.get(id)?.stop();
+    const live = heldRuntime(id);
+    if (live && !(await stopsInTime(live.stop())))
+      throw new Error(
+        "This session is still stopping. Try again once it has stopped.",
+      );
   }
 
   /** A live session owns its file; only a stopped one is edited on disk. */
@@ -415,11 +422,11 @@ export function sessionUseCases({
   ): Promise<
     { summary: SessionSummary; metadata: SessionRowMetadata } | undefined
   > {
-    return readRow(id, await inspectionOnly(id));
+    return readRow(id, await ownedRuntime(id));
   }
 
-  async function readRow(id: string, readOnly: boolean) {
-    const snapshot = readOnly ? undefined : deps.runtime.get(id)?.snapshot();
+  async function readRow(id: string, live: LiveSession | undefined) {
+    const snapshot = live?.snapshot();
     const found = snapshot
       ? {
           summary: snapshot.summary,
@@ -435,7 +442,7 @@ export function sessionUseCases({
   async function listedSessions(): Promise<SessionSummary[]> {
     const stored = await deps.sessions.list();
     const known = new Set(stored.map((session) => session.id));
-    // Pi may not have flushed a new runtime's first reply yet.
+    // Pi may not have written a new runtime's file yet.
     const unflushed = deps.runtime
       .live()
       .filter((live) => !known.has(live.id))
@@ -482,7 +489,12 @@ export function sessionUseCases({
         const rows = await Promise.all(
           page.nodes.map(async (node) => {
             const { summary, children } = node;
-            const found = await readRow(summary.id, isSubagentSession(summary));
+            const found = await readRow(
+              summary.id,
+              isSubagentSession(summary)
+                ? undefined
+                : deps.runtime.get(summary.id),
+            );
             if (!found) return undefined;
             const preload =
               children.length > 0 &&
@@ -518,10 +530,7 @@ export function sessionUseCases({
       return pageOf(options);
     },
 
-    async sessionStats(
-      id: string,
-      options: { warnTokens?: number } = {},
-    ): Promise<
+    async sessionStats(id: string): Promise<
       | {
           summary: SessionSummary;
           stats: SessionStats;
@@ -533,7 +542,7 @@ export function sessionUseCases({
       // the one context-usage number the whole page shows.
       const [stored, view] = await Promise.all([
         entriesOf(id),
-        viewSession(id, options),
+        viewSession(id),
       ]);
       if (!stored || !view) return undefined;
       return {
@@ -566,9 +575,13 @@ export function sessionUseCases({
       }
     },
 
-    async remove(id: string): Promise<void> {
-      await stop(id);
-      await deps.sessions.remove(id);
+    remove(id: string): Promise<void> {
+      return serialised(id, async () => {
+        await stop(id);
+        await deps.sessions.remove(id);
+        // It may have been the only session that made its folder readable.
+        refreshRoots();
+      });
     },
 
     async fork(
@@ -585,20 +598,22 @@ export function sessionUseCases({
     },
 
     /** Shuts the runtime down first: nothing may append during the rewrite. */
-    async rewind(id: string, entryId: string): Promise<EditableMessage> {
-      await requireFolder(id);
-      await stop(id);
-      const draft = await deps.sessions.rewind(id, entryId);
-      // Resume from the rewritten file, without submitting the recalled draft.
-      await deps.runtime.open({ sessionId: id });
-      return draft;
+    rewind(id: string, entryId: string): Promise<EditableMessage> {
+      return serialised(id, async () => {
+        await requireFolder(id);
+        await stop(id);
+        const draft = await deps.sessions.rewind(id, entryId);
+        // Resume from the rewritten file, without submitting the recalled
+        // draft. Not openRuntime: that would wait for this rewind itself.
+        await deps.runtime.open({ sessionId: id });
+        return draft;
+      });
     },
 
     /** Moves the session's leaf, opening a runtime when there is none. */
     async navigateTree(id: string, targetId: string): Promise<string> {
       await requireFolder(id);
-      const live =
-        deps.runtime.get(id) ?? (await deps.runtime.open({ sessionId: id }));
+      const live = await openRuntime(id);
       return (await live.navigateTree(targetId)) ?? "";
     },
 

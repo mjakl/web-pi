@@ -9,6 +9,11 @@ export type Frontmatter = {
   fields: [string, FrontmatterValue][];
   /** The document with the block removed. */
   body: string;
+  /**
+   * There was a block, every line of it became a field and no key repeats,
+   * so a card shows all of it.
+   */
+  complete: boolean;
 };
 
 function unquote(text: string): string {
@@ -32,19 +37,29 @@ function parseInlineList(text: string): string[] {
 
 /** No block at all yields no fields and the original text as the body. */
 export function parseFrontmatter(source: string): Frontmatter {
+  const none = { fields: [], body: source, complete: false };
   const lines = source.split(/\r?\n/);
-  if (lines[0]?.trim() !== "---") return { fields: [], body: source };
+  if (lines[0]?.trim() !== "---") return none;
   const end = lines.findIndex(
     (line, index) => index > 0 && /^---[ \t]*$/.test(line),
   );
-  if (end === -1) return { fields: [], body: source };
+  if (end === -1) return none;
   const body = lines.slice(end + 1).join("\n");
   const fields: [string, FrontmatterValue][] = [];
+  let complete = true;
   for (let index = 1; index < end; index += 1) {
     const line = lines[index] ?? "";
-    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+    if (line.trim() === "") continue;
+    // A comment is text a card would not show.
+    if (line.trimStart().startsWith("#")) {
+      complete = false;
+      continue;
+    }
     const match = /^([A-Za-z0-9_.-]+):[ \t]*(.*)$/.exec(line);
-    if (!match) continue;
+    if (!match) {
+      complete = false;
+      continue;
+    }
     const key = match[1] ?? "";
     const value = (match[2] ?? "").trim();
     if (value.startsWith("[") && value.endsWith("]")) {
@@ -61,11 +76,13 @@ export function parseFrontmatter(source: string): Frontmatter {
         index += 1;
       }
       if (items.length > 0) fields.push([key, items]);
+      else complete = false;
       continue;
     }
     fields.push([key, unquote(value)]);
   }
-  return { fields, body };
+  const keys = new Set(fields.map(([key]) => key));
+  return { fields, body, complete: complete && keys.size === fields.length };
 }
 
 const LIST_KEYS = ["tags", "categories", "keywords", "tag", "category"];

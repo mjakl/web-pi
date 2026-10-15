@@ -2,7 +2,7 @@ import {
   DEFAULT_SYSTEM_PROMPT_ADDITION,
   DEFAULT_WEB_SETTINGS,
 } from "@core/web-settings";
-import { SettingsBody } from "@web/views/Settings";
+import { GeneralSettings } from "@web/views/Settings";
 import { describe, expect, it, vi } from "vitest";
 import {
   byId,
@@ -17,7 +17,7 @@ import {
 } from "./helpers.ts";
 
 async function load() {
-  mount(SettingsBody({ section: "general", cwd: "/repo" }));
+  mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
   const preferences = await import("@web/client/preferences");
   preferences.setUpPreferences();
   return preferences;
@@ -103,18 +103,73 @@ describe("shared preferences", () => {
     );
   });
 
-  it("saves theme and updates the selection without browser storage", async () => {
-    mockFetch(() => json({ ...DEFAULT_WEB_SETTINGS, theme: "dark" }));
-    await load();
-    const dark = document.querySelector<HTMLElement>(
-      '[data-theme-option="dark"]',
+  it("saves the checked theme and follows the server's answer without browser storage", async () => {
+    const fetch = mockFetch(() =>
+      json({ ...DEFAULT_WEB_SETTINGS, theme: "dark" }),
     );
-    if (!dark) throw new Error("No dark option");
-    click(dark);
+    await load();
+    const dark = field('input[name="theme"][value="dark"]');
+    const light = field('input[name="theme"][value="light"]');
+    // A click or an arrow key in the group checks a radio and says so. The
+    // radios stay enabled, so keyboard focus survives the save.
+    dark.checked = true;
+    dark.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(byId("sound-toggle").hasAttribute("disabled")).toBe(true);
+    expect(dark.disabled).toBe(false);
     await flush();
-    expect(dark.getAttribute("aria-checked")).toBe("true");
+    expect(fetch).toHaveBeenCalledWith(
+      "/settings/web",
+      expect.objectContaining({ body: '{"theme":"dark"}' }),
+    );
+    expect(dark.checked).toBe(true);
+    expect(dark.disabled).toBe(false);
     expect(document.documentElement.dataset["theme"]).toBe("dark");
     expect(localStorage.getItem("web-pi-theme")).toBeNull();
+    // A failed save puts the confirmed choice back.
+    mockFetch(() => text("failed", 500));
+    light.checked = true;
+    light.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    expect(dark.checked).toBe(true);
+    expect(light.checked).toBe(false);
+  });
+
+  it("sends a theme picked during another save once that save finishes", async () => {
+    const answers: (() => void)[] = [];
+    const fetch = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          if (typeof init?.body !== "string")
+            throw new Error("Expected JSON settings");
+          const saved = JSON.parse(init.body) as object;
+          answers.push(() => {
+            resolve(json({ ...DEFAULT_WEB_SETTINGS, ...saved }));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await load();
+    const pick = (theme: string) => {
+      const option = field(`input[name="theme"][value="${theme}"]`);
+      option.checked = true;
+      option.dispatchEvent(new Event("change", { bubbles: true }));
+      return option;
+    };
+    pick("dark");
+    const light = pick("light");
+    expect(fetch).toHaveBeenCalledOnce();
+    answers.shift()?.();
+    await flush();
+    // The later pick goes next, and its radio stays checked meanwhile.
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/settings/web",
+      expect.objectContaining({ body: '{"theme":"light"}' }),
+    );
+    expect(light.checked).toBe(true);
+    answers.shift()?.();
+    await flush();
+    expect(document.documentElement.dataset["theme"]).toBe("light");
+    expect(light.checked).toBe(true);
   });
 
   it("rejects invalid thresholds and persists a positive safe integer", async () => {
@@ -164,7 +219,7 @@ describe("shared preferences", () => {
     );
     const { soundEnabled } = await load();
     click(byId("sound-toggle"));
-    mount(SettingsBody({ section: "general", cwd: "/repo" }));
+    mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
     htmxEvent(document.body, "htmx:after:process");
     expect((byId("sound-toggle") as HTMLButtonElement).disabled).toBe(true);
     saved.resolve(json({ ...DEFAULT_WEB_SETTINGS, sound: false }));
@@ -179,7 +234,7 @@ describe("shared preferences", () => {
     );
     await load();
     const old = byId("sound-toggle");
-    mount(SettingsBody({ section: "general", cwd: "/repo" }));
+    mount(GeneralSettings({ settings: DEFAULT_WEB_SETTINGS }));
     htmxEvent(document.body, "htmx:after:process");
     htmxEvent(document.body, "htmx:after:process");
     click(old);

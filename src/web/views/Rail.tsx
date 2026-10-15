@@ -3,8 +3,8 @@ import type { RailMark } from "@core/conversation-rail";
 import type { SessionView } from "@core/workspace";
 import { StarIcon } from "./icons.tsx";
 
-// pi-web's ChatMinimap (§5), rendered on the server. pi-web measures the
-// rail's pixel height and places row `r` at `12 + r * gap` with
+// pi-web's ChatMinimap, rendered on the server. pi-web measures the rail's
+// pixel height and places row `r` at `12 + r * gap` with
 // `gap = min(50, (height - 30 - 24) / rows)`; the same value falls out of a
 // calc() against the rail's own height, so nothing here needs a measurement.
 // src/web/client/rail.ts only tracks the reading position and the popover.
@@ -59,8 +59,7 @@ function Node({
       <button
         type="button"
         class={`minimap-branch${mark.kind === "star" ? " minimap-star" : ""}`}
-        data-rail-entry-id={mark.id}
-        data-entry-id={mark.id}
+        data-minimap-entry-id={mark.id}
         data-branch="true"
         aria-label={label}
         /* pi-web previews the branch this mark leads to while the pointer
@@ -71,7 +70,6 @@ function Node({
         hx-vals={JSON.stringify({ entryId: mark.targetLeafId })}
         hx-target="body"
         hx-swap="innerHTML"
-        hx-indicator="#branch-sync"
       >
         {mark.kind === "star" ? <StarIcon filled /> : <span />}
       </button>
@@ -83,7 +81,7 @@ function Node({
     return (
       <span
         class="minimap-junction"
-        data-rail-entry-id={mark.id}
+        data-minimap-entry-id={mark.id}
         style={`left:${left}; top:${top}`}
       />
     );
@@ -114,10 +112,7 @@ function Node({
         type="button"
         tabindex={-1}
         class={mark.kind === "star" ? "minimap-star" : "minimap-message"}
-        data-entry-id={mark.id}
-        {...(mark.preview === undefined
-          ? {}
-          : { "data-preview": mark.preview })}
+        data-preview={mark.preview}
         aria-label={
           mark.kind === "star"
             ? "Jump to starred answer"
@@ -215,8 +210,9 @@ export function Rail({ view, oob }: { view: SessionView; oob?: boolean }) {
       id="rail"
       class="minimap-layer"
       data-branched={branched ? "true" : "false"}
+      data-strip-width={String(WIDTH)}
       data-graph-width={String(lanes * LANE + WIDTH)}
-      {...(oob ? { "hx-swap-oob": "true" } : {})}
+      hx-swap-oob={oob ? "true" : undefined}
     >
       {/* pi-web chains the anchors into a parent/child path even with no
           fork in the session, so a linear rail carries the spine too. */}

@@ -260,7 +260,9 @@ it("shows plain known-child counts without checking controls and retains exact c
     children: { rows: [{ summary: { id: selected.id } }] },
   });
   const linkedHtml = await (
-    await app.request(`/sidebar/rows?selected=${selected.id}`)
+    await app.request("/sidebar/rows", {
+      headers: { "X-Web-Pi-Session": selected.id },
+    })
   ).text();
   expect(linkedHtml).toContain("1 sub-session");
   expect(linkedHtml).not.toContain("1+ sub-sessions");
@@ -394,7 +396,8 @@ it("bounds child routes by header creation while preserving exact counts, select
   const coldBytes = io.streamBytes;
   resetReads();
   const response = await app.request(
-    `/sidebar/rows?parent=${parent.id}&selected=${nested.id}&after=50`,
+    `/sidebar/rows?parent=${parent.id}&after=50`,
+    { headers: { "X-Web-Pi-Session": nested.id } },
   );
   expect(response.status).toBe(200);
   const html = await response.text();
@@ -412,7 +415,11 @@ it("bounds child routes by header creation while preserving exact counts, select
   resetReads();
   expect((await app.request("/sidebar/rows?parent=missing")).status).toBe(200);
   expect(fs.createReadStream).not.toHaveBeenCalled();
-  const full = await catalog.list();
+  const full = (
+    await Promise.all(
+      files.map((fixture) => catalog.classification(fixture.id)),
+    )
+  ).flatMap((found) => (found.kind === "classified" ? [found.summary] : []));
   const tree = sessionTree(full);
   expect(tree.byId.get(parent.id)?.children).toHaveLength(70);
   expect(tree.byId.get(invalid.id)?.parentId).toBeUndefined();
@@ -428,49 +435,39 @@ it("bounds child routes by header creation while preserving exact counts, select
   }
 });
 
-it.each(["list", "discover"] as const)(
-  "reuses a bounded scan-start cache for repeated necessary %s scans beyond 4096 files",
-  async (method) => {
-    const files = Array.from({ length: 4201 }, (_, index) => session(index));
-    const parent = files[0];
-    if (!parent) throw new Error("Missing parent");
-    const catalog = createPiSessionCatalog({ agentDir: root });
-    const scan = () =>
-      method === "list"
-        ? catalog.list()
-        : catalog.discover({ runtime: [], parentId: parent.id });
-    await scan();
-    expect(fs.createReadStream).toHaveBeenCalledTimes(4201);
-    resetReads();
-    await scan();
-    expect(fs.createReadStream).toHaveBeenCalledTimes(105);
-    const repeatedBytes = io.streamBytes;
-    expect(repeatedBytes).toBeLessThan(
-      files.reduce((sum, f) => sum + fs.statSync(f.file).size, 0) / 20,
+it("reuses a bounded scan-start cache for repeated necessary scans beyond 4096 files", async () => {
+  const files = Array.from({ length: 4201 }, (_, index) => session(index));
+  const parent = files[0];
+  if (!parent) throw new Error("Missing parent");
+  const catalog = createPiSessionCatalog({ agentDir: root });
+  const scan = () => catalog.discover({ runtime: [], parentId: parent.id });
+  await scan();
+  expect(fs.createReadStream).toHaveBeenCalledTimes(4201);
+  resetReads();
+  await scan();
+  expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+  const repeatedBytes = io.streamBytes;
+  expect(repeatedBytes).toBeLessThan(
+    files.reduce((sum, f) => sum + fs.statSync(f.file).size, 0) / 20,
+  );
+  resetReads();
+  await scan();
+  expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+  const changed = files[2100];
+  if (!changed) throw new Error("Missing changed session");
+  delegate(changed, parent.id);
+  resetReads();
+  const { summaries } = await scan();
+  expect(
+    summaries.find((summary) => summary.id === changed.id)?.inspectionOnly,
+  ).toBe(true);
+  expect(fs.createReadStream).toHaveBeenCalledTimes(106);
+  if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
+    process.stdout.write(
+      `Repeated discovery I/O: ${JSON.stringify({ files: 4201, repeatStreams: 105, repeatedBytes })}\n`,
     );
-    resetReads();
-    await scan();
-    expect(fs.createReadStream).toHaveBeenCalledTimes(105);
-    const changed = files[2100];
-    if (!changed) throw new Error("Missing changed session");
-    delegate(changed, parent.id);
-    resetReads();
-    const refreshed = await scan();
-    const summaries = Array.isArray(refreshed)
-      ? refreshed
-      : refreshed.summaries;
-    expect(
-      summaries.find((summary) => summary.id === changed.id)?.inspectionOnly,
-    ).toBe(true);
-    expect(fs.createReadStream).toHaveBeenCalledTimes(106);
-    if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
-      process.stdout.write(
-        `Repeated ${method} I/O: ${JSON.stringify({ files: 4201, repeatStreams: 105, repeatedBytes })}\n`,
-      );
-    }
-  },
-  30000,
-);
+  }
+}, 30000);
 
 it("prioritizes old known running and idle sessions without classifying the rest of the archive", async () => {
   const files = Array.from({ length: 200 }, (_, index) => session(index));
@@ -673,7 +670,8 @@ it("measures cold, warm, changed and later-page discovery for 15000 real files w
   expect(later.actualEofBytes).toBeGreaterThan(0);
   expect(changedRefresh.actualEofBytes).toBeLessThan(cold.actualEofBytes);
   expect(cold.headerReads).toBe(15000);
-  expect(warm.headerReads).toBe(15000);
+  // A header is parsed once per file; a refresh only stats it.
+  expect(warm.headerReads).toBe(0);
   if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
     process.stdout.write(
       `Adaptive sidebar I/O: ${JSON.stringify({

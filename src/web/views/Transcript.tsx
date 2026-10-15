@@ -14,18 +14,11 @@ import { Partial } from "./Partial.tsx";
 import { Rail } from "./Rail.tsx";
 import { JumpToLatestIcon } from "./icons.tsx";
 
-/** The stored name, else the opening request, else the id. */
-function pageTitle(view: SessionView): string {
-  const name = view.summary.name?.trim();
-  if (name) return name;
-  const first = [...view.items, ...view.turn].find(
-    (item) => item.kind === "user",
-  );
-  const opening = first?.text.replaceAll(/\s+/g, " ").trim().slice(0, 60);
-  return opening === undefined || opening === "" ? view.summary.id : opening;
-}
-
-function itemActions(view: SessionView): ItemActions {
+/**
+ * What every transcript fragment of this view may do: a delegated session is
+ * inspection only, and another branch or a missing folder makes it read-only.
+ */
+export function itemActions(view: SessionView): ItemActions {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
   return {
@@ -40,7 +33,10 @@ function itemActions(view: SessionView): ItemActions {
   };
 }
 
-/** The full loaded saved window, shared with observation and ownership handoff. */
+/**
+ * A window of settled history under the sentinel for the page before it: the
+ * page itself, each earlier page, saved observation and ownership handoff.
+ */
 export function SavedMessages({ view }: { view: SessionView }) {
   const leaf = view.savedObservation?.leaf ?? view.leaf;
   return (
@@ -49,7 +45,7 @@ export function SavedMessages({ view }: { view: SessionView }) {
         <LoadEarlier
           sessionId={view.summary.id}
           before={view.oldestId}
-          {...(leaf === undefined ? {} : { leaf })}
+          leaf={leaf}
         />
       ) : null}
       <Items items={view.items} actions={itemActions(view)} />
@@ -71,7 +67,7 @@ export function LiveRecovery({ view }: { view: SessionView }) {
       data-leaf={view.liveRecovery.leaf ?? ""}
       data-content-leaf={view.liveRecovery.contentLeaf ?? ""}
     >
-      <Status view={stopped} oob partial />
+      <Status view={stopped} oob />
       <Partial target="#shelf" swap="outerHTML">
         <ShelfBody status={null} />
       </Partial>
@@ -89,16 +85,12 @@ export function LiveRecovery({ view }: { view: SessionView }) {
 export function Transcript({ view }: { view: SessionView }) {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
-  const leafId = view.leaves.find((leaf) => leaf.current)?.id;
   const actions = itemActions(view);
   return (
     <div class="chat-body">
       <div id="log" class="chat-scroll">
         <div class="chat-scroll-content">
           <div class="chat-transcript">
-            <span hidden data-page-title>
-              {pageTitle(view)}
-            </span>
             {view.otherBranch && !inspectionOnly ? (
               <div class="branch-sync-notice" role="status">
                 <span>Viewing another branch of this session, read only.</span>
@@ -106,7 +98,7 @@ export function Transcript({ view }: { view: SessionView }) {
                   type="button"
                   class="history-action"
                   hx-post={`/sessions/${summary.id}/navigate`}
-                  hx-vals={JSON.stringify({ entryId: leafId })}
+                  hx-vals={JSON.stringify({ entryId: view.leaf })}
                   hx-target="body"
                   hx-swap="innerHTML"
                 >
@@ -118,12 +110,13 @@ export function Transcript({ view }: { view: SessionView }) {
               <SavedMessages view={view} />
             </div>
             <div id="turn">
-              <LiveRecovery view={view} />
               <TurnFragment
                 items={view.turn}
                 actions={actions}
                 status={inspectionOnly ? null : view.status}
-              />
+              >
+                <LiveRecovery view={view} />
+              </TurnFragment>
             </div>
           </div>
         </div>

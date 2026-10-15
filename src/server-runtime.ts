@@ -10,6 +10,11 @@ const piVersion = bundledPiVersion();
 configureHttpDispatcher();
 
 const config = loadConfig();
+if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host)) {
+  process.stderr.write(
+    `Warning: web-pi is listening on ${config.host} without any authentication. Use it only on a trusted network or behind an external security layer.\n`,
+  );
+}
 const { workspace, dispose } = createDeps(config);
 const app = createWebApp({
   workspace,
@@ -27,10 +32,26 @@ const server = serve(
   },
 );
 
+function shutdown(code: number): void {
+  // Live sessions stop until the forced exit below.
+  void dispose();
+  server.close();
+  process.exitCode = code;
+  setTimeout(() => process.exit(code), 2000).unref();
+}
+
+// Unhandled, a failed listen (a busy port, say) crashes with a stack trace.
+server.on("error", (error: NodeJS.ErrnoException) => {
+  const reason =
+    error.code === "EADDRINUSE"
+      ? `port ${String(config.port)} is already in use`
+      : error.message;
+  process.stderr.write(`web-pi: ${reason}\n`);
+  shutdown(1);
+});
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    dispose();
-    server.close();
-    setTimeout(() => process.exit(0), 2000).unref();
+    shutdown(0);
   });
 }

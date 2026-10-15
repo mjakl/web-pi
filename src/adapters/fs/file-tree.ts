@@ -1,4 +1,4 @@
-import type { FileEntry } from "@core/composer";
+import { type FileEntry, type FileSearch, fileSearch } from "@core/composer";
 import { FileAccessError } from "@core/path-access";
 import type { DirEntry, Files, FileStat } from "@core/ports";
 import { execFile } from "node:child_process";
@@ -11,18 +11,24 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-// Caps chosen so a monorepo cannot stall a keystroke: git is asked once per
-// folder and the answer is reused for ten seconds.
+// The browser filters the first MAX_FILES paths on its own and asks the
+// server about the rest, which searches the whole listing up to the hard
+// caps. Git is asked once per folder, and the answer and its prepared search
+// are reused for ten seconds. Once searched, a listing of 120,000 paths holds
+// about 170 MB, so only two folders are kept, and an expired listing is
+// dropped the next time any folder is listed.
 const MAX_FILES = 5000;
 const GIT_HARD_CAP = 200_000;
 const WALK_HARD_CAP = 50_000;
 const MAX_WALK_DEPTH = 8;
 const MAX_CHILDREN = 20;
 const CACHE_TTL_MS = 10_000;
-const CACHE_MAX_ENTRIES = 20;
+const CACHE_MAX_ENTRIES = 2;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+/** A NUL byte this close to the start marks a binary file, as for Git. */
+const BINARY_SNIFF_BYTES = 8192;
 
-/** Names the explorer never lists, whatever `.gitignore` says (spec §2). */
+/** Names the explorer never lists, whatever `.gitignore` says. */
 const SKIPPED_DIRECTORIES = new Set([
   "node_modules",
   ".git",
@@ -107,39 +113,54 @@ function expand(query: string, cwd: string): string {
   return isAbsolute(path) ? path : resolve(cwd, path);
 }
 
+type Listing = {
+  index: { files: string[]; truncated: boolean };
+  search: FileSearch;
+};
+
 export function createFileTree(): Files {
   const cache = new Map<
     string,
-    {
-      expiresAt: number;
-      index: Promise<{ files: string[]; truncated: boolean }>;
-    }
+    { expiresAt: number; listing: Promise<Listing> }
   >();
 
-  async function load(
-    cwd: string,
-  ): Promise<{ files: string[]; truncated: boolean }> {
+  async function load(cwd: string): Promise<Listing> {
     const listed = (await gitFiles(cwd)) ?? (await walkFiles(cwd));
-    const files = listed.map(toPosix).sort((a, b) => a.localeCompare(b));
+    const search = fileSearch(listed.map(toPosix));
     return {
-      files: files.slice(0, MAX_FILES),
-      truncated: files.length > MAX_FILES,
+      index: {
+        files: search("", MAX_FILES, "files").map((entry) => entry.path),
+        truncated: listed.length > MAX_FILES,
+      },
+      search,
     };
   }
 
+  function listing(cwd: string): Promise<Listing> {
+    const now = Date.now();
+    for (const [folder, kept] of cache) {
+      if (kept.expiresAt <= now) cache.delete(folder);
+    }
+    const hit = cache.get(cwd);
+    if (hit) return hit.listing;
+    const loaded = load(cwd);
+    cache.set(cwd, { expiresAt: now + CACHE_TTL_MS, listing: loaded });
+    loaded.catch(() => cache.delete(cwd));
+    while (cache.size > CACHE_MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+    return loaded;
+  }
+
   return {
-    index(cwd) {
-      const hit = cache.get(cwd);
-      if (hit && hit.expiresAt > Date.now()) return hit.index;
-      const index = load(cwd);
-      cache.set(cwd, { expiresAt: Date.now() + CACHE_TTL_MS, index });
-      index.catch(() => cache.delete(cwd));
-      while (cache.size > CACHE_MAX_ENTRIES) {
-        const oldest = cache.keys().next().value;
-        if (oldest === undefined) break;
-        cache.delete(oldest);
-      }
-      return index;
+    async index(cwd) {
+      return (await listing(cwd)).index;
+    },
+
+    async search(cwd, query, limit, only) {
+      return (await listing(cwd)).search(query, limit, only);
     },
 
     async children(query, cwd) {
@@ -241,6 +262,10 @@ export function createFileTree(): Files {
     async readText(path) {
       const handle = await open(path, constants.O_RDONLY);
       try {
+        // A positional read leaves the file position at 0 for readFile.
+        const head = Buffer.alloc(BINARY_SNIFF_BYTES);
+        const { bytesRead } = await handle.read(head, 0, head.length, 0);
+        if (head.subarray(0, bytesRead).includes(0)) return undefined;
         return await handle.readFile("utf8");
       } finally {
         await handle.close();

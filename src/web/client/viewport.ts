@@ -9,14 +9,14 @@ import { useVisualViewport } from "@core/composer";
 const HEIGHT = "--app-viewport-height";
 const SAFE_AREA = "--app-safe-area-bottom";
 
-function focusedEditable(): boolean {
-  const active = document.activeElement;
-  if (!(active instanceof HTMLElement)) return false;
+/** A field the keyboard types into: its keys are not the page's shortcuts. */
+export function isTextEntry(target: EventTarget | null): boolean {
   return (
-    active.isContentEditable ||
-    active instanceof HTMLInputElement ||
-    active instanceof HTMLSelectElement ||
-    active instanceof HTMLTextAreaElement
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLSelectElement ||
+      target instanceof HTMLTextAreaElement)
   );
 }
 
@@ -29,7 +29,7 @@ export function setUpViewport(): void {
 
   const update = (): void => {
     const use = useVisualViewport({
-      focusedEditable: focusedEditable(),
+      focusedEditable: isTextEntry(document.activeElement),
       scale: viewport.scale,
       layoutHeight: root.clientHeight,
       viewportHeight: viewport.height,

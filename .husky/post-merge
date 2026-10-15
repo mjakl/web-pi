@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-exec scripts/git-hooks/run-pnpm-install-if-deps-changed.sh "$@"

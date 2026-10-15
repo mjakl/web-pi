@@ -1,4 +1,3 @@
-import { createPiProjectResources } from "@adapters/pi/resources";
 import { createPiProjectTrust } from "@adapters/pi/project-trust";
 import { editableUserMessage, rowMetadata } from "@core/session-entries";
 import { projectTranscript } from "@core/transcript";
@@ -323,9 +322,7 @@ describe("selected skills through Pi", () => {
       "---\nname: private\ndescription: Other project instructions\n---\nPrivate instructions\n",
     );
     await createPiProjectTrust({ agentDir: h.agentDir }).trust(other);
-    const commands = await createPiProjectResources({
-      agentDir: h.agentDir,
-    }).commands(other);
+    const commands = await h.runtime.resources.commands(other);
     expect(commands).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "skill:private", skillId: id }),
@@ -444,7 +441,6 @@ describe("selected skills through Pi", () => {
     h = await createHarness({ settings: { enableSkillCommands: false } });
     const selected = await skill("manual", "Manual instructions", true);
     const session = await h.open();
-    const resources = createPiProjectResources({ agentDir: h.agentDir });
     const expected = {
       name: "skill:manual",
       source: "skill",
@@ -454,7 +450,7 @@ describe("selected skills through Pi", () => {
     expect(session.commands()).toEqual(
       expect.arrayContaining([expect.objectContaining(expected)]),
     );
-    expect(await resources.commands(h.cwd)).toEqual(
+    expect(await h.runtime.resources.commands(h.cwd)).toEqual(
       expect.arrayContaining([expect.objectContaining(expected)]),
     );
   });

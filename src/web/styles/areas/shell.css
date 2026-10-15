@@ -56,8 +56,7 @@
   transition: background 0.12s ease;
 }
 .panel-resize-handle:hover::after,
-.panel-resize-handle:focus-visible::after,
-.panel-resize-handle.is-resizing::after {
+.panel-resize-handle:focus-visible::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
 .right-panel-overlay-backdrop {
@@ -120,7 +119,8 @@
     pointer-events: none;
     transition: opacity 0.2s ease;
   }
-  .right-panel-overlay-backdrop.is-open {
+  /* files.ts writes the panel's state on body; a click here closes it. */
+  body[data-file-panel="open"] .right-panel-overlay-backdrop {
     opacity: 1;
     pointer-events: auto;
   }
@@ -778,6 +778,7 @@
 .shell-top-bar {
   flex-shrink: 0;
   background: var(--bg-panel);
+  anchor-name: --top-bar;
 }
 
 .shell-top-bar-row,
@@ -806,14 +807,23 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* The System, Tools and Session info popovers span the bar they open from,
+   which is the centre column, never the sidebar. The bar starts at the top of
+   the page, so its height is how far down they start. */
 .shell-top-panel {
-  position: fixed;
-  left: 0;
-  top: calc(36px + env(safe-area-inset-top));
-  width: 100%;
-  max-height: calc(100dvh - 36px);
+  position-anchor: --top-bar;
+  inset: auto;
+  top: anchor(bottom);
+  left: anchor(left);
+  right: anchor(right);
+  width: auto;
+  max-height: calc(100dvh - anchor-size(height));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
   overflow-y: auto;
-  z-index: var(--layer-session-info);
 }
 
 .shell-icon-button {
@@ -882,7 +892,7 @@
   display: flex;
   color: var(--text-dim);
 }
-[data-top-panel][data-panel-loaded] .shell-panel-icon {
+[data-panel-loaded] .shell-panel-icon {
   color: var(--accent);
 }
 
@@ -940,7 +950,10 @@
 a.shell-top-bar-tab:hover {
   background: var(--bg-hover);
 }
-[data-top-panel][aria-pressed="true"] {
+/* The tab whose panel is open. */
+.shell-top-bar:has(#system-panel:popover-open) [popovertarget="system-panel"],
+.shell-top-bar:has(#tools-panel:popover-open) [popovertarget="tools-panel"],
+.shell-top-bar:has(#stats-panel:popover-open) [popovertarget="stats-panel"] {
   background: var(--bg-selected);
   border-top-color: var(--accent);
   color: var(--text);
@@ -1102,10 +1115,6 @@ a.shell-top-bar-tab:hover {
     line-height: 1.2;
     text-align: right;
   }
-  .sidebar-overlay-backdrop.sidebar-mobile-pending {
-    opacity: 0;
-    pointer-events: none;
-  }
   .sidebar-container.sidebar-mobile-pending.sidebar-open {
     transform: translateX(calc(-100% - env(safe-area-inset-left)));
     box-shadow: none;
@@ -1144,19 +1153,18 @@ a.shell-top-bar-tab:hover {
   }
 }
 
-/* Shared icon shapes and terminal typography. Sizes belong to their owners. */
+/* Shared icon shapes and terminal typography. File icons default to 14px;
+   other sizes belong to their owners. */
 /* Use the SVG alpha channel as a mask so file icons follow the app's
-   restrained text palette instead of Catppuccin's language-specific colors. */
+   restrained text palette instead of Catppuccin's language-specific colors.
+   Only the shape counts, so one set of icons serves both themes. */
 .catppuccin-file-icon {
   width: 14px;
   height: 14px;
   display: block;
   flex-shrink: 0;
   background: var(--text-dim);
-  mask: center / contain no-repeat var(--catppuccin-icon-light);
-}
-html.dark .catppuccin-file-icon {
-  mask-image: var(--catppuccin-icon-dark);
+  mask: center / contain no-repeat var(--catppuccin-icon);
 }
 
 .pi-icon {
@@ -1172,7 +1180,6 @@ html.dark .catppuccin-file-icon {
   font-weight: 600;
 }
 
-/* chat window */
 .chat-window {
   --conversation-rail-width: 36px;
   position: relative;
@@ -1242,6 +1249,16 @@ html.dark .catppuccin-file-icon {
   font-size: 28px;
 }
 
+/* Phones hide the conversation rail, so its strip stops too. */
+@media (max-width: 640px) {
+  .chat-window:has(.chat-minimap) {
+    background-image: none;
+  }
+  .chat-empty h1 {
+    gap: var(--space-4);
+  }
+}
+
 .new-session-directory {
   width: min(100%, 320px);
   min-width: 0;
@@ -1305,7 +1322,6 @@ html.dark .catppuccin-file-icon {
 
 /* Shared dropdown appearance; each component owns positioning and interaction. */
 .menu-surface {
-  box-sizing: border-box;
   padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1317,7 +1333,6 @@ html.dark .catppuccin-file-icon {
   padding: 0;
 }
 .menu-item {
-  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -1357,7 +1372,6 @@ html.dark .catppuccin-file-icon {
   cursor: default;
 }
 .menu-filter {
-  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   padding: 5px var(--space-4);
@@ -1367,6 +1381,11 @@ html.dark .catppuccin-file-icon {
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+.menu-filter-row {
+  flex-shrink: 0;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
 }
 .menu-item:focus-visible,
 .menu-filter:focus-visible {
@@ -1444,17 +1463,6 @@ html.dark .catppuccin-file-icon {
   flex-shrink: 0;
   padding: var(--space-5) 14px;
   border-bottom: 1px solid var(--border);
-}
-.directory-picker-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
 }
 .directory-picker-path {
   min-width: 0;
@@ -1630,10 +1638,6 @@ html.dark .catppuccin-file-icon {
 .sidebar-project-path > span {
   unicode-bidi: plaintext;
 }
-.sidebar-project-filter {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-}
 .sidebar-project-list {
   min-height: 0;
   max-height: min(50vh, 380px);
@@ -1671,7 +1675,6 @@ html.dark .catppuccin-file-icon {
 .menu-sidebar-project:not(:popover-open) {
   display: none;
 }
-.sidebar-project-filter,
 .menu-sidebar-project > .menu-item {
   flex-shrink: 0;
 }
@@ -1698,7 +1701,16 @@ html.dark .catppuccin-file-icon {
   flex-shrink: 0;
 }
 
-/* The client keeps expansion state on the folder button. */
-.project-folder-row[aria-expanded="true"] > svg:first-child {
+/* A project with several folders is a <details>; its summary is the row. */
+summary.project-folder-row {
+  list-style: none;
+}
+summary.project-folder-row::-webkit-details-marker {
+  display: none;
+}
+summary.project-folder-row:hover {
+  background: var(--bg-hover);
+}
+[open] > summary.project-folder-row > svg:first-child {
   transform: rotate(90deg);
 }

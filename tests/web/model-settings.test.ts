@@ -13,15 +13,16 @@ import type { HTMLInputElement, HTMLButtonElement } from "happy-dom";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 
 let temp: Awaited<ReturnType<typeof createTempAgent>>;
 beforeEach(async () => {
   temp = await createTempAgent("web-pi-global-models-");
+  // Registered before any page, so the pages close before the folder goes.
+  onTestFinished(() => temp.dispose());
 });
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks();
-  await temp.dispose();
 });
 const first = { provider: "first", id: "shared" };
 const second = { provider: "second", id: "shared" };
@@ -132,7 +133,9 @@ it("persists only global enabledModels, reconstructs it, and leaves General pref
   const before = await globals();
   const response = await save([second]);
   expect(await response.text()).toContain("Selection saved.");
-  expect(response.headers.get("HX-Trigger")).toBe("models-changed");
+  expect(JSON.parse(response.headers.get("HX-Trigger") ?? "null")).toEqual({
+    "models-changed": {},
+  });
   expect(await globals()).toEqual({
     ...before,
     enabledModels: ["second/shared"],
@@ -451,30 +454,25 @@ it("refreshes the mounted chooser after a real HTMX global save and preserves th
     await (await app.request("/settings?section=models")).text(),
     (request) => app.request(request),
   );
-  try {
-    for (const checkbox of browser.document.querySelectorAll<HTMLInputElement>(
-      '.settings-models input[type="checkbox"]',
-    ))
-      checkbox.checked = checkbox.value === JSON.stringify(second);
-    browser.document
-      .querySelector<HTMLButtonElement>("[data-model-save]")
-      ?.click();
-    await expect
-      .poll(
-        () =>
-          browser.document.querySelector("[data-model-status]")?.textContent,
-      )
-      .toBe("Selection saved.");
-    await expect
-      .poll(() =>
-        [...browser.document.querySelectorAll("[data-model-name]")].map(
-          (node) => node.getAttribute("data-model-name"),
-        ),
-      )
-      .toEqual(["second shared <model>"]);
-    expect((await globals()).enabledModels).toEqual(["second/shared"]);
-    expect(world.runtime.get(id)?.snapshot().status.model).toEqual(active);
-  } finally {
-    await browser.close();
-  }
+  for (const checkbox of browser.document.querySelectorAll<HTMLInputElement>(
+    '.settings-models input[type="checkbox"]',
+  ))
+    checkbox.checked = checkbox.value === JSON.stringify(second);
+  browser.document
+    .querySelector<HTMLButtonElement>("[data-model-save]")
+    ?.click();
+  await expect
+    .poll(
+      () => browser.document.querySelector("[data-model-status]")?.textContent,
+    )
+    .toBe("Selection saved.");
+  await expect
+    .poll(() =>
+      [...browser.document.querySelectorAll("[data-model-name]")].map((node) =>
+        node.getAttribute("data-model-name"),
+      ),
+    )
+    .toEqual(["second shared <model>"]);
+  expect((await globals()).enabledModels).toEqual(["second/shared"]);
+  expect(world.runtime.get(id)?.snapshot().status.model).toEqual(active);
 });

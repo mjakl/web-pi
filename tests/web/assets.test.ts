@@ -2,7 +2,8 @@ import { createFakeWorld } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { staticAssets } from "@web/assets";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -72,4 +73,27 @@ describe("static asset caching", () => {
       expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
     },
   );
+});
+
+describe("vendored htmx", () => {
+  // The client compiles against the htmx.org package, but the browser runs
+  // these copies: an upgrade has to replace them too.
+  it("serves exactly the installed htmx.org release", () => {
+    const htmx = join("node_modules", "htmx.org");
+    const { version } = JSON.parse(
+      readFileSync(join(htmx, "package.json"), "utf8"),
+    ) as { version: string };
+    for (const [src, original] of [
+      [HTMX_SRC, "dist/htmx.min.js"],
+      [HTMX_SSE_SRC, "dist/ext/hx-sse.min.js"],
+    ] as const) {
+      expect(src).toContain(`.min-${version}.js`);
+      const vendored = readFileSync(
+        join("static", src.replace("/static/", "")),
+      );
+      expect(vendored.equals(readFileSync(join(htmx, original))), src).toBe(
+        true,
+      );
+    }
+  });
 });

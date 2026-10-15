@@ -1,14 +1,19 @@
-import { isPushPresence, isPushSubscription } from "@core/push";
-import { webSettingsPatch } from "@core/web-settings";
 // Pages, the top-bar panels, settings, extension dialogs, trust, push,
 // and the installable-app files. The shell area owns this module.
 
+import { isPushPresence, isPushSubscription } from "@core/push";
+import { webSettingsPatch } from "@core/web-settings";
+import {
+  CWD_COOKIE,
+  SESSION_COOKIE,
+  SETTINGS_COOKIE,
+  SKILL_COOKIE,
+} from "@core/cookies";
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
-import { isSessionId, isSubagentSession } from "@core/sessions";
 import { InspectionOnlySession } from "@core/workspace";
 import { Partial } from "@web/views/Partial";
-import { ExplorerSection } from "@web/views/Sidebar";
+import { ExplorerSection } from "@web/views/Files";
 import {
   type SkillScope,
   type SkillUpdate,
@@ -16,32 +21,30 @@ import {
 } from "@core/skills";
 import { OFFLINE_URL, manifest, offlinePage, serviceWorker } from "@web/pwa";
 import { SystemPromptPanel, ToolsPanel } from "@web/views/Panels";
-import { NewSessionPage, SessionPage } from "@web/views/SessionPage";
+import { NewSessionPage } from "@web/views/SessionPage";
 import {
-  PluginsSection,
+  GeneralSettings,
   SettingsDialog,
-  SkillSearchResults,
-  SkillsSection,
-  type SkillsView,
+  type SettingsSection,
   resolveSection,
 } from "@web/views/Settings";
 import { ModelSettings } from "@web/views/ModelSettings";
+import { PluginsSection } from "@web/views/PluginSettings";
+import { SkillSearchResults, SkillsSection } from "@web/views/SkillSettings";
 import { StatsPanel } from "@web/views/Stats";
 import { TrustDialog } from "@web/views/Dialogs";
-import type { SidebarView } from "@core/workspace";
 import { type Context } from "hono";
 import { deleteCookie, getCookie } from "hono/cookie";
 import {
   type RouteContext,
   type WebApp,
-  CWD_COOKIE,
-  SESSION_COOKIE,
-  SETTINGS_COOKIE,
-  SKILL_COOKIE,
   currentSessionId,
+  displayedCwd,
   errorText,
   field,
+  hxTrigger,
   rawField,
+  requireWritable,
   toastHeader,
 } from "./shared.ts";
 
@@ -53,46 +56,21 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     remember,
     newCwd,
     currentCwd,
-    warnTokens,
+    sessionPage,
     guard,
   } = ctx;
 
-  // These URLs serve both documents and HTMX fragments. Neither representation
-  // may be stored and reused for the other kind of request.
-  for (const path of ["/", "/new", "/sessions/:id", "/settings"]) {
-    app.get(path, async (c, next) => {
-      c.header("Cache-Control", "no-store");
-      await next();
-    });
-  }
-
-  for (const action of [
-    "tools",
-    "system-prompt",
-    "ui/:requestId",
-    "ui/:requestId/input",
-  ]) {
-    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
-      const id = c.req.param("id");
-      if (!id || !isSessionId(id)) return c.notFound();
-      return guard(c, async () => {
-        await deps.workspace.requireWritableSession(id);
-        await next();
-        return c.res;
-      });
-    });
-  }
+  // The tools and system-prompt panels refuse an inspection-only session in
+  // their own guard; the dialog answers have none, so they need this one.
+  requireWritable(app, ctx, ["ui/:requestId", "ui/:requestId/input"]);
 
   // Same-folder navigation retains the expanded tree. File requests use the
   // displayed session header, so its authorization context still changes.
   function navigationContext(c: Context, cwd: string, activeId?: string) {
-    if (c.req.header("X-Web-Pi-Cwd") === cwd) return null;
+    if (displayedCwd(c) === cwd) return null;
     return (
       <Partial target="#explorer-section" swap="outerHTML">
-        <ExplorerSection
-          cwd={cwd}
-          {...(activeId === undefined ? {} : { sessionId: activeId })}
-        />
+        <ExplorerSection cwd={cwd} sessionId={activeId} />
       </Partial>
     );
   }
@@ -106,11 +84,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     // are no session either.
     deleteCookie(c, SESSION_COOKIE, { path: "/" });
     return c.render(
-      <NewSessionPage
-        sidebar={sidebar}
-        view={view}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-      />,
+      <NewSessionPage sidebar={sidebar} view={view} home={deps.home} />,
     );
   });
 
@@ -131,7 +105,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         fragment={fragment}
         view={view}
         draft={c.req.query("text")}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        home={deps.home}
       />
     );
     return fragment
@@ -149,89 +123,23 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/panels/system", (c) => c.html(<SystemPromptPanel />));
   app.get("/panels/tools", (c) => c.html(<ToolsPanel />));
 
-  /**
-   * The workspace as the reader left it, optionally under an overlay: the
-   * open session, else the new-session view. Settings
-   * renders through this because pi-web opens it over the live workspace
-   * rather than on a page of its own (SettingsPanel.tsx).
-   */
-  async function workspacePage(
-    c: Context,
-    overlay?: unknown,
-    /** Already resolved by the caller: scanning the store twice is slow. */
-    resolved?: SidebarView,
-  ): Promise<Response> {
-    const id = currentSessionId(c);
-    const view =
-      id === undefined
-        ? undefined
-        : await deps.workspace
-            .viewSession(id, warnTokens(c))
-            .catch(() => undefined);
-    const sidebar =
-      resolved ??
-      (await deps.workspace.sidebar(
-        id === undefined ? {} : { selectedId: id },
-      ));
-    if (view) {
-      const trust = isSubagentSession(view.summary)
-        ? undefined
-        : await deps.workspace
-            .trustStatus(view.summary.cwd)
-            .catch(() => undefined);
-      return c.render(
-        <SessionPage
-          sidebar={sidebar}
-          view={view}
-          {...(trust === undefined ? {} : { trust })}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
-          {...(overlay === undefined ? {} : { overlay })}
-        />,
-      );
-    }
-    const start = await deps.workspace.newSession(await currentCwd(c));
-    return c.render(
-      <NewSessionPage
-        sidebar={sidebar}
-        view={start}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-        {...(overlay === undefined ? {} : { overlay })}
-      />,
-    );
-  }
-
   app.get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const through = c.req.query("through");
     const options = {
       ...(c.req.query("leaf") === undefined
         ? {}
         : { leaf: c.req.query("leaf") }),
       ...(through === undefined ? {} : { through }),
-      ...warnTokens(c),
     };
     const fragment = c.req.header("HX-Target") === "div#session-region";
     const [sidebar, view] = await Promise.all([
-      fragment ? undefined : deps.workspace.sidebar({ selectedId: id }),
+      fragment ? undefined : sidebarOf(id),
       deps.workspace.viewSession(id, options).catch(() => undefined),
     ]);
     if (!view) return c.notFound();
     if (!fragment) remember(c, SESSION_COOKIE, id);
-    const trust = isSubagentSession(view.summary)
-      ? undefined
-      : await deps.workspace
-          .trustStatus(view.summary.cwd)
-          .catch(() => undefined);
-    const page = (
-      <SessionPage
-        sidebar={sidebar}
-        fragment={fragment}
-        view={view}
-        {...(trust === undefined ? {} : { trust })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-      />
-    );
+    const page = await sessionPage(view, { sidebar, fragment });
     return fragment
       ? c.html(
           <>
@@ -244,8 +152,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/stats", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    const found = await deps.workspace.sessionStats(id, warnTokens(c));
+    const found = await deps.workspace.sessionStats(id);
     if (!found) return c.notFound();
     return c.html(<StatsPanel {...found} />);
   });
@@ -275,40 +182,47 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   // --- Settings ------------------------------------------------------------
 
-  /** Skills and plugins need a folder; general does not. */
-  async function settingsView(
-    section: "general" | "models" | "skills" | "plugins",
+  /**
+   * One section of the settings page. Skills and plugins need a folder;
+   * general does not. A section that cannot load says so: falling back to
+   * general would quietly show the wrong page under the right tab.
+   */
+  async function settingsBody(
+    section: SettingsSection,
     cwd: string,
-    options: {
-      updates?: SkillsView["updates"];
-      selected?: string;
-      sessionId?: string;
-    } = {},
+    options: { selected?: string; sessionId?: string },
   ) {
+    const failed = (error: unknown) => (
+      <div role="alert" class="config-empty-state">
+        {errorText(error)}
+      </div>
+    );
+    if (section === "general")
+      return <GeneralSettings settings={deps.workspace.webSettings()} />;
+    if (section === "skills")
+      return skillsSection(
+        cwd,
+        options.selected === undefined ? {} : { selected: options.selected },
+      ).catch(failed);
     if (section === "models")
-      return {
-        models: await deps.workspace.modelSettings(cwd, options.sessionId),
-        ...(options.sessionId ? { modelSessionId: options.sessionId } : {}),
-      };
-    if (section === "skills") {
-      const listed = await deps.workspace.skills(cwd);
-      return {
-        skills: {
-          cwd,
-          ...listed,
-          ...(options.updates === undefined
-            ? {}
-            : { updates: options.updates }),
-          ...(options.selected === undefined
-            ? {}
-            : { selected: options.selected }),
-        } satisfies SkillsView,
-      };
-    }
-    if (section === "plugins") {
-      return { plugins: await deps.workspace.plugins(cwd) };
-    }
-    return {};
+      return deps.workspace
+        .modelSettings(cwd, options.sessionId)
+        .then(
+          (view) => (
+            <ModelSettings
+              cwd={cwd}
+              view={view}
+              sessionId={options.sessionId}
+            />
+          ),
+          failed,
+        );
+    return deps.workspace
+      .plugins(cwd)
+      .then(
+        (view) => <PluginsSection cwd={cwd} view={view} home={deps.home} />,
+        failed,
+      );
   }
 
   app.get("/settings/web", (c) => {
@@ -352,7 +266,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         JSON.parse(field(form, "patterns")) as unknown,
         sessionId,
       );
-      c.header("HX-Trigger", "models-changed");
+      hxTrigger(c, { "models-changed": {} });
     } catch (error) {
       failed = true;
       message = `Could not save models: ${errorText(error)}`;
@@ -362,7 +276,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         <ModelSettings
           cwd={cwd}
           view={await deps.workspace.modelSettings(cwd, sessionId)}
-          {...(sessionId ? { sessionId } : {})}
+          sessionId={sessionId}
           message={message}
           failed={failed}
         />,
@@ -377,37 +291,54 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
+  /**
+   * Settings opens over the workspace as the reader left it, the open session
+   * or else the new-session view, because pi-web opens it over the live
+   * workspace rather than on a page of its own (SettingsPanel.tsx).
+   */
   app.get("/settings", async (c) => {
-    const selectedId = currentSessionId(c);
-    const sidebar = await deps.workspace.sidebar(
-      selectedId === undefined ? {} : { selectedId },
-    );
-    const cwd = await currentCwd(c);
-    const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
-    const section = resolveSection(
-      c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
-      usable !== "",
-    );
-    remember(c, SETTINGS_COOKIE, section);
-    // A section that cannot load says so; falling back to general would
-    // quietly show the wrong page under the right tab.
-    const remembered = rememberedSkill(c, usable);
-    const sections = await settingsView(section, usable, {
-      ...(selectedId ? { sessionId: selectedId } : {}),
-      ...(remembered === undefined ? {} : { selected: remembered }),
-    }).catch((error: unknown) => ({ error: errorText(error) }));
-    const back = currentSessionId(c);
-    return workspacePage(
-      c,
-      <SettingsDialog
-        section={section}
-        cwd={usable}
-        settings={deps.workspace.webSettings()}
-        back={back === undefined ? "/" : `/sessions/${back}`}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
-        {...sections}
+    const id = currentSessionId(c);
+    const settingsDialog = async () => {
+      const cwd = await currentCwd(c);
+      const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
+      const section = resolveSection(
+        c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
+        usable !== "",
+      );
+      remember(c, SETTINGS_COOKIE, section);
+      const remembered = rememberedSkill(c, usable);
+      const body = await settingsBody(section, usable, {
+        ...(id ? { sessionId: id } : {}),
+        ...(remembered === undefined ? {} : { selected: remembered }),
+      });
+      return {
+        cwd,
+        overlay: (
+          <SettingsDialog
+            section={section}
+            cwd={usable}
+            back={id === undefined ? "/" : `/sessions/${id}`}
+          >
+            {body}
+          </SettingsDialog>
+        ),
+      };
+    };
+    const [sidebar, view, { cwd, overlay }] = await Promise.all([
+      sidebarOf(id),
+      id === undefined
+        ? undefined
+        : deps.workspace.viewSession(id).catch(() => undefined),
+      settingsDialog(),
+    ]);
+    if (view) return c.render(await sessionPage(view, { sidebar, overlay }));
+    return c.render(
+      <NewSessionPage
+        sidebar={sidebar}
+        view={await deps.workspace.newSession(cwd)}
+        home={deps.home}
+        overlay={overlay}
       />,
-      sidebar,
     );
   });
 
@@ -423,9 +354,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   }
 
   /**
-   * The whole Skills section, around the skill this click selected. pi-web
-   * paints the selected row and its badges from the same state as the detail
-   * pane, so the swap has to carry both.
+   * The whole Skills section, for the page and for every swap inside it,
+   * around the skill selected. pi-web paints the selected row and its badges
+   * from the same state as the detail pane, so a swap has to carry both.
    */
   async function skillsSection(
     cwd: string,
@@ -447,13 +378,11 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
             ? {}
             : { updates: options.updates }),
         }}
-        {...(options.selected === undefined
-          ? {}
-          : { selected: options.selected })}
-        {...(options.add === true ? { add: true } : {})}
-        {...(options.update === undefined ? {} : { update: options.update })}
-        {...(options.message === undefined ? {} : { message: options.message })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        selected={options.selected}
+        add={options.add}
+        update={options.update}
+        message={options.message}
+        home={deps.home}
       />
     );
   }
@@ -597,7 +526,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
               ? "No session of this folder is running."
               : `Reloaded ${String(reloaded)} session${reloaded === 1 ? "" : "s"}.`
           }
-          {...(deps.home === undefined ? {} : { home: deps.home })}
+          home={deps.home}
         />,
       );
     });
@@ -613,9 +542,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         <PluginsSection
           cwd={cwd}
           view={view}
-          {...(selected === undefined ? {} : { selected })}
-          {...(add ? { add: true } : {})}
-          {...(deps.home === undefined ? {} : { home: deps.home })}
+          selected={selected}
+          add={add}
+          home={deps.home}
         />,
       );
     });
@@ -645,7 +574,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       });
       message = `Package ${action}d.`;
     } catch (error) {
-      message = errorText(error);
+      // A toast, because the add panel that a first install leaves has no
+      // room for the detail pane's message.
+      toastHeader(c, errorText(error));
       view = await deps.workspace.plugins(cwd);
     }
     return c.html(
@@ -653,8 +584,8 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         cwd={cwd}
         view={view}
         message={message}
-        {...(selected === "" ? {} : { selected })}
-        {...(deps.home === undefined ? {} : { home: deps.home })}
+        selected={selected || undefined}
+        home={deps.home}
       />,
     );
   });
@@ -663,7 +594,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/tools", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const tool = c.req.query("tool");
       const tools = await deps.workspace
@@ -673,18 +603,13 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           return undefined;
         });
       return c.html(
-        <ToolsPanel
-          sessionId={id}
-          {...(tools === undefined ? {} : { tools })}
-          {...(tool === undefined ? {} : { selected: tool })}
-        />,
+        <ToolsPanel sessionId={id} tools={tools} selected={tool} />,
       );
     });
   });
 
   app.get("/sessions/:id/system-prompt", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       const prompt = await deps.workspace
         .systemPrompt(id)
@@ -692,9 +617,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           if (error instanceof InspectionOnlySession) throw error;
           return undefined;
         });
-      return c.html(
-        <SystemPromptPanel {...(prompt === undefined ? {} : { prompt })} />,
-      );
+      return c.html(<SystemPromptPanel prompt={prompt} />);
     });
   });
 
@@ -705,7 +628,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
    */
   app.post("/sessions/:id/ui/:requestId", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     // The value is passed on verbatim: an editor's text keeps its leading
     // whitespace and its trailing newline, and a select option still matches
@@ -731,7 +653,6 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   /** One keystroke or paste for an extension's custom UI. */
   app.post("/sessions/:id/ui/:requestId/input", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const form = await c.req.formData();
     const data = form.get("data");
     if (typeof data !== "string" || data === "") return c.body(null, 204);

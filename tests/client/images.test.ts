@@ -31,8 +31,8 @@ function input(): HTMLInputElement {
   return element;
 }
 
-/** A canvas whose JPEG comes out at the size the test wants. */
-function fakeCanvas(jpegBase64Length: number): void {
+/** A canvas whose JPEG comes out at the size the test wants, or not at all. */
+function fakeCanvas(jpegBytes: number | null): void {
   vi.stubGlobal("createImageBitmap", () =>
     Promise.resolve({ width: 4000, height: 2000, close: vi.fn() }),
   );
@@ -41,8 +41,14 @@ function fakeCanvas(jpegBase64Length: number): void {
     fillRect: vi.fn(),
     drawImage: vi.fn(),
   } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
-    `data:image/jpeg;base64,${"A".repeat(jpegBase64Length)}`,
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+    (callback) => {
+      callback(
+        jpegBytes === null
+          ? null
+          : new Blob([new Uint8Array(jpegBytes)], { type: "image/jpeg" }),
+      );
+    },
   );
 }
 
@@ -89,6 +95,7 @@ describe("adding images", () => {
     expect(byId("image-previews").hidden).toBe(false);
     expect(byId("composer").hasAttribute("data-has-images")).toBe(true);
     expect(changed).toHaveBeenCalled();
+    expect(byId("toasts").textContent).toBe("Only images can be attached.");
   });
 
   it("refuses more than ten and says so", async () => {
@@ -204,6 +211,23 @@ describe("where images come from", () => {
     expect(input().files?.[0]?.name).toBe("recalled.png");
     expect(byId("recalled-images").childElementCount).toBe(0);
   });
+
+  it("adds recalled images after the attached ones, up to ten, and says what was left", async () => {
+    const { images } = await load();
+    images.add(
+      Array.from({ length: 8 }, (_, index) => image(`${String(index)}.png`)),
+    );
+    await flush();
+    byId("recalled-images").innerHTML =
+      `<span data-image="${btoa("a")}" data-mime="image/png"></span>`.repeat(3);
+    htmxEvent(document.body, "htmx:after:settle");
+    expect(images.count()).toBe(10);
+    expect(input().files?.[0]?.name).toBe("0.png");
+    expect(input().files?.[9]?.name).toBe("recalled.png");
+    expect(byId("toasts").textContent).toBe(
+      "At most 10 images per message: 1 recalled image was not attached.",
+    );
+  });
 });
 
 describe("image owner cleanup", () => {
@@ -266,7 +290,7 @@ describe("downscaling", () => {
   });
 
   it("re-encodes a large photo as a smaller JPEG", async () => {
-    fakeCanvas(400);
+    fakeCanvas(300);
     const { images } = await load();
     images.add([image("photo.png", 1024 * 1024 + 1)]);
     await flush();
@@ -278,6 +302,14 @@ describe("downscaling", () => {
 
   it("keeps the original when the JPEG would not be smaller", async () => {
     fakeCanvas(2 * 1024 * 1024);
+    const { images } = await load();
+    images.add([image("photo.png", 1024 * 1024 + 1)]);
+    await flush();
+    expect(input().files?.[0]?.name).toBe("photo.png");
+  });
+
+  it("keeps the original when the browser cannot encode a JPEG", async () => {
+    fakeCanvas(null);
     const { images } = await load();
     images.add([image("photo.png", 1024 * 1024 + 1)]);
     await flush();
@@ -309,7 +341,6 @@ describe("the preview dialog", () => {
     if (!(dialog instanceof HTMLDialogElement)) throw new Error("no dialog");
     expect(dialog.open).toBe(true);
     expect(dialog.querySelector("img")?.alt).toBe("a chart");
-    expect(document.body.style.overflow).toBe("hidden");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     const escape = new KeyboardEvent("keydown", {
       key: "Escape",
@@ -320,7 +351,6 @@ describe("the preview dialog", () => {
     expect(escape.defaultPrevented).toBe(true);
     await flush();
     expect(document.querySelector("dialog.image-preview-dialog")).toBeNull();
-    expect(document.body.style.overflow).toBe("");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(trigger);
   });

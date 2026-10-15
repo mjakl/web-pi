@@ -32,15 +32,19 @@ export function soundEnabled(): boolean {
  * pi-web draws a preference toggle as `button[role=switch]`, not a checkbox,
  * so its state is an attribute rather than `checked`.
  */
-export function switchOn(element: Element): boolean {
-  return element.getAttribute("aria-checked") === "true";
-}
-
 export function setSwitch(element: Element, on: boolean): void {
   element.setAttribute("aria-checked", String(on));
 }
 
 let confirmed = { ...DEFAULT_WEB_SETTINGS };
+
+function checkTheme(theme: WebSettings["theme"]): void {
+  for (const option of document.querySelectorAll<HTMLInputElement>(
+    'input[name="theme"]',
+  )) {
+    option.checked = option.value === theme;
+  }
+}
 
 function apply(settings: WebSettings, replacePrompt = false): void {
   const prompt = document.querySelector<HTMLTextAreaElement>(
@@ -58,11 +62,7 @@ function apply(settings: WebSettings, replacePrompt = false): void {
   confirmed = settings;
   document.documentElement.dataset["theme"] = settings.theme;
   document.documentElement.dataset["sound"] = String(settings.sound);
-  for (const button of document.querySelectorAll<HTMLElement>(
-    "[data-theme-option]",
-  )) {
-    setSwitch(button, button.dataset["themeOption"] === settings.theme);
-  }
+  checkTheme(settings.theme);
   const sound = document.getElementById("sound-toggle");
   if (sound) setSwitch(sound, settings.sound);
   const tokens = document.querySelector<HTMLInputElement>("#dumb-zone-tokens");
@@ -72,6 +72,8 @@ function apply(settings: WebSettings, replacePrompt = false): void {
 
 let revision = 0;
 let saving = false;
+/** A theme picked while a save ran, which goes once it finishes. */
+let pendingTheme: WebSettings["theme"] | undefined;
 
 async function refresh(): Promise<void> {
   if (saving) return;
@@ -104,11 +106,15 @@ export function setUpPreferences(): void {
       ),
     });
     const status = region.querySelector<HTMLElement>("#web-settings-status");
+    // The theme radios stay enabled while a save runs: disabling the focused
+    // one would drop keyboard focus halfway through an arrow-key move. A
+    // theme picked during another save is sent once that save finishes, so
+    // the last pick wins.
     const controls = () =>
       document.querySelectorAll<
         HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement
       >(
-        "[data-theme-option], #sound-toggle, #dumb-zone-tokens, #system-prompt-addition, #system-prompt-save, #system-prompt-reset",
+        "#sound-toggle, #dumb-zone-tokens, #system-prompt-addition, #system-prompt-save, #system-prompt-reset",
       );
     for (const control of controls()) control.disabled = saving;
     const save = async (patch: Partial<WebSettings>) => {
@@ -151,6 +157,12 @@ export function setUpPreferences(): void {
         saving = false;
         for (const control of controls()) control.disabled = false;
       }
+      const theme = pendingTheme;
+      if (theme === undefined) return;
+      pendingTheme = undefined;
+      // The answer above checked the theme it saved; keep the later pick.
+      checkTheme(theme);
+      void save({ theme });
     };
     region.addEventListener(
       "click",
@@ -158,7 +170,7 @@ export function setUpPreferences(): void {
         const target =
           event.target instanceof Element
             ? event.target.closest<HTMLElement>(
-                "[data-theme-option], #sound-toggle, #system-prompt-save, #system-prompt-reset",
+                "#sound-toggle, #system-prompt-save, #system-prompt-reset",
               )
             : null;
         if (!target) return;
@@ -173,11 +185,21 @@ export function setUpPreferences(): void {
           void save({ systemPromptAddition: null });
           return;
         }
-        const theme = target.dataset["themeOption"];
-        if (theme === "light" || theme === "dark" || theme === "auto")
-          void save({ theme });
-        else if (target.id === "sound-toggle")
-          void save({ sound: !soundEnabled() });
+        if (target.id === "sound-toggle") void save({ sound: !soundEnabled() });
+      },
+      { signal },
+    );
+    // The theme radios: a click or an arrow key checks one.
+    region.addEventListener(
+      "change",
+      (event) => {
+        const option = event.target;
+        if (!(option instanceof HTMLInputElement) || option.name !== "theme")
+          return;
+        const theme = option.value;
+        if (theme !== "light" && theme !== "dark" && theme !== "auto") return;
+        if (saving) pendingTheme = theme;
+        else void save({ theme });
       },
       { signal },
     );

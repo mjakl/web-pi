@@ -1,7 +1,6 @@
 import type { LiveStatus } from "@core/ports";
 import type { AssistantItem, ToolCallView } from "@core/transcript";
 import {
-  EarlierPage,
   Item,
   type ItemActions,
   Items,
@@ -9,8 +8,9 @@ import {
   ToolBody,
   TurnFragment,
 } from "@web/views/Items";
-import { Window } from "happy-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { WrittenFiles } from "@web/views/transcript/assistant";
+import { describe, expect, it } from "vitest";
+import { parseHtml } from "#/web/helpers";
 import {
   answerItem,
   fixtureCalls,
@@ -65,16 +65,7 @@ const runningSubagentCall: ToolCallView = {
 
 const html = (node: unknown) => String(node);
 
-const windows: Window[] = [];
-function rendered(node: unknown) {
-  const window = new Window();
-  windows.push(window);
-  window.document.body.innerHTML = html(node);
-  return window.document;
-}
-afterEach(async () => {
-  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
-});
+const rendered = (node: unknown) => parseHtml(html(node));
 
 describe("transcript items", () => {
   it.each([
@@ -416,8 +407,57 @@ describe("transcript items", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
+  it("shows YAML front matter as the preview's card and any other --- block as Markdown", () => {
+    const answer = (text: string) =>
+      rendered(
+        <Item
+          item={{ ...answerItem, blocks: [{ kind: "text", text }] }}
+          actions={actions}
+        />,
+      );
+    const card = answer(
+      "---\ntitle: Release notes\ntags: [web, pi]\nversion: 2\n---\n\nThe body",
+    );
+    const body = card.querySelector(".markdown-body");
+    expect(
+      body?.querySelector(".markdown-frontmatter-title")?.textContent,
+    ).toBe("Release notes");
+    expect(
+      [...card.querySelectorAll(".markdown-frontmatter-tag")].map(
+        (tag) => tag.textContent,
+      ),
+    ).toEqual(["web", "pi"]);
+    expect(
+      card.querySelector(".markdown-frontmatter-row dt")?.textContent,
+    ).toBe("version");
+    expect(body?.querySelector("p")?.textContent).toBe("The body");
+    const prose = answer("---\nPlan: do X\nand then Y\n---\n\nThe body");
+    expect(prose.querySelector(".markdown-frontmatter")).toBeNull();
+    for (const text of ["Plan: do X", "and then Y", "The body"])
+      expect(prose.querySelector(".markdown-body")?.textContent).toContain(
+        text,
+      );
+  });
+
+  it("names a written file by its base name, whatever the separator", () => {
+    const document = rendered(
+      <WrittenFiles files={["/repo/src/answer.ts", "C:\\repo\\notes.md"]} />,
+    );
+    expect(
+      [...document.querySelectorAll(".written-file")].map((chip) => [
+        chip.getAttribute("aria-label"),
+        chip.getAttribute("data-file-path"),
+      ]),
+    ).toEqual([
+      ["Open answer.ts", "/repo/src/answer.ts"],
+      ["Open notes.md", "C:\\repo\\notes.md"],
+    ]);
+  });
+
   it("keeps stars targeted at the answer and replaces only that button", () => {
-    const document = rendered(<StarButton entryId="a2" actions={actions} />);
+    const document = rendered(
+      <StarButton sessionId="s1" entryId="a2" starred />,
+    );
     const button = document.querySelector("button");
     expect(button?.getAttribute("hx-post")).toBe("/sessions/s1/star");
     expect(JSON.parse(button?.getAttribute("hx-vals") ?? "{}")).toEqual({
@@ -727,7 +767,7 @@ describe("transcript items", () => {
     },
   );
 
-  it.each(["history", "earlier", "finished", "running", "read-only", "busy"])(
+  it.each(["history", "finished", "running", "read-only", "busy"])(
     "offers actions only on user-facing assistant content in %s rendering",
     (mode) => {
       const items = [
@@ -762,9 +802,7 @@ describe("transcript items", () => {
         busy: mode === "busy",
       };
       const rendered = html(
-        mode === "earlier" ? (
-          <EarlierPage items={items} actions={context} hasMore={false} />
-        ) : mode === "finished" || mode === "running" ? (
+        mode === "finished" || mode === "running" ? (
           <TurnFragment
             items={items}
             actions={context}

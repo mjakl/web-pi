@@ -5,7 +5,12 @@
 
 export type FileKind = "image" | "audio" | "pdf" | "text";
 
-const IMAGE_MIME: Record<string, string> = {
+/** A Map, so a name like `notes.constructor` cannot find `Object.prototype`. */
+function byExtension<T>(entries: Record<string, T>): Map<string, T> {
+  return new Map(Object.entries(entries));
+}
+
+const IMAGE_MIME = byExtension({
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -15,9 +20,9 @@ const IMAGE_MIME: Record<string, string> = {
   bmp: "image/bmp",
   ico: "image/x-icon",
   avif: "image/avif",
-};
+});
 
-const AUDIO_MIME: Record<string, string> = {
+const AUDIO_MIME = byExtension({
   mp3: "audio/mpeg",
   wav: "audio/wav",
   ogg: "audio/ogg",
@@ -27,13 +32,13 @@ const AUDIO_MIME: Record<string, string> = {
   aac: "audio/aac",
   flac: "audio/flac",
   weba: "audio/webm",
-};
+});
 
-const DOCUMENT_MIME: Record<string, string> = {
+const DOCUMENT_MIME = byExtension({
   pdf: "application/pdf",
-};
+});
 
-const LANGUAGE: Record<string, string> = {
+const LANGUAGE = byExtension({
   bash: "bash",
   c: "c",
   cc: "cpp",
@@ -96,15 +101,19 @@ const LANGUAGE: Record<string, string> = {
   ts: "typescript",
   tsx: "tsx",
   txt: "text",
-  vue: "html",
+  vue: "vue",
   xml: "xml",
   yaml: "yaml",
   yml: "yaml",
   zsh: "bash",
-};
+});
 
+/**
+ * The last segment of a path. A trailing separator still names its folder,
+ * so `/repo/src/` is `src`; a root has no segment and is empty.
+ */
 export function baseName(path: string): string {
-  const parts = path.replaceAll("\\", "/").split("/");
+  const parts = path.replaceAll("\\", "/").replace(/\/+$/, "").split("/");
   return parts.at(-1) ?? path;
 }
 
@@ -122,13 +131,13 @@ export function languageOf(path: string): string {
   if (name.startsWith(".env")) return "bash";
   if (name === "makefile" || name === "gnumakefile") return "makefile";
   if (name === "cmakelists.txt") return "makefile";
-  return LANGUAGE[extensionOf(path)] ?? "text";
+  return LANGUAGE.get(extensionOf(path)) ?? "text";
 }
 
 export function fileKind(path: string): FileKind {
   const extension = extensionOf(path);
-  if (extension in IMAGE_MIME) return "image";
-  if (extension in AUDIO_MIME) return "audio";
+  if (IMAGE_MIME.has(extension)) return "image";
+  if (AUDIO_MIME.has(extension)) return "audio";
   if (extension === "pdf") return "pdf";
   return "text";
 }
@@ -137,9 +146,9 @@ export function fileKind(path: string): FileKind {
 export function mimeOf(path: string): string {
   const extension = extensionOf(path);
   return (
-    IMAGE_MIME[extension] ??
-    AUDIO_MIME[extension] ??
-    DOCUMENT_MIME[extension] ??
+    IMAGE_MIME.get(extension) ??
+    AUDIO_MIME.get(extension) ??
+    DOCUMENT_MIME.get(extension) ??
     "application/octet-stream"
   );
 }
@@ -191,7 +200,7 @@ export type CatppuccinIconName =
   | "typescript-react"
   | "yaml";
 
-const CATPPUCCIN_BY_EXTENSION: Record<string, CatppuccinIconName> = {
+const CATPPUCCIN_BY_EXTENSION = byExtension<CatppuccinIconName>({
   ts: "typescript",
   tsx: "typescript-react",
   js: "javascript",
@@ -224,7 +233,7 @@ const CATPPUCCIN_BY_EXTENSION: Record<string, CatppuccinIconName> = {
   hcl: "terraform",
   pdf: "pdf",
   lock: "lock",
-};
+});
 
 const ESLINT_CONFIGS = [
   ".eslintrc",
@@ -264,7 +273,7 @@ export function catppuccinIcon(path: string): CatppuccinIconName {
   const lower = baseName(path).toLowerCase();
   return (
     specialCatppuccinIcon(lower) ??
-    CATPPUCCIN_BY_EXTENSION[extensionOf(lower)] ??
+    CATPPUCCIN_BY_EXTENSION.get(extensionOf(lower)) ??
     "_file"
   );
 }

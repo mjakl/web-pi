@@ -1,24 +1,32 @@
+import type { WebSettings } from "@core/web-settings";
+import type { StaticAssets } from "@web/assets";
 import { ICONS } from "@web/pwa";
-import type { AppEnvironment } from "@web/hono";
-import type { Context } from "hono";
 import { raw } from "hono/html";
 import type { PropsWithChildren } from "hono/jsx";
 
 export const HTMX_SRC = "/static/vendor/htmx.min-4.0.0.js";
 export const HTMX_SSE_SRC = "/static/vendor/hx-sse.min-4.0.0.js";
 
+/** What every page configures htmx with; the browser tests load the same. */
+export const HTMX_CONFIG = {
+  extensions: "sse",
+  // Keep streams connected in hidden tabs. Compaction and package actions
+  // also retain v2's unlimited request time rather than v4's 60 seconds.
+  sse: { pauseOnBackground: false },
+  defaultTimeout: 0,
+  // Disclosure choices belong to the reader, including while a tool changes.
+  morphIgnore: ["data-htmx-powered", "open"],
+};
+
 // The shared preference is rendered before paint; auto resolves on this device.
 const THEME_SCRIPT = `var t=document.documentElement.dataset.theme;if(t==="dark"||(t==="auto"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark");`;
 
-export function HtmlLayout(
-  { children }: PropsWithChildren,
-  context: Context<AppEnvironment>,
-) {
-  if (context.req.header("HX-Request") === "true") {
-    return <>{children}</>;
-  }
-  const assets = context.get("assets");
-  const settings = context.get("workspace").webSettings();
+/** The document around a full page load; htmx requests get the fragment. */
+export function HtmlLayout({
+  assets,
+  settings,
+  children,
+}: PropsWithChildren<{ assets: StaticAssets; settings: WebSettings }>) {
   return (
     // `translate=no` on both elements: a page translation would rewrite the
     // transcript under the reader.
@@ -36,18 +44,7 @@ export function HtmlLayout(
           content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="google" content="notranslate" />
-        {/* Keep streams connected in hidden tabs. Compaction and package actions
-            also retain v2's unlimited request time rather than v4's 60 seconds. */}
-        <meta
-          name="htmx-config"
-          content={JSON.stringify({
-            extensions: "sse",
-            sse: { pauseOnBackground: false },
-            defaultTimeout: 0,
-            // Disclosure choices belong to the reader, including while a tool changes.
-            morphIgnore: ["data-htmx-powered", "open"],
-          })}
-        />
+        <meta name="htmx-config" content={JSON.stringify(HTMX_CONFIG)} />
         {/* The real one is "<folder> - web-pi", set by the shell module from
             the folder on the page: only the browser knows which page won. */}
         <title>web-pi</title>

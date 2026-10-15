@@ -62,6 +62,28 @@ describe("the local index", () => {
     expect(byId("at-menu").textContent).toContain("4 matches");
   });
 
+  it("opens the menu for the latest keystroke once a slow index arrives", async () => {
+    let answer: (response: Response) => void = () => {};
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const at = await load();
+    typed("@u");
+    at.refresh();
+    typed("@ut");
+    at.refresh();
+    await flush();
+    expect(fetch).toHaveBeenCalledOnce();
+    answer(json(INDEX));
+    await flush();
+    expect(byId("at-menu").hidden).toBe(false);
+    expect(rows()).toEqual(["src/lib/util.ts"]);
+  });
+
   it("reloads the index once it is ten seconds old", async () => {
     const fetch = mockFetch(() => json(INDEX));
     const at = await load();

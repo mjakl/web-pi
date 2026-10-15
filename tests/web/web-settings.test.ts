@@ -45,7 +45,8 @@ describe("shared web settings routes", () => {
     expect(html).toContain('data-theme="dark"');
     expect(html).toContain('data-sound="false"');
     expect(html).toContain('value="12345"');
-    expect(html).toContain('aria-checked="true" data-theme-option="dark"');
+    expect(html).toContain('name="theme" value="dark" checked=""');
+    expect(html.match(/name="theme" value="\w+" checked/g)).toHaveLength(1);
     expect(html).toContain('id="push-toggle"');
     expect(await (await app.request("/settings/web")).json()).toEqual({
       ...defaults,

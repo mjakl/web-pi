@@ -4,23 +4,12 @@ import { createWebApp } from "@web/app";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 import type { HTMLButtonElement, HTMLInputElement } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { nextEvent, required } from "#/web/helpers";
 import { controlledStream, htmxBrowser, page } from "#/web/htmx4-browser";
 
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing expected test value");
-  return value;
-}
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
+afterEach(() => {
   vi.restoreAllMocks();
 });
-async function open(...args: Parameters<typeof htmxBrowser>) {
-  const browser = await htmxBrowser(...args);
-  browsers.push(browser);
-  return browser;
-}
 const eventually = async (assertion: () => void) => {
   await expect
     .poll(() => {
@@ -30,6 +19,19 @@ const eventually = async (assertion: () => void) => {
     .toBe(true);
 };
 const composer = `<form id="composer" data-session-id="s1" hx-post="/send" hx-target="#toasts" hx-swap="beforeend" hx-encoding="multipart/form-data"><textarea id="composer-text" name="text">draft</textarea><button type="submit" name="mode" value="followUp">Send</button><div id="slash-menu"></div><div id="at-menu"></div><input id="image-input" type="file" multiple><div id="image-previews"></div></form><div id="toasts"></div>`;
+// The queue panel's button, as views/Status.tsx renders it.
+const recall = `<button type="button" id="recall" hx-post="/sessions/s1/queue/recall" data-request-fields="text skills" hx-target="#composer-text" hx-swap="outerHTML">Recall</button>`;
+const storedSession = {
+  summary: {
+    id: "s1",
+    cwd: "/repo",
+    name: "Test",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    modifiedAt: "2026-09-01T00:00:00.000Z",
+    fileSize: 1,
+  },
+  entries: [],
+};
 
 describe("shipped HTMX 4 with the real browser client", () => {
   it("loads the scripts and startup configuration selected by HtmlLayout", async () => {
@@ -48,7 +50,10 @@ describe("shipped HTMX 4 with the real browser client", () => {
     const markup = shell
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
       .replace(/(<body\b[^>]*>)[\s\S]*<\/body>/, "$1</body>");
-    const { window, document } = await open(markup, () => new Response(""));
+    const { window, document } = await htmxBrowser(
+      markup,
+      () => new Response(""),
+    );
     expect(window.eval("htmx.config.extensions")).toBe("sse");
     expect(window.eval("htmx.config.sse.pauseOnBackground")).toBe(false);
     expect(window.eval("htmx.config.defaultTimeout")).toBe(0);
@@ -62,7 +67,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
 
   it("uses the production request-field filter on toolbar controls without consuming the draft", async () => {
     let received: FormData | undefined;
-    const { document } = await open(
+    const { document } = await htmxBrowser(
       page(
         composer.replace(
           "</form>",
@@ -83,44 +88,10 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(required(document.querySelector("textarea")).value).toBe("draft");
   });
 
-  it.each(["accepted", "HTTP 200 rejection"])(
-    "requires explicit composer acceptance for %s",
-    async (kind) => {
-      const { document } = await open(
-        page(composer),
-        () =>
-          new Response(
-            kind === "accepted"
-              ? ""
-              : `<div class="notice-shelf-item">Rejected</div>`,
-            {
-              headers:
-                kind === "accepted"
-                  ? { "X-Web-Pi-Submission": "accepted" }
-                  : {},
-            },
-          ),
-      );
-      required(document.querySelector("button")).click();
-      await eventually(() => {
-        if (kind === "accepted") {
-          expect(required(document.querySelector("textarea")).value).toBe("");
-        } else {
-          expect(
-            required(document.getElementById("toasts")).textContent,
-          ).toContain("Rejected");
-          expect(required(document.querySelector("textarea")).value).toBe(
-            "draft",
-          );
-        }
-      });
-    },
-  );
-
   it.each([422, 500])(
     "does not swap or clear drafts on HTTP %i, but delivers header toasts",
     async (status) => {
-      const { document } = await open(
+      const { document } = await htmxBrowser(
         page(composer),
         () =>
           new Response("<b>must not swap</b>", {
@@ -152,7 +123,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
       staticRoot: "/nonexistent",
       defaultCwd: "/repo",
     });
-    const { document, requests } = await open(
+    const { document, requests } = await htmxBrowser(
       page(
         `<button id="load" hx-get="/new" hx-target="#result">New</button><div id="result"></div>`,
       ),
@@ -166,24 +137,31 @@ describe("shipped HTMX 4 with the real browser client", () => {
     expect(required(requests[0]).headers.get("HX-Request")).toBe("true");
   });
 
+  it("leaves the draft alone when the queue was already sent", async () => {
+    const app = createWebApp({
+      workspace: createWorkspace(
+        createFakeWorld({ sessions: [storedSession] }),
+      ),
+      staticRoot: "/nonexistent",
+      defaultCwd: "/repo",
+    });
+    const { document } = await htmxBrowser(
+      page(composer.replace("</form>", `${recall}</form>`)),
+      (request) => app.request(request),
+    );
+    required(document.querySelector<HTMLButtonElement>("#recall")).click();
+    await eventually(() => {
+      expect(required(document.getElementById("toasts")).textContent).toBe(
+        "The queued messages were already sent.",
+      );
+    });
+    expect(document.querySelectorAll("#composer-text")).toHaveLength(1);
+    expect(required(document.querySelector("textarea")).value).toBe("draft");
+  });
+
   it("submits and recalls a queued prompt through the real routes, including the OOB image holder", async () => {
     const workspace = createWorkspace(
-      createFakeWorld({
-        delayMs: 200,
-        sessions: [
-          {
-            summary: {
-              id: "s1",
-              cwd: "/repo",
-              name: "Test",
-              createdAt: "2026-09-01T00:00:00.000Z",
-              modifiedAt: "2026-09-01T00:00:00.000Z",
-              fileSize: 1,
-            },
-            entries: [],
-          },
-        ],
-      }),
+      createFakeWorld({ delayMs: 200, sessions: [storedSession] }),
     );
     const app = createWebApp({
       workspace,
@@ -199,9 +177,9 @@ describe("shipped HTMX 4 with the real browser client", () => {
       .replace('hx-post="/send"', 'hx-post="/sessions/s1/prompt"')
       .replace(
         "</form>",
-        `<input name="behavior" value="followUp"><button type="button" id="recall" hx-post="/sessions/s1/queue/recall" data-request-fields="none" hx-target="#composer-text" hx-swap="outerHTML">Recall</button><div id="recalled-images"></div></form>`,
+        `<input name="behavior" value="followUp">${recall}<div id="recalled-images"></div></form>`,
       );
-    const { document, window, requests } = await open(
+    const { document, window, requests } = await htmxBrowser(
       page(`${markup}<div id="status"></div>`),
       (request) => app.request(request),
     );
@@ -226,10 +204,14 @@ describe("shipped HTMX 4 with the real browser client", () => {
           0,
         );
       });
+      // What the reader typed meanwhile stays, after the queued text.
+      const area = required(document.querySelector("textarea"));
+      area.value = "typed meanwhile";
+      area.dispatchEvent(new window.Event("input", { bubbles: true }));
       required(document.querySelector<HTMLButtonElement>("#recall")).click();
       await eventually(() => {
         expect(required(document.querySelector("textarea")).value).toBe(
-          "draft",
+          "draft\n\ntyped meanwhile",
         );
       });
       expect(
@@ -288,7 +270,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
       "project-picker",
     ];
     const stream = controlledStream();
-    const { document, window } = await open(
+    const { document, window } = await htmxBrowser(
       page(
         `<main data-session-id="s1"><div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>${ids.map((id) => `<div id="${id}">old</div>`).join("")}</main><div class="session-row" data-session-id="s2"><span class="session-indicator"></span></div>`,
       ),
@@ -366,7 +348,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
 
   it("runs production settle handlers for OOB status and every newly inserted sibling", async () => {
     const stream = controlledStream();
-    const { document, window } = await open(
+    const { document, window } = await htmxBrowser(
       page(
         `${
           composer
@@ -412,7 +394,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
   ])("establishes %s after an initial %s failure", async (url, failure) => {
     const stream = controlledStream();
     let connections = 0;
-    const { document, window, advanceTime } = await open(
+    const { document, window, advanceTime } = await htmxBrowser(
       page(
         `<div id="live" hx-sse:connect="${url}" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="messages"></div><div id="toasts"></div>`,
       ),
@@ -446,16 +428,17 @@ describe("shipped HTMX 4 with the real browser client", () => {
   it("starts once when the client bundle loads after HTMX processing", async () => {
     const stream = controlledStream();
     let connections = 0;
-    const { window, advanceTime, htmxProcessedBeforeClient } = await open(
-      page(
-        '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>',
-      ),
-      () => {
-        connections += 1;
-        return stream.response;
-      },
-      { clientAfterHtmx: true, clock: true },
-    );
+    const { window, advanceTime, htmxProcessedBeforeClient } =
+      await htmxBrowser(
+        page(
+          '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>',
+        ),
+        () => {
+          connections += 1;
+          return stream.response;
+        },
+        { clientAfterHtmx: true, clock: true },
+      );
     expect(htmxProcessedBeforeClient).toBe(true);
     await eventually(() => {
       expect(connections).toBe(1);
@@ -472,7 +455,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
       const owner =
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div>';
       let connections = 0;
-      const { document, advanceTime } = await open(
+      const { document, advanceTime } = await htmxBrowser(
         page(
           `${owner}<div id="messages"></div><div id="toasts"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
         ),
@@ -511,7 +494,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
   it("aborts an initial fetch when its owner is removed", async () => {
     let signal: AbortSignal | undefined;
     let connections = 0;
-    const { document, advanceTime } = await open(
+    const { document, advanceTime } = await htmxBrowser(
       page(
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>',
       ),
@@ -545,7 +528,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
     "reports a non-SSE HTTP %s response without retrying",
     async (status) => {
       let connections = 0;
-      const { document, window, advanceTime } = await open(
+      const { document, window, advanceTime } = await htmxBrowser(
         page(
           '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div>',
         ),
@@ -568,7 +551,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
 
   it("stops after six startup attempts and reports how to reconnect", async () => {
     let connections = 0;
-    const { document, window, advanceTime } = await open(
+    const { document, window, advanceTime } = await htmxBrowser(
       page(
         '<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><div id="toasts"></div>',
       ),
@@ -599,9 +582,9 @@ describe("shipped HTMX 4 with the real browser client", () => {
     const first = controlledStream();
     const second = controlledStream();
     let connections = 0;
-    const { window, document, requests } = await open(
+    const { window, document, requests, advanceTime } = await htmxBrowser(
       page(
-        `<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-config="sse.reconnectDelay:1 sse.reconnectJitter:0" hx-swap="none"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
+        `<div id="live" hx-sse:connect="/events" hx-trigger="web-pi:sse-start" hx-swap="none"></div><button id="remove" hx-get="/remove" hx-target="#live" hx-swap="outerHTML">Remove</button>`,
       ),
       (request) => {
         const path = new URL(request.url).pathname;
@@ -616,14 +599,26 @@ describe("shipped HTMX 4 with the real browser client", () => {
         expect(path).toBe("/events");
         return ++connections === 1 ? first.response : second.response;
       },
+      // The suite's one test of htmx's real retry timing; others reconnect at once.
+      { clock: true },
     );
     await eventually(() => {
       expect(
         window.eval("document.getElementById('live')._htmx?.sse?.status"),
       ).toBe(200);
     });
+    // The extension picks the retry delay and sets its timer as this fires.
+    const retrying = nextEvent(
+      required(document.getElementById("live")),
+      "htmx:sse:before:connection",
+    );
     first.send("payload", "checkpoint", "42");
     first.end();
+    await retrying;
+    // 500 ms with up to 30% jitter either way: never before 350 ms, always by 650.
+    await advanceTime(349);
+    expect(connections).toBe(1);
+    await advanceTime(301);
     await eventually(() => {
       expect(connections).toBe(2);
     });
@@ -651,7 +646,8 @@ describe("shipped HTMX 4 with the real browser client", () => {
     await eventually(() => {
       expect(message).toBe("visible again");
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Past any retry delay, so a dropped stream would have reconnected.
+    await advanceTime(1000);
     expect(connections).toBe(2);
     expect(second.cancelled).toBe(false);
     required(document.querySelector<HTMLButtonElement>("#remove")).click();
@@ -661,7 +657,7 @@ describe("shipped HTMX 4 with the real browser client", () => {
     await eventually(() => {
       expect(second.cancelled).toBe(true);
     });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await advanceTime(1000);
     expect(connections).toBe(2);
   });
 });

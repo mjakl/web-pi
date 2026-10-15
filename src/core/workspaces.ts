@@ -1,9 +1,9 @@
 import { pathKey, samePath } from "./path-access.ts";
 
-// Which repository a working folder belongs to, and which sibling worktrees
-// it has. Git forgets a worktree the moment it is deleted, so the folders it
-// reports are also remembered in a map the adapter persists: without it a
-// session whose worktree is gone would fall out of its project.
+// Which repository a working folder belongs to. Git forgets a worktree the
+// moment it is deleted, so each checkout the adapter resolves is also
+// remembered in a map it persists: without it a session whose worktree is
+// gone would fall out of its project.
 
 /** `/home/me/x` reads shorter as `~/x`, and the reader knows their own home. */
 export function shortPath(path: string, home?: string): string {
@@ -19,41 +19,6 @@ export type ProjectInfo = {
   isWorktree: boolean;
   isTopLevel: boolean;
 };
-
-export type WorktreeInfo = { path: string; branch: string | null };
-
-/** One record of `git worktree list --porcelain`, flags included. */
-export type WorktreeRecord = WorktreeInfo & {
-  bare: boolean;
-  prunable: boolean;
-};
-
-/**
- * `git worktree list --porcelain -z`: NUL-separated `key value` fields, a
- * `worktree <path>` line starting each record. Paths are used as git prints
- * them; web-pi runs on POSIX hosts, where that is already the native
- * spelling.
- */
-export function parseWorktreeList(stdout: string): WorktreeRecord[] {
-  const records: WorktreeRecord[] = [];
-  for (const field of stdout.split("\0")) {
-    const text = field.trim();
-    if (text === "") continue;
-    const space = text.indexOf(" ");
-    const key = space === -1 ? text : text.slice(0, space);
-    const value = space === -1 ? "" : text.slice(space + 1);
-    const current = records.at(-1);
-    if (key === "worktree") {
-      records.push({ path: value, branch: null, bare: false, prunable: false });
-      continue;
-    }
-    if (!current) continue;
-    if (key === "branch") current.branch = value.replace(/^refs\/heads\//, "");
-    else if (key === "bare") current.bare = true;
-    else if (key === "prunable") current.prunable = true;
-  }
-  return records;
-}
 
 /**
  * Identity of a folder from what `git rev-parse` reported. A subdirectory of
@@ -105,9 +70,9 @@ export function plainProject(cwd: string): ProjectInfo {
 }
 
 /**
- * The folder-to-repository map, with the entries this discovery adds. The
- * file is only rewritten when something actually changed, so a picker that
- * lists the same worktrees twice writes nothing.
+ * The folder-to-repository map, with the entries this resolution adds. The
+ * file is only rewritten when something actually changed, so resolving the
+ * same folder twice writes nothing.
  */
 export function rememberProjects(
   known: Readonly<Record<string, string>>,
@@ -128,24 +93,4 @@ export function rememberProjects(
 /** The message every read-only route and the page itself answer with. */
 export function unavailableFolderMessage(cwd: string): string {
   return `Working folder is unavailable. This session is read-only: ${cwd}`;
-}
-
-/** Worktrees a picker may offer: neither bare, prunable, nor gone. */
-export function selectableWorktrees(
-  records: readonly WorktreeRecord[],
-  available: (path: string) => boolean,
-): WorktreeInfo[] {
-  return records
-    .filter(
-      (record) => !record.bare && !record.prunable && available(record.path),
-    )
-    .map((record) => ({ path: record.path, branch: record.branch }));
-}
-
-/** Which listed worktree the folder on screen is, if any. */
-export function currentWorktree(
-  worktrees: readonly WorktreeInfo[],
-  cwd: string,
-): string | null {
-  return worktrees.find((tree) => samePath(tree.path, cwd))?.path ?? null;
 }

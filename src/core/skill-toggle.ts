@@ -18,12 +18,16 @@ const KEY_LINE_WITH_BREAK = new RegExp(
   String.raw`\n[ \t]*(?:"${KEY}"|'${KEY}'|${KEY})[ \t]*:[^\n]*`,
 );
 
+/** Pi skips a byte-order mark before the frontmatter; the edit keeps it first. */
+const BOM = "\uFEFF";
+
 export class SkillFrontmatterError extends Error {}
 
 /** The frontmatter block and everything after it, or null when there is none. */
 function splitBlock(content: string): [string, string] | null {
-  if (!content.startsWith("---")) return null;
-  const end = content.indexOf("\n---", 3);
+  const start = content.startsWith(BOM) ? BOM.length : 0;
+  if (!content.startsWith("---", start)) return null;
+  const end = content.indexOf("\n---", start + 3);
   if (end === -1) return null;
   return [content.slice(0, end), content.slice(end)];
 }
@@ -68,7 +72,8 @@ export function setDisableModelInvocation(
     return stripped + tail;
   }
   if (!block) {
-    return `---\n${KEY}: true\n---\n${content}`;
+    const bom = content.startsWith(BOM) ? BOM : "";
+    return `${bom}---\n${KEY}: true\n---\n${content.slice(bom.length)}`;
   }
   const [head, tail] = block;
   if (present) {

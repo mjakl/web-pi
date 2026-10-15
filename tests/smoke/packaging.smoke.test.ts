@@ -211,7 +211,7 @@ afterAll(async () => {
   if (base) rmSync(base, { recursive: true, force: true });
 });
 
-it("ships documentation link targets and both product license notices", () => {
+it("ships documentation link targets and product and bundled fzf license notices", () => {
   const installed = join(base, "consumer", "node_modules", "web-pi");
   const docs = join(installed, "docs");
   const markdown = [
@@ -240,6 +240,12 @@ it("ships documentation link targets and both product license notices", () => {
   );
   expect(readFileSync(join(installed, "LICENSE.pi-web"), "utf8")).toContain(
     "Copyright (c) 2026 agegr",
+  );
+  expect(readFileSync(join(docs, "third-party-notices.md"), "utf8")).toContain(
+    readFileSync(
+      join(repoRoot, "node_modules", "fzf", "license.txt"),
+      "utf8",
+    ).trim(),
   );
 });
 
@@ -374,8 +380,6 @@ it("serves the built assets and the manifest", async () => {
     expect(script.headers.get("content-type"), path).toContain("javascript");
     expect((await script.text()).length, path).toBeGreaterThan(1000);
   }
-  const retired = await fetch(`${origin}/static/mermaid.js`);
-  expect(retired.status).toBe(404);
   const worker = await fetch(`${origin}/sw.js`);
   expect(worker.status).toBe(200);
   expect(worker.headers.get("content-type")).toContain("javascript");

@@ -5,18 +5,14 @@ import {
 } from "@adapters/fake/index";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   copyAnswerEntry,
   RAW_ANSWER,
   RAW_BLOCKS,
 } from "#/web/fixtures/copy-answer";
+import { flushPromises } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
-
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-});
 
 function fixture(paged = false) {
   const entries = [userEntry("user", null, "question"), copyAnswerEntry()];
@@ -96,7 +92,6 @@ async function open(paged = false, hold = false) {
       return response;
     },
   );
-  browsers.push(browser);
   const write = vi
     .spyOn(browser.window.navigator.clipboard, "writeText")
     .mockResolvedValue(undefined);
@@ -193,7 +188,8 @@ describe("authoritative /copy through real routes and the shipped client", () =>
       .toBe("s2");
     type(browser, "new session draft");
     release();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // The held lookup completes now; the page handles it with promises only.
+    await flushPromises();
     expect(write).not.toHaveBeenCalled();
     expect(area(browser).value).toBe("new session draft");
     expect(notices(browser)).not.toContain("Answer copied.");
@@ -226,7 +222,6 @@ describe("authoritative /copy through real routes and the shipped client", () =>
           return response;
         },
       );
-      browsers.push(browser);
       const write = vi
         .spyOn(browser.window.navigator.clipboard, "writeText")
         .mockImplementation(() =>
@@ -263,7 +258,7 @@ describe("authoritative /copy through real routes and the shipped client", () =>
         else copyGate.resolve(undefined);
         if (lookupPending) await expect.poll(() => copyReleased).toBe(true);
         // Drain the copy continuation, without releasing the held navigation.
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await flushPromises();
         expect(write).toHaveBeenCalledTimes(lookupPending ? 0 : 1);
         expect(origin.isConnected).toBe(true);
         expect(origin.value).toBe("/copy");
@@ -297,7 +292,8 @@ describe("authoritative /copy through real routes and the shipped client", () =>
       .toBe(1);
     type(browser, "later draft");
     release();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // The held lookup completes now; the page handles it with promises only.
+    await flushPromises();
     expect(write).not.toHaveBeenCalled();
     expect(area(browser).value).toBe("later draft");
   });

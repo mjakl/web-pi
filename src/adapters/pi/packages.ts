@@ -23,6 +23,7 @@ import {
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPiProjectTrust } from "./project-trust.ts";
+import { checkSettingsErrors } from "./settings-errors.ts";
 
 // Extension packages. Pi's settings hold the list, the SDK's package manager
 // owns the install roots, and the only rules here are which SDK call an
@@ -202,23 +203,23 @@ export function createPiPackages(options: { agentDir: string }): Packages {
       }
       if (action === "install") {
         await manager.installAndPersist(source, { local });
-        return;
+      } else if (action === "remove") {
+        if (!(await manager.removeAndPersist(source, { local })))
+          throw new Error("No matching package");
+      } else {
+        const next = setPackageDisabled(
+          scopedPackages(settings, request.scope),
+          source,
+          action === "disable",
+        );
+        // No entry matched: the list on screen is stale, and writing the
+        // unchanged array back would only churn the file.
+        if (next === null) return;
+        if (local) settings.setProjectPackages(next);
+        else settings.setPackages(next);
       }
-      if (action === "remove") {
-        await manager.removeAndPersist(source, { local });
-        return;
-      }
-      const next = setPackageDisabled(
-        scopedPackages(settings, request.scope),
-        source,
-        action === "disable",
-      );
-      // No entry matched: the list on screen is stale, and writing the
-      // unchanged array back would only churn the file.
-      if (next === null) return;
-      if (local) settings.setProjectPackages(next);
-      else settings.setPackages(next);
       await settings.flush();
+      checkSettingsErrors(settings, local ? "project" : "global");
     },
   };
 }

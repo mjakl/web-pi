@@ -2,12 +2,11 @@
 // commands, the queue, the model, and the session's own event stream. The
 // composer area owns this module.
 
-import { bashCommand } from "@core/composer";
+import { bashCommand, parseBuiltin, skillsConflict } from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
-import { isSessionId } from "@core/sessions";
 import {
-  ForbiddenPath,
+  type FileScope,
   InspectionOnlySession,
   type SessionView,
 } from "@core/workspace";
@@ -26,13 +25,18 @@ import {
   customSignature,
   dialogSignature,
 } from "@web/views/Extensions";
-import { type ItemActions, Items, TurnFragment } from "@web/views/Items";
+import { Items, TurnFragment, finishedItems } from "@web/views/Items";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { ShelfBody, changedWidgets, shelfSignature } from "@web/views/Shelf";
-import { Status, turnBusy } from "@web/views/Status";
+import { Status } from "@web/views/Status";
 import { SkillsMenu } from "@web/views/Skills";
-import { LiveRecovery, SavedMessages, Transcript } from "@web/views/Transcript";
+import {
+  LiveRecovery,
+  SavedMessages,
+  Transcript,
+  itemActions,
+} from "@web/views/Transcript";
 import { type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
@@ -42,15 +46,20 @@ import {
   errorText,
   field,
   html,
+  hxTrigger,
+  rawField,
   readSubmission,
+  requireWritable,
   sessionLocation,
   toastHeader,
 } from "./shared.ts";
 
-export function composerRoutes(app: WebApp, ctx: RouteContext): void {
-  const { deps, renderIntervalMs, warnTokens, guard } = ctx;
+type Fragment = Parameters<typeof html>[0];
 
-  for (const action of [
+export function composerRoutes(app: WebApp, ctx: RouteContext): void {
+  const { deps, renderIntervalMs, guard } = ctx;
+
+  requireWritable(app, ctx, [
     "prompt",
     "commands",
     "skills",
@@ -61,23 +70,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     "model-selector",
     "model",
     "events",
-  ]) {
-    app.use(`/sessions/:id/${action}`, async (c: Context, next) => {
-      const id = c.req.param("id");
-      if (!id || !isSessionId(id)) return c.notFound();
-      return guard(c, async () => {
-        await deps.workspace.requireWritableSession(id);
-        await next();
-        return c.res;
-      });
-    });
-  }
+  ]);
 
   app.post("/sessions", (c) => submit(c));
-  app.post("/sessions/:id/prompt", (c) => {
-    const id = c.req.param("id");
-    return isSessionId(id) ? submit(c, id) : c.notFound();
-  });
+  app.post("/sessions/:id/prompt", (c) => submit(c, c.req.param("id")));
 
   function reject(c: Context, message: string): Response {
     toastHeader(c, message);
@@ -96,16 +92,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     }
     if (!text.trim() && images.length === 0 && skills.length === 0)
       return reject(c, "Type a request first.");
-    if (
-      skills.length > 0 &&
-      (/^\/(?!skill:)/.test(text.trimStart()) ||
-        text.trimStart().startsWith("!"))
-    ) {
-      return reject(
-        c,
-        "Remove selected skills before sending another slash or shell command.",
-      );
-    }
+    const conflict = skills.length > 0 ? skillsConflict(text) : undefined;
+    if (conflict) return reject(c, conflict);
     // An explicit local-only command must never become a model prompt, even
     // when attachments would otherwise cancel shell mode.
     if (text.startsWith("!!") && images.length > 0) {
@@ -115,14 +103,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     if (images.length === 0 && text.startsWith("!") && !shell) {
       return reject(c, "Type a shell command after ! or !!.");
     }
-    const builtin =
-      images.length === 0
-        ? /^\/(compact|reload|name|clone|session|copy)(?:\s+([\s\S]*))?$/.exec(
-            text,
-          )
-        : null;
-    const name = builtin?.[1];
-    const argument = builtin?.[2]?.trim() ?? "";
+    const builtin = images.length === 0 ? parseBuiltin(text) : undefined;
+    const name = builtin?.name;
+    const argument = builtin?.argument ?? "";
     if (name === "name" && !argument)
       return reject(c, "Usage: /name <session name>");
     if (name === "session" || name === "copy") {
@@ -141,7 +124,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const id =
         existingId ??
         (await deps.workspace.createSession(cwd, {
-          ...(provider && modelId ? { model: { provider, modelId } } : {}),
+          ...(provider && modelId ? { model: { provider, id: modelId } } : {}),
           ...(isThinkingLevel(thinking) ? { thinkingLevel: thinking } : {}),
         }));
       let response: Response;
@@ -167,13 +150,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       }
       if (c.req.header("HX-Request") !== "true")
         return c.redirect(`/sessions/${id}`, 303);
-      const triggers = JSON.parse(
-        response.headers.get("HX-Trigger") ?? "{}",
-      ) as Record<string, unknown>;
-      c.header(
-        "HX-Trigger",
-        JSON.stringify({ ...triggers, "web-pi:session-created": { cwd, id } }),
-      );
+      // Beside a built-in's toast, which this context already carries.
+      hxTrigger(c, { "web-pi:session-created": { cwd, id } });
       sessionLocation(c, `/sessions/${id}`);
       return c.body(null, 200);
     });
@@ -183,14 +161,13 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     c: Context,
     id: string,
     name: string,
-    argument: string | undefined,
+    argument: string,
   ): Promise<Response> {
-    const argumentText = argument?.trim() ?? "";
     switch (name) {
       case "compact":
         await deps.workspace.compact(
           id,
-          argumentText === "" ? undefined : argumentText,
+          argument === "" ? undefined : argument,
         );
         return c.body(null, 204);
       case "reload":
@@ -198,8 +175,8 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         toastHeader(c, "Extensions, skills, and prompts reloaded.", "info");
         return c.body(null, 200);
       case "name":
-        await deps.workspace.rename(id, argumentText);
-        toastHeader(c, `Renamed to "${argumentText}".`, "info");
+        await deps.workspace.rename(id, argument);
+        toastHeader(c, `Renamed to "${argument}".`, "info");
         return c.body(null, 200);
       default: {
         const cloned = await deps.workspace.clone(id);
@@ -211,7 +188,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/commands", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const query = c.req.query("q") ?? "";
     const commands = await deps.workspace.commands(id, query);
     return c.html(<CommandMenu commands={commands} query={query} />);
@@ -219,14 +195,12 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/skills", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const commands = await deps.workspace.commands(id, "");
     return c.html(<SkillsMenu commands={commands} />);
   });
 
   app.post("/sessions/:id/compact", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return guard(c, async () => {
       await deps.workspace.compact(id);
       return c.body(null, 204);
@@ -235,20 +209,36 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/compact/abort", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     await deps.workspace.abortCompaction(id);
     return c.body(null, 204);
   });
 
   /**
-   * Recall answers with the composer's textarea holding the queued texts, and
-   * the images those messages carried riding along out of band for the client
-   * bundle to put back into the attachment strip.
+   * Recall answers with the composer's textarea holding the queued texts and
+   * then the draft the button posted, and the images those messages carried
+   * riding along out of band for the client bundle to put back into the
+   * attachment strip. A queue that drained before the click leaves the
+   * composer alone.
    */
   app.post("/sessions/:id/queue/recall", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    const recalled = await deps.workspace.recallQueue(id);
+    const form = await c.req.formData().catch(() => new FormData());
+    const posted = await readSubmission(form);
+    if ("error" in posted) {
+      toastHeader(c, posted.error);
+      c.header("HX-Reswap", "none");
+      return c.body(null, 204);
+    }
+    const recalled = await deps.workspace.recallQueue(id, {
+      // Untrimmed, as it stands in the editor.
+      text: rawField(form, "text").replaceAll("\r\n", "\n"),
+      skills: posted.skills,
+    });
+    if (!recalled) {
+      toastHeader(c, "The queued messages were already sent.", "info");
+      c.header("HX-Reswap", "none");
+      return c.body(null, 204);
+    }
     if (recalled.warning) toastHeader(c, recalled.warning, "warning");
     return c.html(
       <>
@@ -258,50 +248,46 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     );
   });
 
-  /** The two JSON endpoints of this phase: a menu cannot be a round trip. */
-  app.get("/sessions/:id/file-index", async (c) => {
-    const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    return files(c, () =>
-      deps.workspace.fileIndex(
-        id,
-        c.req.query("cwd"),
-        (c.req.query("q") ?? "").slice(0, 500),
-      ),
-    );
-  });
-
-  app.get("/sessions/:id/file-completion", async (c) => {
-    const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    return files(c, async () => ({
-      matches: await deps.workspace.fileCompletion(
-        id,
-        (c.req.query("q") ?? "").slice(0, 500),
-        c.req.query("cwd"),
-      ),
-    }));
-  });
-
-  async function files(
+  /**
+   * The `@` menu's JSON: the index or matches (`file-index`) and a path-like
+   * query's children (`file-completion`), for a session's folder or for a
+   * validated folder before any session exists. A menu cannot be a round trip.
+   */
+  async function fileMenu(
     c: Context,
-    action: () => Promise<unknown>,
+    scope: FileScope,
+    path: boolean,
   ): Promise<Response> {
+    const query = (c.req.query("q") ?? "").slice(0, 500);
+    c.header("Cache-Control", "no-store");
     try {
-      c.header("Cache-Control", "no-store");
-      return c.json(await action());
+      return c.json(
+        path
+          ? { matches: await deps.workspace.fileCompletion(scope, query) }
+          : await deps.workspace.fileIndex(scope, query),
+      );
     } catch (error) {
-      if (error instanceof ForbiddenPath) return c.json({ error: "" }, 403);
       if (error instanceof FileAccessError) {
-        return c.json({ error: "" }, error.status);
+        return c.json({ error: error.message }, error.status);
       }
       return c.json({ error: "Cannot list that directory" }, 404);
     }
   }
 
+  for (const [name, path] of [
+    ["file-index", false],
+    ["file-completion", true],
+  ] as const) {
+    app.get(`/sessions/:id/${name}`, (c) =>
+      fileMenu(c, { sessionId: c.req.param("id") }, path),
+    );
+    app.get(`/workspaces/${name}`, (c) =>
+      fileMenu(c, { cwd: c.req.query("cwd") ?? "" }, path),
+    );
+  }
+
   app.get("/sessions/:id/bash-output", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const path = c.req.query("path") ?? "";
     const download = c.req.query("download") === "1";
     try {
@@ -315,9 +301,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           : {}),
       });
     } catch (error) {
-      if (error instanceof ForbiddenPath) return c.text(errorText(error), 403);
-      // Too large to read is not "missing": the reader is told the size and
-      // the cap rather than being sent looking for a file that is right there.
+      // A refusal keeps its 403, and too large to read is not "missing": the
+      // reader is told the size and the cap rather than being sent looking
+      // for a file that is right there.
       if (error instanceof FileAccessError) {
         return c.text(errorText(error), error.status);
       }
@@ -327,7 +313,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/abort", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     await deps.workspace.abort(id);
     return c.body(null, 204);
   });
@@ -340,8 +325,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
    */
   app.get("/sessions/:id/model-selector", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
-    const view = await deps.workspace.viewSession(id, warnTokens(c));
+    const view = await deps.workspace.viewSession(id);
     return view
       ? c.html(<ModelSelector pick={modelPick(view)} />)
       : c.notFound();
@@ -349,7 +333,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.post("/sessions/:id/model", async (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     const [provider, ...rest] = (c.req.query("model") ?? "").split("/");
     const modelId = rest.join("/");
     // Only the reasoning select posts a body; the option buttons send none.
@@ -361,7 +344,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     try {
       await deps.workspace.setModel(id, {
         provider,
-        modelId,
+        id: modelId,
         ...(isThinkingLevel(thinking) ? { thinkingLevel: thinking } : {}),
       });
     } catch (error) {
@@ -369,7 +352,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         return c.text(error.message, 403);
       return c.text(errorText(error), 400);
     }
-    const view = await deps.workspace.viewSession(id, warnTokens(c));
+    const view = await deps.workspace.viewSession(id);
     if (!view) return c.notFound();
     return c.html(<ModelSelector pick={modelPick(view)} />);
   });
@@ -387,7 +370,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       const modelId = rest.join("/");
       const thinkingOverride = isThinkingLevel(thinking) ? thinking : undefined;
       const view = await deps.workspace.newSession(cwd, {
-        ...(provider && modelId ? { model: { provider, modelId } } : {}),
+        ...(provider && modelId ? { model: { provider, id: modelId } } : {}),
         ...(thinkingOverride === undefined
           ? {}
           : { thinkingLevel: thinkingOverride }),
@@ -430,42 +413,31 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     });
   });
 
-  for (const [path, isPath] of [
-    ["file-index", false],
-    ["file-completion", true],
-  ] as const) {
-    app.get(`/workspaces/${path}`, async (c) => {
-      const cwd = c.req.query("cwd") ?? "";
-      try {
-        return c.json(
-          await deps.workspace.folderFiles(cwd, c.req.query("q") ?? "", isPath),
-        );
-      } catch (error) {
-        const status = error instanceof FileAccessError ? error.status : 400;
-        return c.json({ error: errorText(error) }, status);
-      }
-    });
-  }
-
   app.get("/sessions/:id/events", (c) => {
     const id = c.req.param("id");
-    if (!isSessionId(id)) return c.notFound();
     return streamSSE(c, async (stream) => {
       const ended = Promise.withResolvers<undefined>();
-      // The shelf holds open panels, so it is only re-sent when an extension
-      // actually changed a status or a widget.
-      let shelf = "";
-      // Prompts and branch activation can change the rail before settlement.
-      // Keep unchanged marks in place while assistant tokens stream.
-      let rail = "";
-      // The model selector is a whole subtree with an open popover in it, and
-      // a turn renders ten times a second: send it only when the pick moved.
-      let model = "";
-      // Same for the dialog and the custom-UI shell: re-sending either would
-      // wipe what the reader typed, or take focus out of the panel.
-      let dialog = "";
-      let custom = "";
-      let frame = "";
+      const send = async (fragment: Fragment): Promise<void> => {
+        await stream.writeSSE({ data: await html(fragment) });
+      };
+      // What this connection last sent of each fragment that is re-sent only
+      // when it changed. A turn renders ten times a second: the model
+      // selector holds an open popover, the shelf an open panel, and the
+      // dialog and the custom-UI panel what the reader typed and the focus,
+      // and the rail keeps its unchanged marks in place while tokens stream.
+      const signatures = new Map<string, string>();
+      const changed = (name: string, signature: string): boolean => {
+        if ((signatures.get(name) ?? "") === signature) return false;
+        signatures.set(name, signature);
+        return true;
+      };
+      const sendIfChanged = async (
+        name: string,
+        signature: string,
+        fragment: () => Fragment,
+      ): Promise<void> => {
+        if (changed(name, signature)) await send(fragment());
+      };
       const widgetLines = new Map<string, string>();
       // The browser advances Last-Event-ID only through received SSE frames.
       // The page supplies the initial cursor, including for startup retries.
@@ -478,6 +450,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       // cannot account for a tool result added to an existing assistant card.
       let savedHandoff = c.req.query("saved") === "1" && !lastEventId;
       const through = c.req.query("through");
+      // Entry ids of the running turn's finished messages this connection has
+      // sent; undefined until a frame sent the whole of a running turn.
+      let delivered: string[] | undefined;
       const render = async (kind: "activity" | "turn_done") => {
         if (aborted) return;
         let view: SessionView | undefined;
@@ -487,7 +462,6 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
             // A missing saved window must not consume notices before its
             // fallback can render them. The next frame consumes a valid handoff.
             consumePending: !savedHandoff,
-            ...warnTokens(c),
             ...(savedHandoff
               ? through === undefined
                 ? {}
@@ -507,36 +481,45 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           resetHandoff = true;
           view = await deps.workspace.viewSession(id, {
             consumePending: true,
-            ...warnTokens(c),
           });
         }
         if (aborted) return;
         if (!view) return;
-        const actions: ItemActions = {
-          sessionId: id,
-          cwd: view.summary.cwd,
-          starred: view.starred,
-          ...(turnBusy(view.status) ? { busy: true } : {}),
-        };
+        const actions = itemActions(view);
         const pick = modelPick(view);
-        const nextModel = JSON.stringify([
-          pick.current,
-          pick.level,
-          pick.levels,
-          pick.models,
-        ]);
-        const modelChanged = nextModel !== model;
-        model = nextModel;
-        const nextRail = JSON.stringify([view.rail, view.branched]);
-        const railChanged = nextRail !== rail;
+        const modelChanged = changed(
+          "model",
+          JSON.stringify([pick.current, pick.level, pick.levels, pick.models]),
+        );
+        // Recorded even when a replaced transcript brings its own rail.
+        const railChanged = changed(
+          "rail",
+          JSON.stringify([view.rail, view.branched]),
+        );
         const reconciled = cursor !== view.settledCursor;
+        const replaced =
+          resetHandoff || (view.resetTranscript && !savedHandoff);
+        const finished = finishedItems(view.turn, view.status)?.map(
+          (item) => item.entryId,
+        );
+        // While the same run goes on, finished messages already sent stay as
+        // they are, and only #turn-live is morphed. Anything else, including
+        // settlement moving the cursor, morphs the whole turn again.
+        const sent =
+          finished !== undefined &&
+          delivered?.every((entryId, index) => finished[index] === entryId) &&
+          !replaced &&
+          !savedHandoff &&
+          !reconciled
+            ? delivered.length
+            : undefined;
         // One snapshot and one frame: never clear a missed answer without its
         // canonical replacement, or clear a newer turn on a delayed turn_done.
         await stream.writeSSE({
           id: `settled=${encodeURIComponent(view.settledCursor)}`,
           data: await html(
             <>
-              {resetHandoff || (view.resetTranscript && !savedHandoff) ? (
+              {replaced ? (
                 <Partial target=".chat-body" swap="outerHTML">
                   <Transcript view={view} />
                 </Partial>
@@ -551,13 +534,19 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
                       <Items items={view.items} actions={actions} />
                     </Partial>
                   ) : null}
-                  <Partial target="#turn" swap="innerMorph">
-                    <LiveRecovery view={view} />
+                  <Partial
+                    {...(sent === undefined
+                      ? { target: "#turn", swap: "innerMorph" }
+                      : { target: "#turn-live", swap: "outerMorph" })}
+                  >
                     <TurnFragment
                       items={view.turn}
                       actions={actions}
                       status={view.status}
-                    />
+                      from={sent ?? 0}
+                    >
+                      <LiveRecovery view={view} />
+                    </TurnFragment>
                   </Partial>
                 </>
               )}
@@ -566,14 +555,14 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
               (!view.resetTranscript || savedHandoff) ? (
                 <Rail view={view} oob />
               ) : null}
-              <Status view={view} model={modelChanged} oob partial />
+              <Status view={view} model={modelChanged} oob />
             </>,
           ),
         });
         const finishHandoff = savedHandoff && !resetHandoff;
         savedHandoff = false;
-        rail = nextRail;
         cursor = view.settledCursor;
+        delivered = finished;
         // Native SSE awaits the complete HTML frame before semantic events.
         if (reconciled || kind === "turn_done")
           await stream.writeSSE({ event: "settled", data: id });
@@ -581,77 +570,52 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           enqueue("activity");
           return;
         }
-        const signature = shelfSignature(view.status);
-        if (signature !== shelf) {
-          shelf = signature;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#shelf" swap="outerHTML">
-                <ShelfBody
-                  status={view.status}
-                  updated={changedWidgets(widgetLines, view.status)}
-                />
-              </Partial>,
-            ),
-          });
+        const { status } = view;
+        await sendIfChanged("shelf", shelfSignature(status), () => (
+          <Partial target="#shelf" swap="outerHTML">
+            <ShelfBody
+              status={status}
+              updated={changedWidgets(widgetLines, status)}
+            />
+          </Partial>
+        ));
+        const dialog = status?.dialog ?? null;
+        await sendIfChanged("dialog", dialogSignature(dialog), () => (
+          <Partial target="#extension-dialog">
+            <ExtensionDialogBody sessionId={id} dialog={dialog} />
+          </Partial>
+        ));
+        const panel = status?.custom ?? null;
+        if (changed("custom", panel?.id ?? "")) {
+          // The panel carries its first frame.
+          signatures.set("frame", customSignature(panel));
+          await send(
+            <Partial target="#custom-ui">
+              <CustomPanelBody sessionId={id} frame={panel} />
+            </Partial>,
+          );
         }
-        const nextDialog = dialogSignature(view.status?.dialog ?? null);
-        if (nextDialog !== dialog) {
-          dialog = nextDialog;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#extension-dialog">
-                <ExtensionDialogBody
-                  sessionId={id}
-                  dialog={view.status?.dialog ?? null}
-                />
-              </Partial>,
-            ),
-          });
-        }
-        const panel = view.status?.custom ?? null;
-        if ((panel?.id ?? "") !== custom) {
-          custom = panel?.id ?? "";
-          frame = "";
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#custom-ui">
-                <CustomPanelBody sessionId={id} frame={panel} />
-              </Partial>,
-            ),
-          });
-        }
-        const nextFrame = customSignature(panel);
-        if (nextFrame !== frame) {
-          frame = nextFrame;
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#custom-frame">
-                <CustomFrameBody frame={panel} />
-              </Partial>,
-            ),
-          });
-        }
-        // Text an extension asked to put in the composer, and a title it set.
-        for (const text of view.status?.editorText ?? []) {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#editor-insert">
-                <span data-insert={text} />
-              </Partial>,
-            ),
-          });
+        await sendIfChanged("frame", customSignature(panel), () => (
+          <Partial target="#custom-frame">
+            <CustomFrameBody frame={panel} />
+          </Partial>
+        ));
+        // Text an extension asked to put in the composer.
+        for (const text of status?.editorText ?? []) {
+          await send(
+            <Partial target="#editor-insert">
+              <span data-insert={text} />
+            </Partial>,
+          );
         }
         // Notices are drained by the snapshot: send them once, as toasts.
-        const notices = view.status?.notices ?? [];
+        const notices = status?.notices ?? [];
         if (notices.length > 0) {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#toasts" swap="beforeend">
-                <Toasts notices={notices} />
-              </Partial>,
-            ),
-          });
+          await send(
+            <Partial target="#toasts" swap="beforeend">
+              <Toasts notices={notices} />
+            </Partial>,
+          );
         }
         if (view.savedObservation)
           await stream.writeSSE({
@@ -665,20 +629,18 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
         if (aborted) return;
         aborted = true;
         try {
-          await stream.writeSSE({
-            data: await html(
-              <Partial target="#toasts" swap="beforeend">
-                <Toasts
-                  notices={[
-                    {
-                      level: "error",
-                      message: `Live updates failed: ${errorText(error)}`,
-                    },
-                  ]}
-                />
-              </Partial>,
-            ),
-          });
+          await send(
+            <Partial target="#toasts" swap="beforeend">
+              <Toasts
+                notices={[
+                  {
+                    level: "error",
+                    message: `Live updates failed: ${errorText(error)}`,
+                  },
+                ]}
+              />
+            </Partial>,
+          );
         } finally {
           ended.resolve(undefined);
           await stream.close();

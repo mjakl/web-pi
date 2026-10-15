@@ -45,11 +45,23 @@ export function answerConfirmed(answer: DialogAnswer): boolean {
   return "confirmed" in answer ? answer.confirmed : false;
 }
 
+/** The line under a dialog's title while the extension's timeout runs. */
+export function closesIn(expiresAt: number, now = Date.now()): string {
+  const seconds = Math.max(0, Math.round((expiresAt - now) / 1000));
+  return `Closes in ${String(seconds)}s if unanswered.`;
+}
+
+/**
+ * Ids name a request in a URL a page posts to, so they are never reused: a
+ * form left over from an earlier runtime must not answer a newer request.
+ */
+function newId(kind: "d" | "c"): string {
+  return `${kind}-${crypto.randomUUID()}`;
+}
+
 export type DialogSpec = Omit<DialogRequest, "id" | "expiresAt">;
 
 export type DialogOptions = { timeout?: number; signal?: AbortSignal };
-
-export type DialogHost = ReturnType<typeof createDialogHost>;
 
 /**
  * Pending extension dialogs. Several may wait at once — the SDK keys them by
@@ -62,7 +74,6 @@ export function createDialogHost(onChange: () => void = () => {}) {
     string,
     { request: DialogRequest; settle: (answer: DialogAnswer) => void }
   >();
-  let counter = 0;
   let disposed = false;
 
   function resolve(id: string, answer: DialogAnswer): boolean {
@@ -82,8 +93,7 @@ export function createDialogHost(onChange: () => void = () => {}) {
     ask(spec: DialogSpec, options: DialogOptions = {}): Promise<DialogAnswer> {
       if (disposed || options.signal?.aborted)
         return Promise.resolve(CANCELLED);
-      counter += 1;
-      const id = `d${String(counter)}`;
+      const id = newId("d");
       const request: DialogRequest = {
         ...spec,
         id,
@@ -137,8 +147,6 @@ export type FrameComponent = {
 /** The frame of the custom UI that is on screen, if any. */
 export type CustomFrame = { id: string; lines: string[] };
 
-export type CustomUiHost = ReturnType<typeof createCustomUiHost>;
-
 /** A frame that failed to render still says so rather than killing the turn. */
 function renderFrame(component: FrameComponent, width: number): string[] {
   try {
@@ -164,7 +172,6 @@ export function createCustomUiHost(onChange: () => void = () => {}) {
       onClose: (() => void) | undefined;
     }
   >();
-  let counter = 0;
   let disposed = false;
 
   function draw(id: string): void {
@@ -204,8 +211,7 @@ export function createCustomUiHost(onChange: () => void = () => {}) {
       width: number,
       onClose?: () => void,
     ): string {
-      counter += 1;
-      const id = `c${String(counter)}`;
+      const id = newId("c");
       if (disposed) {
         try {
           component.dispose?.();

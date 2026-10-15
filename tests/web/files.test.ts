@@ -3,6 +3,7 @@ import {
   createFakeWorld,
   userEntry,
 } from "@adapters/fake/index";
+import { createFileTree } from "@adapters/fs/file-tree";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createWorkspace } from "@core/workspace";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -29,6 +30,7 @@ let outside = "";
 let pickable = "";
 let app: ReturnType<typeof createWebApp>;
 let streams = 0;
+let statted: string[] = [];
 
 function git(...args: string[]): void {
   execFileSync("git", args, { cwd: repo, stdio: "ignore" });
@@ -55,6 +57,10 @@ beforeAll(async () => {
   await writeFile(join(repo, "logo.png"), PNG);
   await writeFile(join(repo, "report.pdf"), "%PDF-1.7\n");
   await writeFile(join(repo, "a.svg"), "<svg xmlns='x'/>");
+  await writeFile(
+    join(repo, "App.vue"),
+    "<template><p>{{ msg }}</p></template>\n<script>export default {};</script>\n",
+  );
   await symlink(outside, join(repo, "escape"));
   await writeFile(
     join(repo, "large.ts"),
@@ -72,6 +78,9 @@ beforeAll(async () => {
   );
   await writeFile(join(repo, "large.png"), PNG);
   await truncate(join(repo, "large.png"), 10 * 1024 * 1024 + 1);
+  // Committed, then deleted together with its folder below.
+  await mkdir(join(repo, "gone"));
+  await writeFile(join(repo, "gone", "old.ts"), "export const old = 1;\n");
   git("init", "-q", "-b", "main");
   git("config", "user.email", "test@example.com");
   git("config", "user.name", "Test");
@@ -79,6 +88,7 @@ beforeAll(async () => {
   git("commit", "-qm", "first");
   await writeFile(join(repo, "src", "main.ts"), "const a = 2;\nexport {};\n");
   await writeFile(join(repo, "fresh.txt"), "new\n");
+  await rm(join(repo, "gone"), { recursive: true });
 
   await writeFile(
     join(repo, "report.docx"),
@@ -110,6 +120,12 @@ beforeAll(async () => {
   world.files.stream = (path, range) => {
     streams += 1;
     return opened(path, range);
+  };
+  // `authorize` stats the path it checks once per call.
+  const stat = world.files.stat.bind(world.files);
+  world.files.stat = (path) => {
+    statted.push(path);
+    return stat(path);
   };
   app = createWebApp({
     workspace: createWorkspace(world),
@@ -147,7 +163,7 @@ describe("explorer", () => {
     expect(html).toContain("file-explorer-change-row");
     expect(html).toMatch(/>[1-9]\d* files</);
     expect(html).toContain(">+2<");
-    expect(html).toContain(">-1<");
+    expect(html).toContain(">-2<");
     expect(html).toContain(">src/main.ts<");
     expect(html).toContain('title="Modified"');
     expect(html).toContain('title="Untracked"');
@@ -162,6 +178,15 @@ describe("explorer", () => {
     expect(html).toContain('data-name="main.ts"');
     expect(html).toContain(">M<");
     expect(html).not.toContain('data-name="notes.md"');
+  });
+
+  it("gives a folder both icons, for the stylesheet to pick by aria-expanded", async () => {
+    const url = `/files/tree?session=s1&depth=0&path=${encodeURIComponent(repo)}`;
+    const html = await (await app.request(url)).text();
+    expect(html).toContain('data-name="src"');
+    expect(html).toContain(
+      "--catppuccin-icon: url(/static/icons/catppuccin/latte/_folder.svg); --catppuccin-icon-open: url(/static/icons/catppuccin/latte/_folder_open.svg)",
+    );
   });
 
   it("searches the index and puts the tree back on an empty query", async () => {
@@ -181,6 +206,64 @@ describe("explorer", () => {
       await app.request("/files/search?session=s1&q=")
     ).text();
     expect(cleared).toContain('data-name="notes.md"');
+    // With the changes toggle on, clearing goes back to the changes.
+    const changes = await (
+      await app.request("/files/search?session=s1&q=&changes=1")
+    ).text();
+    expect(changes).toContain("file-explorer-change-row");
+    expect(changes).not.toContain('data-name="notes.md"');
+  });
+});
+
+describe("a folder with more files than the browser's index", () => {
+  let big = "";
+  let bigApp: ReturnType<typeof createWebApp>;
+
+  beforeAll(async () => {
+    big = await mkdtemp(join(tmpdir(), "web-pi-big-"));
+    // One at a time: thousands of parallel writes can run out of handles.
+    for (let index = 0; index < 5_000; index += 1) {
+      await writeFile(join(big, `f${String(index)}.txt`), "");
+    }
+    await mkdir(join(big, "zebra"));
+    await writeFile(join(big, "zebra", "late.ts"), "");
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "big",
+            cwd: big,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    bigApp = createWebApp({
+      workspace: createWorkspace({ ...world, files: createFileTree() }),
+      staticRoot: "/nonexistent",
+      defaultCwd: big,
+    });
+  });
+
+  afterAll(async () => {
+    await rm(big, { recursive: true, force: true });
+  });
+
+  it("finds a file past the first 5,000 paths by @ and by the file search", async () => {
+    const index = (await (
+      await bigApp.request("/sessions/big/file-index?q=")
+    ).json()) as { files: string[]; truncated: boolean };
+    expect(index.truncated).toBe(true);
+    expect(index.files).not.toContain("zebra/late.ts");
+    const at = await bigApp.request("/sessions/big/file-index?q=late");
+    expect(await at.json()).toEqual({
+      matches: [{ path: "zebra/late.ts", isDir: false }],
+    });
+    const search = await bigApp.request("/files/search?session=big&q=late");
+    expect(await search.text()).toContain('data-name="late.ts"');
   });
 });
 
@@ -233,6 +316,7 @@ describe("stored-session file requests", () => {
     async (route, suffix, expected) => {
       const folder = vi.spyOn(catalog, "folder");
       const read = vi.spyOn(catalog, "read");
+      const readSaved = vi.spyOn(catalog, "readSaved");
       const open = vi.spyOn(SessionManager, "open");
       try {
         const path =
@@ -247,6 +331,7 @@ describe("stored-session file requests", () => {
         expect(await response.text()).toContain(expected);
         expect(folder).toHaveBeenCalledTimes(1);
         expect(read).not.toHaveBeenCalled();
+        expect(readSaved).not.toHaveBeenCalled();
         expect(open).not.toHaveBeenCalled();
       } finally {
         vi.restoreAllMocks();
@@ -279,7 +364,12 @@ describe("stored-session file requests", () => {
   });
 
   it("still reads the transcript for an outside file, but never grants directory listings or symlink escapes", async () => {
+    // A stopped session's transcript is parsed once and then checked against
+    // the file's stat, so both ways of reading it count.
     const read = vi.spyOn(catalog, "read");
+    const readSaved = vi.spyOn(catalog, "readSaved");
+    const transcriptReads = () =>
+      read.mock.calls.length + readSaved.mock.calls.length;
     try {
       const request = (route: string, path: string) =>
         storedApp.request(
@@ -288,15 +378,16 @@ describe("stored-session file requests", () => {
       const referenced = await request("view", join(outside, "secret.txt"));
       expect(referenced.status).toBe(200);
       expect(await referenced.text()).toContain("not yours");
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(transcriptReads()).toBe(1);
       read.mockClear();
+      readSaved.mockClear();
       expect((await request("tree", outside)).status).toBe(403);
       expect((await request("tree", join(repo, "escape"))).status).toBe(403);
-      expect(read).not.toHaveBeenCalled();
+      expect(transcriptReads()).toBe(0);
       expect((await request("view", join(outside, "secret2.txt"))).status).toBe(
         403,
       );
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(transcriptReads()).toBe(1);
     } finally {
       vi.restoreAllMocks();
     }
@@ -350,7 +441,7 @@ describe("viewer", () => {
     },
   );
 
-  it("renders HTML previews above 256 KiB in the existing sandbox", async () => {
+  it("renders HTML previews above 256 KiB in a static sandbox", async () => {
     const path = join(repo, "large.html");
     const body = "x".repeat(262_145);
     const res = await app.request(
@@ -361,7 +452,18 @@ describe("viewer", () => {
     expect(html).toContain(
       `srcdoc="&lt;p&gt;${body}&lt;/p&gt;&lt;b&gt;End of file&lt;/b&gt;"`,
     );
-    expect(html).toContain('sandbox="allow-scripts"');
+    // No allow-* token: the file can neither run script nor submit a form.
+    expect(html).toContain('sandbox=""');
+  });
+
+  it("opens a Vue component as coloured source, with no preview", async () => {
+    const url = `/files/view?session=s1&path=${encodeURIComponent(join(repo, "App.vue"))}`;
+    const html = await (await app.request(url)).text();
+    expect(html).toContain('data-mode="source"');
+    expect(html).toContain("hljs-tag");
+    expect(html).toContain("vue · 3 lines");
+    expect(html).not.toContain("mode=preview");
+    expect(html).not.toContain("<iframe");
   });
 
   it("defaults markdown to the rendered preview with its frontmatter", async () => {
@@ -386,6 +488,21 @@ describe("viewer", () => {
     expect(html).toContain("const a = 2;");
     // pi-web renders no @@ headers; the collapsed spans say what was skipped.
     expect(html).not.toContain("@@");
+  });
+
+  it("opens a file deleted with its folder at its diff, and nothing outside", async () => {
+    const view = (path: string) =>
+      app.request(`/files/view?session=s1&path=${encodeURIComponent(path)}`);
+    const res = await view(join(repo, "gone", "old.ts"));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-mode="diff"');
+    expect(html).toContain(">Deleted<");
+    expect(html).toContain('class="file-diff-line is-removed"');
+    expect(html).toContain("export const old = 1;");
+    // Git's word is only taken for what it lists, and never outside the roots.
+    expect((await view(join(repo, "never", "there.ts"))).status).toBe(404);
+    expect((await view(join(outside, "gone", "old.ts"))).status).toBe(403);
   });
 
   it("falls back to source when the requested diff does not exist", async () => {
@@ -466,8 +583,9 @@ describe("raw bytes", () => {
     expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG.subarray(0, 4));
   });
 
-  it("opens one stream per request, whatever the range", async () => {
+  it("authorizes once and opens one stream per request, whatever the range", async () => {
     streams = 0;
+    statted = [];
     await (await app.request(url())).arrayBuffer();
     expect(streams).toBe(1);
     await (
@@ -477,6 +595,8 @@ describe("raw bytes", () => {
     // An unsatisfiable range answers from the size alone.
     await app.request(url(), { headers: { Range: "bytes=99-1" } });
     expect(streams).toBe(2);
+    const logo = join(repo, "logo.png");
+    expect(statted.filter((path) => path === logo)).toHaveLength(3);
   });
 
   it("streams with range headers and the right type", async () => {
@@ -527,17 +647,7 @@ describe("raw bytes", () => {
   });
 });
 
-describe("meta and containment", () => {
-  it("reports size, language, and kind", async () => {
-    const res = await app.request(
-      `/files/meta?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
-    );
-    const meta = (await res.json()) as Record<string, unknown>;
-    expect(meta["language"]).toBe("markdown");
-    expect(meta["kind"]).toBe("text");
-    expect(typeof meta["size"]).toBe("number");
-  });
-
+describe("containment", () => {
   it("maps a relative path to 400, a missing file to 404, and an outsider to 403", async () => {
     expect((await app.request("/files/view?session=s1&path=src")).status).toBe(
       400,
@@ -578,17 +688,77 @@ describe("meta and containment", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  it("refuses a missing file behind that symlink, to the viewer and the watch", async () => {
+    // Missing files are proved through their parent, which resolves outside.
+    const path = encodeURIComponent(join(repo, "escape", "missing.txt"));
+    for (const route of ["view", "watch"]) {
+      const res = await app.request(`/files/${route}?session=s1&path=${path}`);
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("answers 400 when asked to list a regular file", async () => {
+    const res = await app.request(
+      `/files/tree?session=s1&depth=1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("@ completion in the checkout", () => {
+  let real: ReturnType<typeof createWebApp>;
+
+  beforeAll(() => {
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: repo,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    real = createWebApp({
+      workspace: createWorkspace({ ...world, files: createFileTree() }),
+      staticRoot: "/nonexistent",
+      defaultCwd: repo,
+    });
+  });
+
+  it.each([
+    ["the session's folder", () => "/sessions/s1/file-completion?q=.%2Fsrc%2F"],
+    [
+      "a folder before any session",
+      () =>
+        `/workspaces/file-completion?cwd=${encodeURIComponent(repo)}&q=.%2Fsrc%2F`,
+    ],
+  ])("completes a path inside %s", async (_scope, url) => {
+    const res = await real.request(url());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      matches: [{ path: join(repo, "src", "main.ts"), isDir: false }],
+    });
+  });
 });
 
 describe("unsupported documents", () => {
-  it("uses the generic viewer and preserves the original download bytes", async () => {
+  it("offers a binary file for download instead of printing it", async () => {
     const path = encodeURIComponent(join(repo, "report.docx"));
     const view = await app.request(`/files/view?session=s1&path=${path}`);
     expect(view.status).toBe(200);
     const html = await view.text();
-    expect(html).toContain('data-kind="text"');
-    expect(html).toContain('data-mode="source"');
-    expect(html).toContain('aria-label="Download file"');
+    expect(html).toContain("Binary file · 6 B");
+    expect(html).toContain(
+      `href="/files/raw?path=${path}&amp;session=s1&amp;download=1"`,
+    );
+    expect(html).toContain('download="report.docx"');
+    expect(html).not.toContain("file-source-line");
     expect(html).not.toContain("<iframe");
     const download = await app.request(
       `/files/raw?session=s1&path=${path}&download=1`,
@@ -623,14 +793,64 @@ describe("watching", () => {
     await reader?.cancel();
   });
 
-  it("tells the viewer when it may not watch a file", async () => {
+  it("refuses a file it may not watch with a status EventSource does not retry", async () => {
     const res = await app.request(
       `/files/watch?session=s1&path=${encodeURIComponent(join(outside, "other.txt"))}`,
     );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("content-type")).not.toContain("text/event-stream");
+  });
+
+  it("ends the stream with watch-error and stops the watcher when it fails", async () => {
+    let fail = () => {};
+    let stopped = false;
+    const world = createFakeWorld({
+      sessions: [
+        {
+          summary: {
+            id: "s1",
+            cwd: repo,
+            createdAt: "2026-09-01T00:00:00.000Z",
+            modifiedAt: "2026-09-02T00:00:00.000Z",
+            fileSize: 0,
+          },
+          entries: [],
+        },
+      ],
+    });
+    const failing = createWebApp({
+      workspace: createWorkspace({
+        ...world,
+        watcher: {
+          watch: (_path, handlers) => {
+            fail = () => {
+              handlers.error();
+            };
+            return () => {
+              stopped = true;
+            };
+          },
+        },
+      }),
+      staticRoot: "/nonexistent",
+      defaultCwd: repo,
+    });
+    const res = await failing.request(
+      `/files/watch?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
+    );
     const reader = res.body?.getReader();
-    const chunk = await reader?.read();
-    expect(new TextDecoder().decode(chunk?.value)).toContain("event: error");
-    await reader?.cancel();
+    if (!reader) throw new Error("No stream");
+    const decoder = new TextDecoder();
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toContain("event: connected");
+    fail();
+    let rest = "";
+    for (let chunk = await reader.read(); !chunk.done;) {
+      rest += decoder.decode(chunk.value);
+      chunk = await reader.read();
+    }
+    expect(rest).toContain("event: watch-error");
+    expect(stopped).toBe(true);
   });
 });
 
@@ -663,5 +883,139 @@ describe("workspace validation", () => {
       body: form,
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("files in other sessions' folders", () => {
+  let home = "";
+  const folder = (name: string) => join(home, name);
+  const session = (id: string, cwd: string) => ({
+    summary: {
+      id,
+      cwd,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      modifiedAt: "2026-09-01T00:00:00.000Z",
+      fileSize: 2,
+    },
+    entries: [userEntry(`${id}-u`, null, "question")],
+  });
+
+  beforeAll(async () => {
+    home = await mkdtemp(join(tmpdir(), "web-pi-other-folders-"));
+    for (const name of ["own", "other", "main", "wt", "late", "pick", "out"])
+      await mkdir(folder(name));
+    await writeFile(join(folder("other"), "one.txt"), "one\n");
+    await writeFile(join(folder("main"), "two.txt"), "two\n");
+    await writeFile(join(folder("late"), "three.txt"), "three\n");
+    await writeFile(join(folder("out"), "secret.txt"), "secret\n");
+    await symlink(folder("out"), join(folder("other"), "escape"));
+  });
+
+  afterAll(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  function otherApp() {
+    const world = createFakeWorld({
+      sessions: [
+        session("s1", folder("own")),
+        session("s2", folder("other")),
+        session("s3", folder("wt")),
+      ],
+      // wt is a linked worktree of the checkout in main.
+      projects: (cwd) => ({
+        root: cwd === folder("wt") ? folder("main") : cwd,
+        branch: null,
+        isWorktree: cwd === folder("wt"),
+        isTopLevel: true,
+      }),
+    });
+    const list = vi.spyOn(world.sessions, "list");
+    const resolve = vi.spyOn(world.projects, "resolve");
+    const app = createWebApp({
+      workspace: createWorkspace(world),
+      staticRoot: "/nonexistent",
+      defaultCwd: folder("own"),
+    });
+    const view = async (path: string) =>
+      (
+        await app.request(
+          `/files/view?session=s1&path=${encodeURIComponent(path)}`,
+        )
+      ).status;
+    return { app, world, list, resolve, view };
+  }
+
+  it("reads another session's folder and repository, and nothing beyond", async () => {
+    const { app, view } = otherApp();
+    expect(await view(join(folder("other"), "one.txt"))).toBe(200);
+    expect(await view(join(folder("main"), "two.txt"))).toBe(200);
+    expect(await view(join(folder("out"), "secret.txt"))).toBe(403);
+    expect(await view(join(folder("other"), "escape", "secret.txt"))).toBe(403);
+    const listed = await app.request(
+      `/files/tree?session=s1&path=${encodeURIComponent(folder("other"))}`,
+    );
+    expect(listed.status).toBe(200);
+  });
+
+  it("shares one listing and asks for repositories only when no folder holds the file", async () => {
+    const { list, resolve, view } = otherApp();
+    const one = join(folder("other"), "one.txt");
+    expect(await Promise.all([view(one), view(one)])).toEqual([200, 200]);
+    expect(await view(one)).toBe(200);
+    expect(list).toHaveBeenCalledOnce();
+    // Only the session's own folder had its repository looked up.
+    expect(new Set(resolve.mock.calls.map(([cwd]) => cwd))).toEqual(
+      new Set([folder("own")]),
+    );
+    expect(await view(join(folder("main"), "two.txt"))).toBe(200);
+    expect(resolve).toHaveBeenCalledWith(folder("wt"));
+  });
+
+  it("refuses a deleted session's folder at once", async () => {
+    const { app, view } = otherApp();
+    const one = join(folder("other"), "one.txt");
+    expect(await view(one)).toBe(200);
+    const deleted = await app.request("/sessions/s2/delete", {
+      method: "POST",
+    });
+    expect(deleted.status).toBe(200);
+    expect(await view(one)).toBe(403);
+  });
+
+  it("lists the folders again for a new session, a chosen folder, or after a few seconds", async () => {
+    const { app, world, list, view } = otherApp();
+    const three = join(folder("late"), "three.txt");
+    expect(await view(join(folder("other"), "one.txt"))).toBe(200);
+    // A session another process started in a new folder.
+    world.store.set("s4", session("s4", folder("late")));
+    expect(await view(three)).toBe(403);
+    const created = new FormData();
+    created.set("cwd", folder("own"));
+    created.set("text", "/name Draft");
+    await app.request("/sessions", { method: "POST", body: created });
+    expect(await view(three)).toBe(200);
+    expect(list).toHaveBeenCalledTimes(2);
+
+    world.store.delete("s4");
+    const chosen = new FormData();
+    chosen.set("cwd", folder("pick"));
+    await app.request("/workspaces/validate", {
+      method: "POST",
+      body: chosen,
+    });
+    expect(await view(three)).toBe(403);
+    expect(list).toHaveBeenCalledTimes(3);
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      world.store.set("s4", session("s4", folder("late")));
+      expect(await view(three)).toBe(403);
+      vi.setSystemTime(Date.now() + 6_000);
+      expect(await view(three)).toBe(200);
+      expect(list).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

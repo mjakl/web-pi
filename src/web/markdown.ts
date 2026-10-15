@@ -1,11 +1,12 @@
+import { formatBytes } from "@core/file-types";
 import { escapeHtml } from "@core/html";
 import { localFilePath } from "@core/path-access";
-import { Marked, type Tokens } from "marked";
+import { Marked, type Token, type Tokens } from "marked";
 
 // Model output is untrusted. Raw HTML inside Markdown is shown as text rather
 // than sanitised, which needs no allowlist and cannot leak a script.
 
-/** Past this the page prints the source instead of parsing it (§3.2). */
+/** Past this the page prints the source instead of parsing it. */
 const MAX_MARKDOWN_CHARS = 100_000;
 
 export type MarkdownOptions = {
@@ -13,7 +14,10 @@ export type MarkdownOptions = {
   cwd?: string;
   /** Opens local paths in the file panel and serves local images. */
   sessionId?: string;
-  /** File previews render fully; messages retain the oversized-source fallback. */
+  /**
+   * File previews render fully and load remote images; messages keep the
+   * oversized-source fallback and load a remote image only on a click.
+   */
   filePreview?: boolean;
 };
 
@@ -39,15 +43,96 @@ function headingId(text: string): string {
     .replaceAll(/\s+/g, "-");
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${String(Math.round(bytes / 1024))} KB`;
-  return `${String(bytes)} B`;
+type Navigation = (content: string, attributes?: string) => string;
+
+/**
+ * A remote image in a message waits for the reader. A prompt injection can
+ * put data into an image URL, and drawing the message would send it; the
+ * button names the host instead, and client/markdown-links.ts loads the
+ * image on a click.
+ */
+function remoteImage(
+  href: string,
+  alt: string,
+  title: string | undefined,
+  navigate?: Navigation,
+): string {
+  let host: string;
+  try {
+    host = new URL(href).host;
+  } catch {
+    return escapeHtml(alt);
+  }
+  const titled = title === undefined ? "" : ` data-title="${attribute(title)}"`;
+  const named =
+    alt === ""
+      ? ""
+      : ` <span class="markdown-remote-image-alt">${escapeHtml(alt)}</span>`;
+  return (
+    `<span class="markdown-remote-image"><button type="button" class="markdown-remote-image-load" data-remote-image="${attribute(href)}" data-alt="${attribute(alt)}"${titled} title="${attribute(href)}">` +
+    `<span class="markdown-remote-image-action">Load image</span>${named}` +
+    ` <span class="markdown-remote-image-host">${escapeHtml(host)}</span></button>${navigate?.("", " hidden data-remote-image-link") ?? ""}</span>`
+  );
 }
 
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
+function navigation(
+  href: string,
+  options: MarkdownOptions,
+): Navigation | undefined {
+  if (href.startsWith("#"))
+    return (content, attributes = "") =>
+      `<a href="#user-content-${attribute(href.slice(1))}"${attributes}>${content}</a>`;
+  if (/^(https?:|mailto:)/i.test(href)) {
+    const webLink = /^https?:\/\//i.test(href) ? " data-markdown-link" : "";
+    return (content, attributes = "") =>
+      `<a href="${attribute(href)}"${webLink} target="_blank" rel="noopener noreferrer"${attributes}>${content}</a>`;
+  }
+  const file = localFilePath(href, options.cwd);
+  if (file === null) return undefined;
+  return (content, attributes = "") =>
+    `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}"${attributes}>${content}</button>`;
+}
 
-/** pi-web's CodeBlock (§4.5): a language header, copy button and tinted body. */
+function renderImage(
+  { href, text, title }: Tokens.Image,
+  options: MarkdownOptions,
+  navigate?: Navigation,
+): string {
+  const alt = attribute(text);
+  if (/^https?:/i.test(href)) {
+    if (options.filePreview !== true)
+      return remoteImage(href, text, title ?? undefined, navigate);
+    const titleAttribute = title == null ? "" : ` title="${attribute(title)}"`;
+    const image = `<img src="${attribute(href)}" alt="${alt}"${titleAttribute} loading="lazy">`;
+    return navigate?.(image) ?? image;
+  }
+  const file = localFilePath(href, options.cwd);
+  if (file === null) return navigate?.(alt) ?? alt;
+  const label = alt === "" ? attribute(file) : alt;
+  if (options.sessionId === undefined) {
+    return (
+      navigate?.(label) ??
+      `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}">${label}</button>`
+    );
+  }
+  const image = `<img class="markdown-local-image" src="${attribute(rawFileUrl(file, options.sessionId))}" alt="${label}" loading="lazy">`;
+  return (
+    navigate?.(image) ??
+    `<button type="button" class="markdown-file-image" data-file-path="${attribute(file)}" title="${attribute(file)}">${image}</button>`
+  );
+}
+
+function hasImage(tokens: Token[]): boolean {
+  return tokens.some(
+    (token) =>
+      token.type === "image" ||
+      ("tokens" in token &&
+        Array.isArray(token.tokens) &&
+        hasImage(token.tokens)),
+  );
+}
+
+/** pi-web's CodeBlock: a language header, copy button and tinted body. */
 function codeBlock(code: string, language: string): string {
   const label = language === "" ? "text" : language;
   const body =
@@ -126,39 +211,56 @@ function markedFor(options: MarkdownOptions): Marked {
         this: { parser: { parseInline(tokens: unknown[]): string } },
         token: Tokens.Link,
       ) {
-        const content = this.parser.parseInline(token.tokens);
-        const href = token.href;
-        if (href.startsWith("#")) {
-          return `<a href="#user-content-${attribute(href.slice(1))}">${content}</a>`;
-        }
-        if (/^(https?:|mailto:)/i.test(href)) {
-          const webLink = /^https?:\/\//i.test(href)
-            ? " data-markdown-link"
-            : "";
-          return `<a href="${attribute(href)}"${webLink} target="_blank" rel="noopener noreferrer">${content}</a>`;
-        }
-        const file = localFilePath(href, options.cwd);
-        if (file !== null) {
-          return `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}">${content}</button>`;
-        }
-        return content;
+        const navigate = navigation(token.href, options);
+        if (!navigate) return this.parser.parseInline(token.tokens);
+        // Split at images, including those inside emphasis, so their loading
+        // buttons never sit inside an interactive navigation control.
+        const linked = (tokens: Token[]): string => {
+          let content = "";
+          let run: Token[] = [];
+          const flush = () => {
+            if (run.length) {
+              const text = this.parser.parseInline(run);
+              content += text.trim() === "" ? text : navigate(text);
+            }
+            run = [];
+          };
+          for (const child of tokens) {
+            if (child.type === "image") {
+              flush();
+              const image = child as Tokens.Image;
+              content += renderImage(
+                image,
+                options,
+                (content, attributes = "") =>
+                  navigate(
+                    content,
+                    attributes +
+                      (image.text === ""
+                        ? ` aria-label="${attribute(token.href)}"`
+                        : ""),
+                  ),
+              );
+            } else if (
+              ["strong", "em", "del", "text"].includes(child.type) &&
+              "tokens" in child &&
+              Array.isArray(child.tokens) &&
+              hasImage(child.tokens)
+            ) {
+              flush();
+              const tag = child.type === "text" ? "" : child.type;
+              content += tag
+                ? `<${tag}>${linked(child.tokens)}</${tag}>`
+                : linked(child.tokens);
+            } else run.push(child);
+          }
+          flush();
+          return content;
+        };
+        return linked(token.tokens);
       },
-      image({ href, text, title }: Tokens.Image) {
-        const alt = attribute(text);
-        if (/^https?:/i.test(href)) {
-          const titleAttribute =
-            title === null || title === undefined
-              ? ""
-              : ` title="${attribute(title)}"`;
-          return `<img src="${attribute(href)}" alt="${alt}"${titleAttribute} loading="lazy">`;
-        }
-        const file = localFilePath(href, options.cwd);
-        if (file === null) return alt;
-        const label = alt === "" ? attribute(file) : alt;
-        if (options.sessionId === undefined) {
-          return `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}">${label}</button>`;
-        }
-        return `<button type="button" class="markdown-file-image" data-file-path="${attribute(file)}" title="${attribute(file)}"><img src="${attribute(rawFileUrl(file, options.sessionId))}" alt="${label}" loading="lazy"></button>`;
+      image(token: Tokens.Image) {
+        return renderImage(token, options);
       },
     },
   });
@@ -170,7 +272,7 @@ export function renderMarkdown(
   options: MarkdownOptions = {},
 ): string {
   if (options.filePreview !== true && source.length > MAX_MARKDOWN_CHARS) {
-    // pi-web's SafeMarkdownBody reveal (§4.4.2), as a disclosure.
+    // pi-web's SafeMarkdownBody reveal, as a disclosure.
     const size = escapeHtml(formatBytes(source.length));
     return (
       `<details class="markdown-oversized"><summary class="markdown-oversized-summary">⚠ Message content is very large (${size}).` +
@@ -178,6 +280,5 @@ export function renderMarkdown(
       `<div class="markdown-oversized-body"><pre class="markdown-oversized-text">${escapeHtml(source)}</pre></div></details>`
     );
   }
-  const text = source.replace(FRONTMATTER, "");
-  return markedFor(options).parse(text, { async: false });
+  return markedFor(options).parse(source, { async: false });
 }

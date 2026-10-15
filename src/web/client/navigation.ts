@@ -1,3 +1,4 @@
+import { COOKIE_MAX_AGE, CWD_COOKIE, SESSION_COOKIE } from "@core/cookies";
 import type { Htmx, HtmxRequestCtx } from "htmx.org";
 import { requestContext } from "./htmx.ts";
 import { setUpRegion } from "./lifecycle.ts";
@@ -11,12 +12,24 @@ import { showToast } from "./toasts.ts";
 function htmx(): Htmx {
   return (globalThis as unknown as { htmx: Htmx }).htmx;
 }
+
+/** The session on screen, or "" when none is: `main` carries it. */
+export function displayedSessionId(): string {
+  return (
+    document.querySelector<HTMLElement>("main")?.dataset["sessionId"] ?? ""
+  );
+}
+
+/** The folder on screen: the open session's, or the new session's. */
+export function displayedCwd(): string {
+  return document.querySelector<HTMLElement>("main")?.dataset["cwd"] ?? "";
+}
+
 function displayedUrl(): string {
-  const main = document.querySelector<HTMLElement>("main");
-  const id = main?.dataset["sessionId"];
+  const id = displayedSessionId();
   return id
     ? `/sessions/${id}`
-    : `/new?cwd=${encodeURIComponent(main?.dataset["cwd"] ?? "")}`;
+    : `/new?cwd=${encodeURIComponent(displayedCwd())}`;
 }
 function sessionTarget(ctx: HtmxRequestCtx): boolean {
   return ctx.target?.id === "session-region";
@@ -39,7 +52,7 @@ export function setUpNavigation(): void {
   if (
     ["/", "/new"].includes(location.pathname) &&
     !location.search &&
-    !document.querySelector("main[data-session-id]")
+    !displayedSessionId()
   )
     history.replaceState(history.state, "", displayedUrl());
 
@@ -74,7 +87,6 @@ export function setUpNavigation(): void {
       return;
     event.preventDefault();
     closeMobileSidebar();
-    const main = document.querySelector<HTMLElement>("main");
     intent += 1;
     cancelSessionInputFocus();
     focusRedirect = undefined;
@@ -83,10 +95,7 @@ export function setUpNavigation(): void {
     cancel?.();
     cancel = undefined;
     latest = undefined;
-    if (
-      url.pathname === `/sessions/${main?.dataset["sessionId"] ?? ""}` &&
-      !url.search
-    ) {
+    if (url.pathname === `/sessions/${displayedSessionId()}` && !url.search) {
       // Back/Forward changes the address before its replacement view arrives.
       if (canceledHistory && location.pathname !== url.pathname)
         history.replaceState(history.state, "", displayedUrl());
@@ -102,11 +111,12 @@ export function setUpNavigation(): void {
 
   document.addEventListener("htmx:config:request", (event) => {
     const ctx = requestContext(event);
-    const main = document.querySelector<HTMLElement>("main");
+    const id = displayedSessionId();
     if (sessionTarget(ctx))
       ctx.request.headers["HX-Target"] = "div#session-region";
-    ctx.request.headers["X-Web-Pi-Session"] = main?.dataset["sessionId"] ?? "";
-    ctx.request.headers["X-Web-Pi-Cwd"] = main?.dataset["cwd"] ?? "";
+    ctx.request.headers["X-Web-Pi-Session"] = id;
+    // A header cannot carry characters above U+00FF; the server decodes it.
+    ctx.request.headers["X-Web-Pi-Cwd"] = encodeURIComponent(displayedCwd());
     const url = new URL(ctx.request.action, location.href);
     if (
       url.pathname.startsWith("/files/") &&
@@ -114,9 +124,8 @@ export function setUpNavigation(): void {
     ) {
       url.searchParams.delete("session");
       url.searchParams.delete("cwd");
-      if (main?.dataset["sessionId"])
-        url.searchParams.set("session", main.dataset["sessionId"]);
-      else url.searchParams.set("cwd", main?.dataset["cwd"] ?? "");
+      if (id) url.searchParams.set("session", id);
+      else url.searchParams.set("cwd", displayedCwd());
       ctx.request.action = url.pathname + url.search;
     }
   });
@@ -144,11 +153,8 @@ export function setUpNavigation(): void {
     if (
       sessionTarget(ctx) ||
       createsSession ||
-      (url.pathname === "/sidebar" &&
-        (url.searchParams.has("cwd") || url.searchParams.has("project"))) ||
       url.pathname === "/workspaces/validate" ||
-      url.pathname ===
-        `/sessions/${document.querySelector<HTMLElement>("main[data-session-id]")?.dataset["sessionId"] ?? ""}/delete` ||
+      url.pathname === `/sessions/${displayedSessionId()}/delete` ||
       /^\/sessions\/[^/]+\/(fork|rewind|navigate|clone)$/.test(url.pathname)
     ) {
       // HX-Location continues the same opening operation, including any
@@ -252,13 +258,9 @@ export function setUpNavigation(): void {
     // Commit browser preferences only after a winning response is displayed.
     // A canceled GET therefore cannot change them through Set-Cookie headers.
     const id = main.dataset["sessionId"] ?? "";
-    document.cookie = `web-pi-session=${encodeURIComponent(id)}; path=/; samesite=lax; max-age=${id ? "31536000" : "0"}`;
+    const maxAge = String(COOKIE_MAX_AGE);
+    document.cookie = `${SESSION_COOKIE}=${encodeURIComponent(id)}; path=/; samesite=lax; max-age=${id ? maxAge : "0"}`;
     if (!id && main.dataset["cwdAvailable"] !== "false" && main.dataset["cwd"])
-      document.cookie = `web-pi-cwd=${encodeURIComponent(main.dataset["cwd"])}; path=/; samesite=lax; max-age=31536000`;
-    const panel = document.getElementById("file-panel");
-    if (panel) {
-      panel.dataset["session"] = id;
-      panel.dataset["cwd"] = main.dataset["cwd"] ?? "";
-    }
+      document.cookie = `${CWD_COOKIE}=${encodeURIComponent(main.dataset["cwd"])}; path=/; samesite=lax; max-age=${maxAge}`;
   });
 }

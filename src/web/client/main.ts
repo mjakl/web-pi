@@ -1,6 +1,8 @@
 // The only script the browser runs besides htmx, bundled to static/client.js.
-// One import per area, and nothing else: each area owns its own module and the
-// helpers it pulls in, so five of them can be worked on at once.
+// Each area owns its own module and the helpers it pulls in, so five of them
+// can be worked on at once; this file only calls their setups and those of
+// the page-wide modules. The cached offline page has no htmx and runs push
+// presence alone, so it can reconfirm presence when the connection returns.
 
 import { setUpShell } from "./shell.ts";
 import { setUpSidebar } from "./sidebar.ts";

@@ -23,6 +23,32 @@ export function uniqueSkills(
   });
 }
 
+/**
+ * A list of skill identities, from a parsed value or its JSON text, without
+ * repeats. Anything that is not one makes the whole list undefined: a
+ * damaged selection is refused, never half-read.
+ */
+export function skillSelections(value: unknown): SkillSelection[] | undefined {
+  let list = value;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(list)) return undefined;
+  const skills: SkillSelection[] = [];
+  for (const item of list as unknown[]) {
+    if (typeof item !== "object" || item === null) return undefined;
+    const { id, name } = item as Record<string, unknown>;
+    if (typeof id !== "string" || !id || typeof name !== "string" || !name)
+      return undefined;
+    skills.push({ id, name });
+  }
+  return uniqueSkills(skills);
+}
+
 export function encodeSkillPrompt(
   text: string,
   skills: readonly SkillSelection[],
@@ -66,30 +92,18 @@ function provenance(
     if (typeof value !== "object" || value === null) return undefined;
     const record = value as Record<string, unknown>;
     const expandedLength = record["expandedLength"];
+    const skills = skillSelections(record["skills"]);
     if (
       typeof record["text"] !== "string" ||
-      !Array.isArray(record["skills"]) ||
+      skills === undefined ||
       typeof expandedLength !== "number" ||
       !Number.isSafeInteger(expandedLength) ||
       expandedLength < 0 ||
       expandedLength > text.length - expandedStart
     )
       return undefined;
-    const skills: SkillSelection[] = [];
-    for (const item of record["skills"] as unknown[]) {
-      if (typeof item !== "object" || item === null) return undefined;
-      const selection = item as Record<string, unknown>;
-      if (
-        typeof selection["id"] !== "string" ||
-        !selection["id"] ||
-        typeof selection["name"] !== "string" ||
-        !selection["name"]
-      )
-        return undefined;
-      skills.push({ id: selection["id"], name: selection["name"] });
-    }
     return {
-      draft: { text: record["text"], skills: uniqueSkills(skills) },
+      draft: { text: record["text"], skills },
       prefix: text.slice(0, start),
       suffix: text.slice(expandedStart + expandedLength),
     };
@@ -113,21 +127,32 @@ export function recoverSkillPrompt(text: string): SkillPrompt {
 
 export type QueueRecall = EditableMessage & { warning?: string };
 
-/** Recover each authored request before joining; union only dropdown selections. */
+/**
+ * Recover each authored request before joining; union only dropdown
+ * selections. The draft the reader has in the composer goes last, as Pi's
+ * editor puts it after the queued text.
+ */
 export function recallSkillPrompts(
   queued: readonly QueuedMessage[],
   available: readonly SkillSelection[],
+  current: SkillPrompt = { text: "" },
 ): QueueRecall {
   const drafts = queued.map(({ text }) => recoverSkillPrompt(text));
-  const skills = uniqueSkills(drafts.flatMap((prompt) => prompt.skills ?? []));
+  const skills = uniqueSkills([
+    ...drafts.flatMap((prompt) => prompt.skills ?? []),
+    ...(current.skills ?? []),
+  ]);
   // Resolve names against this live session's discovery, just as resend will.
   // A selected identity or the combined draft's first command already includes it.
   const included = new Set(skills.map((skill) => skill.id));
   const lost = new Set<string>();
+  const leadingSkill = (text: string) => {
+    const name = /^\/skill:([^\s]+)/.exec(text.trimStart())?.[1];
+    return { name, id: available.find((skill) => skill.name === name)?.id };
+  };
   let precedingText = false;
   for (const [index, draft] of drafts.entries()) {
-    const name = /^\/skill:([^\s]+)/.exec(draft.text.trimStart())?.[1];
-    const id = available.find((skill) => skill.name === name)?.id;
+    const { name, id } = leadingSkill(draft.text);
     const invoked =
       draft.skills !== undefined ||
       skillCommand(queued[index]?.text ?? "") !== undefined;
@@ -137,15 +162,19 @@ export function recallSkillPrompts(
     }
     precedingText ||= draft.text.trim() !== "";
   }
+  // The reader's draft goes after the queued text, so a /skill: command
+  // typed at its start no longer starts the request either.
+  const typed = leadingSkill(current.text);
+  if (typed.name && typed.id && precedingText && !included.has(typed.id))
+    lost.add(typed.name);
   const warning =
     lost.size > 0
       ? `After queue recall, ${[...lost].map((name) => `/skill:${name}`).join(", ")} will not invoke from the middle of the combined request. Select ${[...lost].join(", ")} in Skills to include ${lost.size === 1 ? "it" : "them"} on resend.`
       : undefined;
+  const texts = drafts.map(({ text }) => text).filter((text) => text !== "");
+  if (current.text.trim() !== "") texts.push(current.text);
   return {
-    text: drafts
-      .map(({ text }) => text)
-      .filter((text) => text !== "")
-      .join("\n\n"),
+    text: texts.join("\n\n"),
     images: queued.flatMap((message) => message.images ?? []),
     ...(skills.length > 0 ? { skills } : {}),
     ...(warning ? { warning } : {}),

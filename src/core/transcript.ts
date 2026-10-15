@@ -6,14 +6,13 @@ import {
   recoverSkillPrompt,
   skillCommand,
 } from "./skill-prompt.ts";
-export { skillCommand } from "./skill-prompt.ts";
 
 // The conversation as the UI shows it: one item per visible entry on the
 // active branch, each carrying the blocks it renders. Tool results are folded
 // into the assistant message that requested them, so a turn renders as one
 // block. Everything here is a pure projection of session entries.
 
-/** §10: previews, and the point where thinking is fetched on demand. */
+/** Previews, and the point where thinking is fetched on demand. */
 const TOOL_PREVIEW_CHARS = 120;
 const NOTE_PREVIEW_CHARS = 140;
 /**
@@ -207,9 +206,27 @@ export type Transcript = {
   lastThinking: string | null;
 };
 
+/**
+ * A message's content as parts. Old pi-web sessions stored images in
+ * Anthropic's shape, `{ source: { data, media_type } }`; they read as Pi's
+ * flat image part from here on, so every reader finds the bytes one way.
+ */
 export function contentParts(content: unknown): ContentPart[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  return Array.isArray(content) ? (content as ContentPart[]) : [];
+  return Array.isArray(content) ? (content as unknown[]).map(flatImage) : [];
+}
+
+function flatImage(part: unknown): ContentPart {
+  const source =
+    isRecord(part) && part["type"] === "image" && part["data"] === undefined
+      ? part["source"]
+      : undefined;
+  if (!isRecord(source)) return part as ContentPart;
+  return {
+    type: "image",
+    ...optional("data", stringOf(source["data"])),
+    ...optional("mimeType", stringOf(source["media_type"])),
+  };
 }
 
 function contentText(content: unknown): string {
@@ -230,12 +247,26 @@ function imageIndices(content: unknown): number[] {
   return indices;
 }
 
-function collapse(text: string): string {
-  return text.replaceAll(/\s+/g, " ").trim();
+/**
+ * `text` on one line and at most `limit` characters long, with "…" where it
+ * was cut. A negative limit keeps the end instead, as `slice` counts. A cut
+ * never falls inside a surrogate pair, so no emoji turns into U+FFFD.
+ */
+export function preview(text: string, limit: number): string {
+  const line = text.replaceAll(/\s+/g, " ").trim();
+  const size = Math.abs(limit);
+  if (line.length <= size) return line;
+  if (limit < 0) {
+    const start = line.length - size + 1;
+    return `…${line.slice(lowSurrogateAt(line, start) ? start + 1 : start)}`;
+  }
+  const end = size - 1;
+  return `${line.slice(0, lowSurrogateAt(line, end) ? end - 1 : end)}…`;
 }
 
-function clip(text: string, limit: number): string {
-  return text.length > limit ? text.slice(0, limit) : text;
+function lowSurrogateAt(text: string, index: number): boolean {
+  const code = text.charCodeAt(index);
+  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -260,7 +291,7 @@ export function toolPreview(argumentsValue: unknown): string {
       typeof argumentsValue === "string"
         ? argumentsValue
         : (JSON.stringify(argumentsValue) ?? "");
-    return clip(collapse(text), TOOL_PREVIEW_CHARS);
+    return preview(text, TOOL_PREVIEW_CHARS);
   }
   const named = ["command", "path", "file_path", "pattern", "query"].find(
     (key) => argumentsValue[key] !== undefined,
@@ -269,7 +300,7 @@ export function toolPreview(argumentsValue: unknown): string {
   if (key === undefined) return "";
   const value = argumentsValue[key];
   const text = typeof value === "string" ? value : JSON.stringify(value);
-  return clip(collapse(text ?? ""), TOOL_PREVIEW_CHARS);
+  return preview(text ?? "", TOOL_PREVIEW_CHARS);
 }
 
 const TOOL_PROGRESS_CHARS = 500;
@@ -289,10 +320,7 @@ export function toolProgress(partialResult: unknown): string | undefined {
     .findLast((line) => line.trim() !== "")
     ?.trim();
   if (latest === undefined || latest === "") return undefined;
-  const line = collapse(latest);
-  return line.length <= TOOL_PROGRESS_CHARS
-    ? line
-    : `...${line.slice(-(TOOL_PROGRESS_CHARS - 3))}`;
+  return preview(latest, -TOOL_PROGRESS_CHARS);
 }
 
 /** Trailing `<read-files>` / `<modified-files>` sections of a compaction. */
@@ -424,7 +452,10 @@ function contextTokensOf(message: AgentMessage): number | undefined {
   if (message.stopReason === "aborted" || message.stopReason === "error") {
     return undefined;
   }
+  // Typed as always present, but Pi checks for it too: one entry written
+  // without it must not take the whole transcript down.
   const { usage } = message;
+  if (!usage) return undefined;
   const total =
     usage.totalTokens ||
     usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -698,7 +729,7 @@ export function projectTranscript(branch: readonly SessionEntry[]): Transcript {
             entryId: entry.id,
             customType: entry.customType,
             text,
-            preview: clip(collapse(text), NOTE_PREVIEW_CHARS),
+            preview: preview(text, NOTE_PREVIEW_CHARS),
             images: imageIndices(entry.content),
             ...optional(
               "details",
@@ -736,15 +767,4 @@ export function deferThinking(items: readonly TranscriptItem[]): void {
       block.text = "";
     }
   }
-}
-
-/** Plain text of the first user message, for titles and previews. */
-export function transcriptTitle(
-  transcript: Transcript,
-  maxLength = 80,
-): string {
-  const first = transcript.items.find((item) => item.kind === "user");
-  if (!first) return "";
-  const line = collapse(first.command ?? first.text);
-  return line.length > maxLength ? `${line.slice(0, maxLength - 1)}…` : line;
 }

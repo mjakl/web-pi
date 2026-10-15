@@ -1,11 +1,14 @@
-import type { EditableMessage } from "./ports.ts";
+import type { EditableMessage, LiveStatus } from "./ports.ts";
 import { displaySkillPrompt, recoverSkillPrompt } from "./skill-prompt.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { SessionRowMetadata } from "./sessions.ts";
+import { type SessionRowMetadata, TITLE_CHARS } from "./sessions.ts";
+import { contentParts, preview } from "./transcript.ts";
 
 // Everything the UI derives from a session's raw entries: stars, statistics,
-// the branch leaves of the entry tree, and the sidebar row summary. Pure
-// functions over what the SessionCatalog read; no file or SDK access.
+// the path to a branch tip, and the sidebar row summary, plus the rules both
+// session writers apply: what a star may mark, where a fork ends, what a
+// rewind keeps, and when a session is busy. Pure functions over what the
+// SessionCatalog read; no file or SDK access.
 
 /** Custom-entry type for web-pi's stars. */
 export const STAR_TYPE = "web-pi:star";
@@ -23,6 +26,14 @@ function starData(entry: SessionEntry): StarData | undefined {
 
 function isAssistantMessage(entry: SessionEntry | undefined): boolean {
   return entry?.type === "message" && entry.message.role === "assistant";
+}
+
+/** Stars only ever mark an assistant answer; anything else is refused. */
+export function starTarget(entry: SessionEntry | undefined): SessionEntry {
+  if (entry === undefined || !isAssistantMessage(entry)) {
+    throw new Error("Star target must be an assistant answer");
+  }
+  return entry;
 }
 
 /**
@@ -175,15 +186,6 @@ export function branchTo(
   return path.reverse();
 }
 
-export type BranchLeaf = {
-  /** Entry to view or navigate to; the tip of this branch. */
-  id: string;
-  /** Last user message on the path, as a label. */
-  label: string;
-  timestamp: string;
-  current: boolean;
-};
-
 /** Pi's /copy selection rule, retaining source whitespace rather than trimming it. */
 export function lastAssistantText(
   branch: readonly SessionEntry[],
@@ -209,31 +211,108 @@ export function editableUserMessage(
   entry: SessionEntry,
 ): EditableMessage | undefined {
   if (entry.type !== "message" || entry.message.role !== "user") return;
-  const { content } = entry.message;
-  if (typeof content === "string")
-    return { ...recoverSkillPrompt(content), images: [] };
   const text: string[] = [];
   const images: EditableMessage["images"] = [];
-  for (const value of content) {
-    const part = value as unknown as Record<string, unknown>;
-    if (!part || typeof part !== "object") continue;
-    if (part["type"] === "text" && typeof part["text"] === "string") {
-      text.push(part["text"]);
-    } else if (part["type"] === "image") {
-      // Pi writes flat blocks; older pi-web messages can use Anthropic's source shape.
-      const source = part["source"];
-      const nested =
-        source && typeof source === "object"
-          ? (source as Record<string, unknown>)
-          : undefined;
-      const data = part["data"] ?? nested?.["data"];
-      const mimeType = part["mimeType"] ?? nested?.["media_type"];
-      if (typeof data === "string" && typeof mimeType === "string") {
-        images.push({ data, mimeType });
-      }
+  for (const part of contentParts(entry.message.content)) {
+    if (part.type === "text" && typeof part.text === "string") {
+      text.push(part.text);
+    } else if (
+      part.type === "image" &&
+      typeof part.data === "string" &&
+      typeof part.mimeType === "string"
+    ) {
+      images.push({ data: part.data, mimeType: part.mimeType });
     }
   }
   return { ...recoverSkillPrompt(text.join("\n")), images };
+}
+
+/**
+ * Where a fork from `entry` ends, and what it hands back to edit. Editing a
+ * user message reopens the history before it; anything else is copied up to
+ * and including itself. The role decides, not the text: a question that is
+ * only images is still a question.
+ */
+export function forkPoint(entry: SessionEntry | undefined): {
+  leafId: string;
+  draft: EditableMessage;
+} {
+  if (!entry) throw new Error("Select an existing conversation message");
+  const draft = editableUserMessage(entry) ?? { text: "", images: [] };
+  const isUserMessage =
+    entry.type === "message" && entry.message.role === "user";
+  const leafId = isUserMessage ? entry.parentId : entry.id;
+  if (leafId === null) {
+    throw new Error(
+      "Nothing precedes the first message; use New for an empty session.",
+    );
+  }
+  return { leafId, draft };
+}
+
+const KEPT_AFTER_REWIND = new Set([
+  "session_info",
+  "model_change",
+  "thinking_level_change",
+]);
+
+/**
+ * Rewinding to a user message removes it and everything that followed,
+ * except the preferences recorded later (name, model, thinking level) and
+ * the stars of entries that stay, re-chained after the cut. A marker leaf
+ * with `markerId` ends the chain, so the reopened session points before the
+ * removed message without resurrecting anything after it. Returns how many
+ * entries stay as they are, the entries that follow them, and the removed
+ * message for the composer.
+ */
+export function rewindSelection(
+  entries: readonly SessionEntry[],
+  entryId: string,
+  markerId: string,
+): { kept: number; tail: SessionEntry[]; removed: EditableMessage } {
+  const index = entries.findIndex((entry) => entry.id === entryId);
+  const target = entries[index];
+  const removed = target && editableUserMessage(target);
+  if (!target || !removed) {
+    throw new Error("Rewind requires an existing user message");
+  }
+  const keptIds = new Set(entries.slice(0, index).map((entry) => entry.id));
+  let parentId = target.parentId;
+  const tail: SessionEntry[] = [];
+  const chain = (entry: SessionEntry) => {
+    tail.push({ ...entry, parentId });
+    parentId = entry.id;
+  };
+  for (const entry of entries.slice(index + 1)) {
+    const starred = starredId(entry);
+    if (KEPT_AFTER_REWIND.has(entry.type)) chain(entry);
+    // Both stars and unstars are kept, or an unstar recorded after the cut
+    // would leave an earlier star line standing.
+    else if (starred !== undefined && keptIds.has(starred)) chain(entry);
+  }
+  tail.push({
+    type: "custom",
+    customType: "web-pi-rewind",
+    data: {},
+    id: markerId,
+    parentId,
+    timestamp: new Date().toISOString(),
+  });
+  return { kept: index, tail, removed };
+}
+
+/** The entry a star line names, whatever it says about it. */
+function starredId(entry: SessionEntry): string | undefined {
+  if (entry.type !== "custom" || entry.customType !== STAR_TYPE) return;
+  const targetId = (entry.data as { targetId?: unknown } | undefined)?.targetId;
+  return typeof targetId === "string" ? targetId : undefined;
+}
+
+/** A session is busy while its agent runs or a shell command does. */
+export function isBusy(
+  status: Pick<LiveStatus, "running" | "bashRunning">,
+): boolean {
+  return status.running || status.bashRunning;
 }
 
 /** Plain text of a user message entry; undefined for anything else. */
@@ -248,53 +327,6 @@ export function userMessageText(entry: SessionEntry): string | undefined {
           .map((part) => part.text)
           .join(" ");
   return displaySkillPrompt(text).text.replaceAll(/\s+/g, " ").trim();
-}
-
-/**
- * One entry per branch tip. A session with no branching has a single leaf, so
- * the switcher only appears once the user actually forked the conversation.
- */
-export function branchLeaves(
-  entries: readonly SessionEntry[],
-  currentLeafId: string | null,
-): BranchLeaf[] {
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const parents = new Set(
-    entries.map((entry) => entry.parentId).filter((id) => id !== null),
-  );
-  const onCurrentPath = new Set<string>();
-  for (
-    let entry = currentLeafId === null ? undefined : byId.get(currentLeafId);
-    entry;
-    entry = entry.parentId === null ? undefined : byId.get(entry.parentId)
-  ) {
-    onCurrentPath.add(entry.id);
-  }
-
-  const leaves: BranchLeaf[] = [];
-  for (const entry of entries) {
-    if (parents.has(entry.id)) continue;
-    let label = "";
-    for (
-      let step: SessionEntry | undefined = entry;
-      step && !label;
-      step = step.parentId === null ? undefined : byId.get(step.parentId)
-    ) {
-      label = userMessageText(step) ?? "";
-    }
-    leaves.push({
-      id: entry.id,
-      label: label.slice(0, 60) || entry.id.slice(0, 8),
-      timestamp: entry.timestamp,
-      current: onCurrentPath.has(entry.id),
-    });
-  }
-  // The branch being viewed first, then the most recently touched.
-  return leaves.sort(
-    (a, b) =>
-      Number(b.current) - Number(a.current) ||
-      b.timestamp.localeCompare(a.timestamp),
-  );
 }
 
 /**
@@ -327,7 +359,9 @@ export function rowMetadataFold(): {
       if (entry.type !== "message") return;
       messageCount += 1;
       if (entry.message.role === "assistant") answers.add(entry.id);
-      else if (!firstMessage) firstMessage = userMessageText(entry) ?? "";
+      // Only the title's worth: a cache holds thousands of these rows.
+      else if (!firstMessage)
+        firstMessage = preview(userMessageText(entry) ?? "", TITLE_CHARS);
     },
     finish(file) {
       let starCount = 0;

@@ -1,16 +1,14 @@
 import { ansiToHtml, normalizeFrame } from "@core/ansi";
-import type { CustomFrame, DialogRequest } from "@core/extension-ui";
+import {
+  closesIn,
+  type CustomFrame,
+  type DialogRequest,
+} from "@core/extension-ui";
 import { raw } from "hono/html";
 import { ConfigButton } from "./ConfigControls.tsx";
 
 // Dialogs and terminal panels arrive on the session stream. Their owner
 // subtrees stay mounted while frame content changes, preserving focus/input.
-
-/** Seconds left on an extension-set timeout, for the line under the title. */
-function remaining(expiresAt: number): string {
-  const seconds = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
-  return `Closes in ${String(seconds)}s if unanswered.`;
-}
 
 /** Enter chooses the first submit button. CSS places Cancel visually first. */
 function Cancel() {
@@ -138,10 +136,18 @@ export function ExtensionDialogBody({
       >
         <div class="extension-dialog-heading">
           <div class="extension-dialog-title">{dialog.title}</div>
-          <div class="extension-dialog-timeout">
+          {/* The time left, not the deadline: the browser's clock may differ. */}
+          <div
+            class="extension-dialog-timeout"
+            data-expires-in={
+              dialog.expiresAt === undefined
+                ? undefined
+                : dialog.expiresAt - Date.now()
+            }
+          >
             {dialog.expiresAt === undefined
               ? "extension request"
-              : remaining(dialog.expiresAt)}
+              : closesIn(dialog.expiresAt)}
           </div>
         </div>
         <Body dialog={dialog} />

@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import type { AssistantBlock, AssistantItem } from "@core/transcript";
 import { CardChevronIcon, FileIcon } from "@web/views/icons";
 import {
@@ -5,6 +6,7 @@ import {
   HistoryActionFrame,
   Images,
   type ItemActions,
+  itemKey,
   Markdown,
   StarButton,
   Time,
@@ -13,12 +15,6 @@ import { ToolCard } from "./tools.tsx";
 
 // The assistant message: model, blocks (text, thinking, images, tool cards),
 // errors, files the turn wrote, and completed usage.
-
-function assistantKey(item: AssistantItem): string {
-  return item.entryId === "partial"
-    ? `partial-${String(Date.parse(item.timestamp))}`
-    : item.entryId;
-}
 
 function ThinkingBlock({
   item,
@@ -42,7 +38,7 @@ function ThinkingBlock({
       : undefined;
   return (
     <details
-      id={`thinking-${assistantKey(item)}-${String(block.index)}`}
+      id={`thinking-${itemKey(item)}-${String(block.index)}`}
       class="transcript-details thinking-card"
     >
       <summary class="thinking-heading">
@@ -55,7 +51,7 @@ function ThinkingBlock({
         </span>
       </summary>
       <div
-        id={`thinking-body-${assistantKey(item)}-${String(block.index)}`}
+        id={`thinking-body-${itemKey(item)}-${String(block.index)}`}
         class="thinking-body"
         hx-morph-skip={item.entryId !== "partial" ? "" : undefined}
         hx-get={fetchUrl}
@@ -180,12 +176,16 @@ export function AssistantMessage({
     >
       <div
         class="message-row assistant-message"
-        id={`entry-${assistantKey(item)}${item.processHalf ? "-process" : ""}`}
+        id={`entry-${itemKey(item)}${item.processHalf ? "-process" : ""}`}
         data-role="assistant"
       >
         <div class="assistant-message-header">
           {star && actions ? (
-            <StarButton entryId={item.entryId} actions={actions} />
+            <StarButton
+              sessionId={actions.sessionId}
+              entryId={item.entryId}
+              starred={actions.starred.has(item.entryId)}
+            />
           ) : null}
           <span title={item.model} class="assistant-model-name">
             {item.model}
@@ -238,7 +238,7 @@ export function WrittenFiles({
   return (
     <div aria-label="Files changed" class="written-files">
       {files.map((path) => {
-        const name = path.split("/").pop() ?? path;
+        const name = baseName(path);
         return (
           <button
             type="button"

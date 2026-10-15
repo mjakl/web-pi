@@ -3,17 +3,19 @@
 // document title. Everything here belongs to the shell area; the sidebar's
 // own behaviour is in sidebar.ts.
 
+import { baseName } from "@core/file-types";
 import { setUpRegion } from "./lifecycle.ts";
-import { abortTurn } from "./composer.ts";
+import { abortTurn, somethingOpen } from "./composer.ts";
 import { dialogOpen, setUpDialogs } from "./dialogs.ts";
 import { setUpExtensions } from "./extensions.ts";
 import { setUpNotifications } from "./notify.ts";
 import { setUpPreferences } from "./preferences.ts";
 import { setUpPush } from "./push.ts";
 import { setUpResize } from "./resize.ts";
+import { displayedCwd, displayedSessionId } from "./navigation.ts";
 import { setUpTheme } from "./theme.ts";
 import { setUpToasts } from "./toasts.ts";
-import { setUpViewport } from "./viewport.ts";
+import { isTextEntry, setUpViewport } from "./viewport.ts";
 
 const SIDEBAR_WIDTH_KEY = "web-pi-sidebar-width";
 const SIDEBAR_MIN = 180;
@@ -31,14 +33,11 @@ function sidebar(): HTMLElement | null {
  * restored index and new-session views (AppShell.tsx L1096).
  */
 function setUpTitle(): void {
-  const main = document.querySelector("main");
-  const cwd = main?.dataset["cwd"] ?? "";
   const opened =
-    (main?.dataset["sessionId"] ?? "") !== "" ||
+    displayedSessionId() !== "" ||
     new URLSearchParams(location.search).has("cwd");
-  const name = cwd.split(/[\\/]/).filter(Boolean).pop();
-  document.title =
-    name === undefined || !opened ? "web-pi" : `${name} - web-pi`;
+  const name = baseName(displayedCwd());
+  document.title = name === "" || !opened ? "web-pi" : `${name} - web-pi`;
 }
 
 export function closeMobileSidebar(): void {
@@ -76,9 +75,6 @@ function mountSidebar(element: HTMLElement): void {
   const mobile = matchMedia("(max-width: 640px)").matches;
   setSidebarOpen(!mobile);
   element.classList.remove("sidebar-mobile-pending");
-  document
-    .querySelector(".sidebar-overlay-backdrop")
-    ?.classList.remove("sidebar-mobile-pending");
 }
 
 function mountSidebarResize(handle: HTMLElement, signal: AbortSignal): void {
@@ -97,11 +93,6 @@ function mountSidebarResize(handle: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-/**
- * System, Tools and Session info share one host under the top bar, and only
- * one is open at a time. A second click on the open button closes it, which
- * has to happen before htmx sees the click and fetches the panel again.
- */
 /**
  * The narrow-phone toolbar: the three tabs live behind the "more" button and
  * slide in over the bar, as pi-web's `mobileToolbarMoreOpen` does.
@@ -129,108 +120,52 @@ function mountMobileToolbar(button: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-function mountTopPanels(host: HTMLElement, signal: AbortSignal): void {
-  const bar = document.getElementById("top-bar");
-  if (!bar) return;
-  const buttons = [
-    ...document.querySelectorAll<HTMLElement>("[data-top-panel]"),
-  ];
-  // The host is fixed, so it has to be told where the bar is: it spans the
-  // bar exactly, which is the centre column, never the sidebar.
-  const place = (): void => {
-    // Every scroll in the page lands here; a hidden host has nothing to place.
-    if (host.hidden) return;
-    const box = bar.getBoundingClientRect();
-    host.style.top = `${String(box.bottom)}px`;
-    host.style.left = `${String(box.left)}px`;
-    host.style.width = `${String(box.width)}px`;
-    host.style.maxHeight = `calc(100dvh - ${String(box.bottom)}px)`;
-  };
-  const observer = new ResizeObserver(place);
-  observer.observe(bar);
-  signal.addEventListener(
-    "abort",
-    () => {
-      observer.disconnect();
-    },
-    { once: true },
-  );
-  addEventListener("scroll", place, { capture: true, signal });
-  const paint = (open: string): void => {
-    host.hidden = open === "";
-    if (open !== "") place();
-    for (const button of buttons) {
-      const active = button.dataset["topPanel"] === open;
-      button.setAttribute("aria-pressed", String(active));
-    }
-  };
-  const close = (): void => {
-    host.replaceChildren();
-    paint("");
-  };
-  close();
-  // What a panel answered decides its icon's colour, as the session state
-  // does in pi-web: a prompt or an active tool tints the tab's icon.
-  host.addEventListener(
-    "htmx:after:settle",
-    () => {
-      const open = buttons.find(
-        (button) => button.getAttribute("aria-pressed") === "true",
-      );
-      if (!open) return;
-      const loaded =
-        host.querySelector(".system-prompt-text, .tool-definitions-item") !==
-        null;
-      open.toggleAttribute("data-panel-loaded", loaded);
-    },
-    { signal },
-  );
+/**
+ * System, Tools and Session info are popovers that fetch their content as
+ * they open. Closing one empties it, so the next opening never shows the last
+ * answer, and what a panel answered tints its tab's icon, as the session
+ * state does in pi-web: a prompt or an active tool.
+ */
+function setUpTopPanels(): void {
+  // Popover toggle events do not bubble.
   document.addEventListener(
-    "click",
+    "toggle",
     (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const button = target.closest<HTMLElement>("[data-top-panel]");
-      if (!button) {
-        // A click anywhere else dismisses the panel, as a popover would.
-        if (!host.hidden && !host.contains(target)) close();
-        return;
-      }
-      if (button.getAttribute("aria-pressed") === "true") {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-        return;
-      }
-      paint(button.dataset["topPanel"] ?? "");
+      const panel = event.target;
+      if (
+        panel instanceof HTMLElement &&
+        panel.matches(".shell-top-panel") &&
+        event.newState === "closed"
+      )
+        panel.replaceChildren();
     },
-    { capture: true, signal },
+    true,
   );
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Escape" && !host.hidden) close();
-    },
-    { signal },
-  );
-}
-
-function inTextEntry(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLInputElement
-  );
+  document.addEventListener("htmx:after:settle", (event) => {
+    const panel =
+      event.target instanceof Element
+        ? event.target.closest(".shell-top-panel")
+        : null;
+    if (!panel) return;
+    const loaded =
+      panel.querySelector(".system-prompt-text, .tool-definitions-item") !==
+      null;
+    document
+      .querySelector(`[popovertarget="${panel.id}"]`)
+      ?.toggleAttribute("data-panel-loaded", loaded);
+  });
 }
 
 function setUpShortcuts(): void {
   document.addEventListener("keydown", (event) => {
-    // Escape inside a field is the composer's: it closes a menu first, and
-    // an open dialog owns it outright, or closing the picker would abort the
-    // turn behind it.
+    // Escape inside a field is the composer's: it closes a menu first.
     if (event.key === "Escape") {
-      if (dialogOpen()) return;
-      if (!event.defaultPrevented && !inTextEntry(event.target)) abortTurn();
+      if (
+        !event.defaultPrevented &&
+        !isTextEntry(event.target) &&
+        !somethingOpen()
+      )
+        abortTurn();
       return;
     }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
@@ -238,7 +173,14 @@ function setUpShortcuts(): void {
     }
     if (event.key === "k") {
       event.preventDefault();
-      location.assign("/new");
+      if (dialogOpen()) return;
+      // The link swaps the session region, keeping attachments and streams
+      // that a page load would drop.
+      const link = document.querySelector<HTMLAnchorElement>(
+        "a[data-session-link]",
+      );
+      if (link) link.click();
+      else location.assign("/new");
     }
   });
 }
@@ -287,40 +229,6 @@ function setUpSessionCopy(): void {
 
 function noop(): void {
   // A browser that refuses the clipboard leaves the value on screen to select.
-}
-
-/**
- * pi-web's global/project segmented control. The pressed button writes the
- * hidden field its form posts, and the install path beside it follows.
- */
-function setUpScopePickers(): void {
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const option = target.closest<HTMLElement>("[data-scope]");
-    const picker = option?.closest<HTMLElement>("[data-scope-picker]");
-    const scope = option?.dataset["scope"];
-    if (!picker || scope === undefined) return;
-    for (const button of picker.querySelectorAll<HTMLElement>("[data-scope]")) {
-      button.setAttribute(
-        "aria-pressed",
-        String(button.dataset["scope"] === scope),
-      );
-    }
-    const field =
-      picker.parentElement?.querySelector<HTMLInputElement>(
-        "[data-scope-value]",
-      );
-    if (field) field.value = scope;
-    const path = picker
-      .closest("form, .config-detail-stack")
-      ?.querySelector<HTMLElement>("[data-scope-path]");
-    const shown =
-      path?.dataset[
-        scope === "project" ? "scopePathProject" : "scopePathGlobal"
-      ];
-    if (path && shown !== undefined) path.textContent = shown;
-  });
 }
 
 /** The three example sources under the Add plugin form fill the field. */
@@ -391,12 +299,11 @@ export function setUpShell(): void {
   });
   setUpRegion(".sidebar-resize-handle", mountSidebarResize);
   setUpRegion("#mobile-toolbar-more", mountMobileToolbar);
-  setUpRegion("#top-panel", mountTopPanels);
+  setUpTopPanels();
   setUpShortcuts();
   setUpToasts();
   setUpViewport();
   setUpSessionCopy();
-  setUpScopePickers();
   setUpPluginExamples();
   setUpExtensions();
   setUpNotifications();

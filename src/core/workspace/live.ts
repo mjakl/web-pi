@@ -1,15 +1,10 @@
-import {
-  BUILTIN_COMMANDS,
-  rankCommands,
-  type SlashCommand,
-} from "@core/composer";
+import type { SlashCommand } from "@core/composer";
 import type { DialogAnswer } from "@core/extension-ui";
 import type { StartupChoice } from "@core/models";
-import { isBashOutputPath } from "@core/path-access";
+import { FileAccessError, isBashOutputPath } from "@core/path-access";
 import type {
   ImageAttachment,
   LiveEvent,
-  LiveSession,
   PromptInput,
   PushSubscription,
   PushPresence,
@@ -24,11 +19,14 @@ import {
 } from "@core/transcript";
 import { unavailableFolderMessage } from "@core/workspaces";
 import { branchTo } from "@core/session-entries";
-import { recallSkillPrompts, type QueueRecall } from "@core/skill-prompt";
+import {
+  recallSkillPrompts,
+  type QueueRecall,
+  type SkillPrompt,
+} from "@core/skill-prompt";
 import { isSubagentSession } from "@core/sessions";
 import { delegationFold } from "@core/session-delegation";
 import type { Shared } from "./deps.ts";
-import { ForbiddenPath } from "./views.ts";
 
 // The running agent: starting, prompting, stopping and steering a live
 // session, and what only its entries can answer (images, thinking, a tool
@@ -44,9 +42,11 @@ export function liveUseCases({
   deps,
   entriesOf,
   folderAvailable,
+  openRuntime,
+  refreshRoots,
   requireFolder,
   requireWritableSession,
-  summaryOf,
+  slashMenu,
 }: Shared) {
   /**
    * Eligible root completions ask the notifier for the global away allowance.
@@ -72,10 +72,6 @@ export function liveUseCases({
         // Push is best effort: a failing subscription must not break a turn.
       });
   });
-
-  async function liveOrOpen(id: string): Promise<LiveSession> {
-    return deps.runtime.get(id) ?? deps.runtime.open({ sessionId: id });
-  }
 
   /** The content parts of one entry, whichever kind of message it holds. */
   async function entryContent(
@@ -109,12 +105,13 @@ export function liveUseCases({
         throw new Error(unavailableFolderMessage(cwd));
       }
       const live = await deps.runtime.open({ cwd, ...startup });
+      refreshRoots();
       return live.id;
     },
 
     async send(id: string, text: string, input?: PromptInput): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await openRuntime(id);
       await live.prompt(text, input);
     },
 
@@ -128,31 +125,22 @@ export function liveUseCases({
     },
 
     /**
-     * The slash menu: built-ins plus whatever the session offers. A stopped
-     * session lists prompt templates and skills from disk rather than
-     * starting an agent just to fill a menu.
+     * The slash menu of a session. A stopped one lists what it would offer
+     * once started, rather than starting an agent just to fill a menu.
      */
     async commands(id: string, query: string): Promise<SlashCommand[]> {
       await requireWritableSession(id);
       const live = deps.runtime.get(id);
-      let listed: SlashCommand[] = [];
-      if (live) listed = live.commands();
-      else {
-        const summary = await summaryOf(id);
-        if (summary) {
-          listed = await deps.resources
-            .commands(summary.cwd)
-            .catch(() => [] as SlashCommand[]);
-        }
-      }
-      return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
-        running: live?.snapshot().status.running ?? false,
-      });
+      return slashMenu(
+        query,
+        live ? undefined : await deps.sessions.folder(id),
+        live,
+      );
     },
 
     async compact(id: string, instructions?: string): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await openRuntime(id);
       await live.compact(instructions);
     },
 
@@ -163,7 +151,7 @@ export function liveUseCases({
 
     async reload(id: string): Promise<void> {
       await requireFolder(id);
-      await (await liveOrOpen(id)).reload();
+      await (await openRuntime(id)).reload();
     },
 
     /**
@@ -208,12 +196,18 @@ export function liveUseCases({
 
     /**
      * Empties the queue and hands it back for the composer: the texts as one
-     * draft, and the images of every queued message, so recalling a message
-     * that carried a screenshot does not silently drop it.
+     * draft ahead of the reader's own, and the images of every queued
+     * message, so recalling a message that carried a screenshot does not
+     * silently drop it. Nothing comes back when the queue was already sent.
      */
-    async recallQueue(id: string): Promise<QueueRecall> {
+    async recallQueue(
+      id: string,
+      draft?: SkillPrompt,
+    ): Promise<QueueRecall | undefined> {
       await requireWritableSession(id);
       const live = deps.runtime.get(id);
+      const queued = live?.clearQueue() ?? [];
+      if (queued.length === 0) return undefined;
       const available =
         live?.commands().flatMap((command) =>
           command.source === "skill" && command.skillId
@@ -225,7 +219,7 @@ export function liveUseCases({
               ]
             : [],
         ) ?? [];
-      return recallSkillPrompts(live?.clearQueue() ?? [], available);
+      return recallSkillPrompts(queued, available, draft);
     },
 
     async runBash(
@@ -234,7 +228,7 @@ export function liveUseCases({
       excludeFromContext: boolean,
     ): Promise<void> {
       await requireFolder(id);
-      const live = await liveOrOpen(id);
+      const live = await openRuntime(id);
       await live.runBash(command, excludeFromContext);
     },
 
@@ -272,7 +266,7 @@ export function liveUseCases({
     /** A truncated shell run's capture file, if this session produced it. */
     async bashOutput(id: string, path: string): Promise<string> {
       if (!isBashOutputPath(deps.tmpdir, path)) {
-        throw new ForbiddenPath("Not a shell output file");
+        throw new FileAccessError("Not a shell output file", 403);
       }
       const stored = await entriesOf(id);
       const referenced = stored?.entries.some(
@@ -282,7 +276,10 @@ export function liveUseCases({
           entry.message.fullOutputPath === path,
       );
       if (!referenced) {
-        throw new ForbiddenPath("This session did not produce that file");
+        throw new FileAccessError(
+          "This session did not produce that file",
+          403,
+        );
       }
       return deps.files.readOutput(path);
     },
@@ -320,7 +317,6 @@ export function liveUseCases({
 
     // --- Session inspection ----------------------------------------------
 
-    /** Tool definitions of a running session; nothing is started to get them. */
     /**
      * What the session would run with. pi-web resumes a dormant session to
      * answer these two panels — a command that starts no turn and writes no
@@ -333,7 +329,7 @@ export function liveUseCases({
       const live = deps.runtime.get(id);
       if (live) return live.toolDefinitions();
       await requireFolder(id);
-      return (await deps.runtime.open({ sessionId: id })).toolDefinitions();
+      return (await openRuntime(id)).toolDefinitions();
     },
 
     async systemPrompt(id: string): Promise<string | undefined> {
@@ -341,27 +337,26 @@ export function liveUseCases({
       const live = deps.runtime.get(id);
       if (live) return live.systemPrompt();
       await requireFolder(id);
-      return (await deps.runtime.open({ sessionId: id })).systemPrompt();
+      return (await openRuntime(id)).systemPrompt();
     },
 
     async setModel(
       id: string,
       choice: {
         provider: string;
-        modelId: string;
+        id: string;
         thinkingLevel?: ThinkingLevel;
       },
     ): Promise<void> {
       await requireFolder(id);
-      const live =
-        deps.runtime.get(id) ?? (await deps.runtime.open({ sessionId: id }));
-      await live.setModel(choice.provider, choice.modelId);
+      const live = await openRuntime(id);
+      await live.setModel(choice.provider, choice.id);
       if (choice.thinkingLevel) live.setThinkingLevel(choice.thinkingLevel);
     },
 
     async activate(id: string): Promise<void> {
       await requireFolder(id);
-      await deps.runtime.open({ sessionId: id });
+      await openRuntime(id);
     },
 
     /** Undefined when the session has no runtime; the page then has nothing to stream. */

@@ -22,7 +22,7 @@ import type {
   SkillSearchHit,
   SkillUpdate,
 } from "./skills.ts";
-import type { ProjectInfo, WorktreeInfo } from "./workspaces.ts";
+import type { ProjectInfo } from "./workspaces.ts";
 
 // Outbound ports. The core describes what it needs from Pi and the file
 // system; adapters in src/adapters implement them. Everything here is an
@@ -63,7 +63,7 @@ export type SavedSessionRead =
 
 /** Pi's session files: read without starting an agent, and edited in place. */
 export type SessionCatalog = {
-  /** Headers plus stamped, streamed delegation metadata; no retained transcripts. */
+  /** Header summaries, with `parentId`, of every readable file; no transcript is read. */
   list(): Promise<SessionSummary[]>;
   /** Priority-certified root prefix; never returns unclassified headers. */
   discover(options: SessionDiscoveryOptions): Promise<SessionDiscovery>;
@@ -125,16 +125,6 @@ export type ProjectResolver = {
    * every mutating command and is never served from a cache.
    */
   available(cwd: string): Promise<boolean>;
-  /**
-   * The sibling worktrees of a folder, always freshly probed: the picker is
-   * the only caller and a stale list would hide a worktree just created.
-   * `isGit` is false when git could not answer at all.
-   */
-  worktrees(cwd: string): Promise<{
-    project: ProjectInfo;
-    isGit: boolean;
-    worktrees: WorktreeInfo[];
-  }>;
 };
 
 /** Directories a reader may browse to when picking a working folder. */
@@ -382,21 +372,25 @@ export type AgentRuntime = {
   get(sessionId: string): LiveSession | undefined;
   /**
    * Every session this process holds open. Pi writes a new session's file
-   * with its first assistant message, so until then this is the only place
-   * the session exists.
+   * with its first user or assistant message, so until then this is the only
+   * place the session exists.
    */
   live(): LiveSession[];
   /**
-   * Resume a persisted session, or create a new one in `cwd`. An explicit
-   * model or reasoning level starts the session there and is written back as
-   * Pi's default when the session really started on it.
+   * Resume a persisted session, or create a new one in `cwd`. An id that is
+   * already open, or still starting, answers with that session; one that is
+   * stopping is reopened once its stop has finished, and refused when that
+   * takes longer than `stopsInTime` allows, so a caller never needs `get`
+   * first. An explicit model or reasoning level starts the session
+   * there and is written back as Pi's default when the session really started
+   * on it.
    */
   open(
     target:
       | { sessionId: string }
       | {
           cwd: string;
-          model?: { provider: string; modelId: string };
+          model?: { provider: string; id: string };
           thinkingLevel?: ThinkingLevel;
         },
   ): Promise<LiveSession>;
@@ -439,9 +433,10 @@ export type ModelCatalog = {
 };
 
 /**
- * Prompt templates and skills a folder offers, read without starting an
- * agent. Project extensions are never loaded here: listing commands must not
- * run an untrusted repository's code.
+ * The `/` menu a session started in a folder would offer, read without
+ * starting one: extension commands, prompt templates and skills. Project
+ * extensions load, as they would for that session, only once the folder is
+ * trusted.
  */
 export type ProjectResources = {
   commands(cwd: string): Promise<SlashCommand[]>;
@@ -458,8 +453,21 @@ export type FileStat = {
 
 /** Files under a working folder, for `@` completion and shell output. */
 export type Files = {
-  /** Every tracked and untracked file, cwd-relative; capped. */
+  /**
+   * Tracked and untracked files, cwd-relative, in `fileSearch`'s fixed
+   * order: the first 5,000, which the browser filters on its own.
+   */
   index(cwd: string): Promise<{ files: string[]; truncated: boolean }>;
+  /**
+   * The best matches of `query` over the whole listing, not only the part
+   * `index` hands out: files and the folders they imply, or files alone.
+   */
+  search(
+    cwd: string,
+    query: string,
+    limit: number,
+    only?: "files",
+  ): Promise<FileEntry[]>;
   /**
    * Immediate children matching a path-like query (`~/pro`, `./src/co`),
    * resolved against `cwd`. Absolute paths, capped; the caller decides which
@@ -474,8 +482,11 @@ export type Files = {
   stat(path: string): Promise<FileStat | undefined>;
   /** The path with every symlink resolved; undefined when it cannot be. */
   realpath(path: string): Promise<string | undefined>;
-  /** Complete UTF-8 text. */
-  readText(path: string): Promise<string>;
+  /**
+   * Complete UTF-8 text, or undefined for a binary file: one with a NUL byte
+   * in its first 8 KiB, which is never read whole.
+   */
+  readText(path: string): Promise<string | undefined>;
   /** Bytes for a media response, optionally one Range slice. */
   stream(
     path: string,

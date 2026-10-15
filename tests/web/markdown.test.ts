@@ -79,20 +79,143 @@ describe("renderMarkdown", () => {
     }
   });
 
+  it.each([
+    {
+      name: "a remote image in a file preview loads, quotes kept in its attributes",
+      markdown: '![say "hi"](https://img.test/p.png "a \\"title\\"")',
+      options: { filePreview: true },
+      image: {
+        src: "https://img.test/p.png",
+        alt: 'say "hi"',
+        title: 'a "title"',
+      },
+      button: null,
+    },
+    {
+      name: "a remote image in a message waits behind a button, quotes kept in its attributes",
+      markdown:
+        '![say "hi"](https://img.test/p.png?data=secret "a \\"title\\"")',
+      options: {},
+      image: null,
+      button: {
+        remote: "https://img.test/p.png?data=secret",
+        alt: 'say "hi"',
+        title: 'a "title"',
+        file: null,
+        text: 'Load image say "hi" img.test',
+      },
+    },
+    {
+      name: "a javascript: image is its text",
+      markdown: "![run](javascript:alert(1))",
+      options: {},
+      image: null,
+      button: null,
+    },
+    {
+      name: "a data: image is its text, in a file preview too",
+      markdown: "![pixel](data:image/png;base64,AAAA)",
+      options: { filePreview: true },
+      image: null,
+      button: null,
+    },
+    {
+      name: "a local image with a session shows through the raw file route",
+      markdown: "![shot](shot.png)",
+      options: { cwd: "/repo", sessionId: "s1" },
+      image: {
+        src: "/files/raw?path=%2Frepo%2Fshot.png&session=s1",
+        alt: "shot",
+        title: null,
+      },
+      button: {
+        remote: null,
+        alt: null,
+        title: null,
+        file: "/repo/shot.png",
+        text: "",
+      },
+    },
+    {
+      name: "a local image without a session is a file link",
+      markdown: "![shot](shot.png)",
+      options: { cwd: "/repo" },
+      image: null,
+      button: {
+        remote: null,
+        alt: null,
+        title: null,
+        file: "/repo/shot.png",
+        text: "shot",
+      },
+    },
+  ])("renders $name", async ({ markdown, options, image, button }) => {
+    const window = new Window();
+    try {
+      const { body } = window.document;
+      body.innerHTML = renderMarkdown(markdown, options);
+      const img = body.querySelector("img");
+      expect(
+        img && {
+          src: img.getAttribute("src"),
+          alt: img.getAttribute("alt"),
+          title: img.getAttribute("title"),
+        },
+      ).toEqual(image);
+      const control = body.querySelector("button");
+      expect(
+        control && {
+          remote: control.getAttribute("data-remote-image"),
+          alt: control.getAttribute("data-alt"),
+          title: control.getAttribute("data-title"),
+          file: control.getAttribute("data-file-path"),
+          text: control.textContent.replaceAll(/\s+/g, " ").trim(),
+        },
+      ).toEqual(button);
+      if (!image && !button) {
+        expect(body.textContent.trim()).toBe(markdown.slice(2).split("]")[0]);
+      }
+    } finally {
+      await window.happyDOM.close();
+    }
+  });
+
+  it("gives a linked local image the class that limits a local image's size", async () => {
+    const window = new Window();
+    try {
+      const { body } = window.document;
+      body.innerHTML = renderMarkdown(
+        "![shot](shot.png) [![shot](shot.png)](notes.md)",
+        { cwd: "/repo", sessionId: "s1" },
+      );
+      const [plain, linked] = [...body.querySelectorAll("img")];
+      expect(plain?.className).toBe("markdown-local-image");
+      expect(linked?.className).toBe("markdown-local-image");
+      expect(
+        linked?.closest("[data-file-path]")?.getAttribute("data-file-path"),
+      ).toBe("/repo/notes.md");
+    } finally {
+      await window.happyDOM.close();
+    }
+  });
+
   it("leaves a single tilde alone and keeps double-tilde strikethrough", () => {
     const html = renderMarkdown("~10~20 and ~~gone~~");
     expect(html).toContain("~10~20");
     expect(html).toContain("<del>gone</del>");
   });
 
-  it("drops frontmatter instead of rendering it", () => {
-    expect(renderMarkdown("---\ntitle: x\n---\n\nbody")).not.toContain("title");
+  it("renders a leading --- block as Markdown, hiding nothing", () => {
+    const html = renderMarkdown("---\ntitle: x\n---\n\nbody");
+    expect(html).toContain("title: x");
+    expect(html).toContain("<p>body</p>");
   });
 
   it("prints the source of a document too large to parse", () => {
     const html = renderMarkdown(`# head\n${"x".repeat(100_001)}`);
     expect(html).toContain("<details");
-    expect(html).toContain("Message content is very large");
+    // 100,008 characters, with one decimal like the file panel's sizes.
+    expect(html).toContain("Message content is very large (97.7 KB).");
     expect(html).not.toContain("<h1");
   });
 });

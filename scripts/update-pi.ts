@@ -1,18 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { CODING_AGENT, PI_PACKAGES } from "../src/pi-version.ts";
 
 // A fresh registry query is required even when the lockfile already satisfies
 // the manifest. Freeze the result so a tarball installs the Pi it was built with.
-const codingAgent = "@earendil-works/pi-coding-agent";
-const packages = [
-  codingAgent,
-  "@earendil-works/pi-ai",
-  "@earendil-works/pi-agent-core",
-  "@earendil-works/pi-tui",
-];
-
 try {
   const version: unknown = JSON.parse(
-    execFileSync("pnpm", ["view", codingAgent, "dist-tags.latest", "--json"], {
+    execFileSync("pnpm", ["view", CODING_AGENT, "dist-tags.latest", "--json"], {
       encoding: "utf8",
     }),
   );
@@ -26,7 +19,7 @@ try {
       "--save-exact",
       "--ignore-scripts",
       "--config.minimumReleaseAgeStrict=true",
-      ...packages.map((name) => `${name}@${version}`),
+      ...PI_PACKAGES.map((name) => `${name}@${version}`),
     ],
     { stdio: "inherit" },
   );

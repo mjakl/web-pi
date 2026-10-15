@@ -75,7 +75,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      // One at a time: addAll rejects atomically, so a single asset missing
+      // Each on its own: addAll rejects atomically, so a single asset missing
       // during a restart would leave the worker permanently uninstalled.
       .then((cache) =>
         Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => {}))),

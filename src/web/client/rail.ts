@@ -10,8 +10,6 @@ const TARGET = 0.3;
 const LOCK_MS = 1600;
 /** pi-web shows the preview 180ms after the pointer reaches a mark. */
 const HOVER_MS = 180;
-/** pi-web's MINIMAP_WIDTH: past it the pointer is in the branch graph. */
-const RAIL_WIDTH = 36;
 
 function htmx(): Htmx | undefined {
   return (globalThis as { htmx?: Htmx }).htmx;
@@ -104,8 +102,8 @@ function mountRail(view: HTMLElement, signal: AbortSignal): void {
    */
   const expand = (open: boolean) => {
     const layer = rail.querySelector<HTMLElement>("#rail");
-    if (!layer || layer.dataset["branched"] !== "true") return;
-    const width = layer.dataset["graphWidth"] ?? "36";
+    const width = layer?.dataset["graphWidth"];
+    if (layer?.dataset["branched"] !== "true" || width === undefined) return;
     rail.classList.add("has-branches");
     rail.tabIndex = 0;
     rail.classList.toggle("is-expanded", open);
@@ -176,13 +174,14 @@ function mountRail(view: HTMLElement, signal: AbortSignal): void {
   };
 
   /**
-   * True unless the pointer is over the branch graph beside the 36px strip.
-   * An unbranched rail has no graph, so pi-web skips the test there and
-   * treats the whole width as the strip.
+   * True unless the pointer is over the branch graph beside the strip, whose
+   * width the server puts on the rail. An unbranched rail has no graph, so
+   * pi-web skips the test there and treats the whole width as the strip.
    */
   const onStrip = (clientX: number) =>
     !rail.classList.contains("has-branches") ||
-    clientX - rail.getBoundingClientRect().left + rail.scrollLeft <= RAIL_WIDTH;
+    clientX - rail.getBoundingClientRect().left + rail.scrollLeft <=
+      Number(rail.querySelector<HTMLElement>("#rail")?.dataset["stripWidth"]);
 
   // Pressing anywhere in the strip jumps to the nearest mark and starts a
   // drag; a mark on another branch is left to htmx, which posts /navigate.
@@ -283,7 +282,7 @@ function mountRail(view: HTMLElement, signal: AbortSignal): void {
     "pointermove",
     (event) => {
       // pi-web previews a branch mark from the mark itself, so the whole
-      // expanded rail is a hover target, not just the 36px strip.
+      // expanded rail is a hover target, not just the strip.
       const branch = (event.target as HTMLElement).closest<HTMLElement>(
         ".minimap-branch",
       );

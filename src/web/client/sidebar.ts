@@ -1,13 +1,15 @@
 // The sidebar's browser half: the state pi-web keeps in React and web-pi
 // cannot render from the server — which sessions finished while the reader
 // was elsewhere, where a row's fixed-position menu lands, whether a modifier
-// is held, and which project group is open.
+// is held, and which session trees are open.
 
 import { relativeTime } from "@core/sessions";
 import type { Htmx } from "htmx.org";
 import { requestContext, swapTasks } from "./htmx.ts";
 import { setUpRegion } from "./lifecycle.ts";
+import { displayedSessionId } from "./navigation.ts";
 import { setUpFolderMemory } from "./preferences.ts";
+import { isTextEntry } from "./viewport.ts";
 
 // Keep the existing stored map readable; project values no longer affect dots.
 const UNREAD_KEY = "web-pi:unread";
@@ -34,12 +36,23 @@ function storeUnread(ids: Map<string, string>): void {
   }
 }
 
-function currentSessionId(): string {
-  return document.querySelector("main")?.getAttribute("data-session-id") ?? "";
+/**
+ * The session a sidebar stream `finished` or `completed` event names, or
+ * undefined for anything unreadable.
+ */
+export function finishedId(event: Event): string | undefined {
+  const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
+  if (typeof text !== "string") return undefined;
+  try {
+    const { id } = JSON.parse(text) as { id?: unknown };
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function paintSelection(): void {
-  const active = currentSessionId();
+  const active = displayedSessionId();
   for (const row of document.querySelectorAll<HTMLElement>(
     ".session-row[data-session-id]",
   )) {
@@ -75,22 +88,13 @@ function paintUnread(): void {
 function setUpUnread(): void {
   setUpRegion("main", () => {
     const ids = unreadIds();
-    if (ids.delete(currentSessionId())) storeUnread(ids);
+    if (ids.delete(displayedSessionId())) storeUnread(ids);
     paintUnread();
   });
   // The global stream announces every finished session, including unloaded rows.
   document.addEventListener("finished", (event) => {
-    const text = (event as CustomEvent<{ data?: unknown }>).detail?.data;
-    if (typeof text !== "string") return;
-    let finished: { id?: string } = {};
-    try {
-      finished = JSON.parse(text) as typeof finished;
-    } catch {
-      return;
-    }
-    if (!finished || typeof finished.id !== "string") return;
-    const id = finished.id;
-    if (!id || id === currentSessionId()) return;
+    const id = finishedId(event);
+    if (id === undefined || id === displayedSessionId()) return;
     const pending = unreadIds();
     pending.set(id, "");
     storeUnread(pending);
@@ -137,7 +141,7 @@ function setUpSessionTree(): void {
     { open: boolean; active: string; ancestor: boolean }
   >();
   let attemptedSelection: string | undefined;
-  let displayedSelection = currentSessionId();
+  let displayedSelection = displayedSessionId();
   const collapsedSelection = new Set<string>();
   let pending = false;
   let refreshNeeded = false;
@@ -155,7 +159,7 @@ function setUpSessionTree(): void {
   const reconcile = () => {
     const list = document.getElementById("session-list");
     if (!list) return;
-    const active = currentSessionId();
+    const active = displayedSessionId();
     if (active !== displayedSelection) {
       displayedSelection = active;
       collapsedSelection.clear();
@@ -196,12 +200,11 @@ function setUpSessionTree(): void {
     automaticRefreshNeeded = false;
     attemptedSelection = active;
     pending = true;
-    const query = new URLSearchParams({ selected: active });
     const htmx = (globalThis as unknown as { htmx: Htmx }).htmx;
     // The stream cannot know about later navigation. Replace just its first
     // page to reveal an off-page path; a missing ID gets one attempt, not a loop.
     void htmx
-      .ajax("GET", `/sidebar/rows?${query.toString()}`, {
+      .ajax("GET", "/sidebar/rows", {
         source: list,
         target: list,
         swap: "innerHTML",
@@ -211,7 +214,7 @@ function setUpSessionTree(): void {
       })
       .finally(() => {
         pending = false;
-        if (explicitRefresh && active !== currentSessionId())
+        if (explicitRefresh && active !== displayedSessionId())
           refreshNeeded = true;
         reconcile();
       });
@@ -326,13 +329,6 @@ function setUpSessionTree(): void {
     refreshNeeded = true;
     reconcile();
   });
-  document.addEventListener("htmx:config:request", (event) => {
-    const ctx = requestContext(event);
-    const url = new URL(ctx.request.action, location.href);
-    if (url.pathname !== "/sidebar/rows") return;
-    url.searchParams.set("selected", currentSessionId());
-    ctx.request.action = url.pathname + url.search;
-  });
   document.addEventListener("htmx:before:request", (event) => {
     const ctx = requestContext(event);
     if (new URL(ctx.request.action, location.href).pathname !== "/sidebar/rows")
@@ -416,36 +412,14 @@ function setUpProjectFilter(): void {
   });
 }
 
-/**
- * A project with more than one working folder opens and closes in place
- * (§3.3). The folders are already in the page, so this only flips the
- * disclosure; `areas/sidebar.css` turns aria-expanded into the chevron.
- */
-function setUpFolderGroups(): void {
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const row = target.closest<HTMLElement>(
-      ".project-folder-row[aria-expanded]",
-    );
-    if (!row) return;
-    const open = row.getAttribute("aria-expanded") !== "true";
-    row.setAttribute("aria-expanded", open ? "true" : "false");
-    const folders = document.getElementById(
-      row.getAttribute("aria-controls") ?? "",
-    );
-    if (folders) folders.hidden = !open;
-  });
-}
-
 const EXPLORER_OPEN_KEY = "web-pi:file-explorer:open";
 
 /**
- * The explorer folds to its header row (§3.5). pi-web keeps `explorerOpen`
- * in React and reads the stored value after hydration, so a collapsed
- * explorer opens for a frame there too; here aria-expanded on the toggle is
- * the state and areas/sidebar.css paints both states from it. Storage is
- * best-effort, as in pi-web: without it the choice lasts for this page.
+ * The explorer folds to its header row. pi-web keeps `explorerOpen` in React
+ * and reads the stored value after hydration, so a collapsed explorer opens
+ * for a frame there too; here aria-expanded on the toggle is the state and
+ * areas/sidebar.css paints both states from it. Storage is best-effort, as in
+ * pi-web: without it the choice lasts for this page.
  */
 function mountExplorerFold(button: HTMLElement, signal: AbortSignal): void {
   let open = true;
@@ -473,7 +447,7 @@ function mountExplorerFold(button: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-/** The refresh button says it worked: a check for two seconds (§3.1). */
+/** The refresh button says it worked: a check for two seconds. */
 function mountSidebarRefresh(button: HTMLElement, signal: AbortSignal): void {
   button.removeAttribute("data-done");
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -542,8 +516,8 @@ function setUpRowMenus(): void {
 
 /**
  * pi-web puts a ⌘1…⌘0 badge where a row's menu trigger is while a modifier
- * is held, and jumps to that session on the matching digit (§3.4). The
- * modifier decides the label, so it is written here rather than server-side.
+ * is held, and jumps to that session on the matching digit. The modifier
+ * decides the label, so it is written here rather than server-side.
  */
 function setUpShortcuts(): void {
   let modifier: "ctrl" | "meta" | null = null;
@@ -604,9 +578,7 @@ function setUpShortcuts(): void {
       event.shiftKey ||
       (!event.ctrlKey && !event.metaKey) ||
       !/^[0-9]$/.test(event.key) ||
-      event.target instanceof HTMLInputElement ||
-      event.target instanceof HTMLTextAreaElement ||
-      event.target instanceof HTMLSelectElement
+      isTextEntry(event.target)
     ) {
       return;
     }
@@ -670,7 +642,7 @@ function mountRelativeTimes(sidebar: HTMLElement, signal: AbortSignal): void {
   window.addEventListener("pageshow", paint, { signal });
 }
 
-/** pi-web's whole row is the click target, not just its title (§3.4). */
+/** pi-web's whole row is the click target, not just its title. */
 function setUpRowSelection(): void {
   document.addEventListener("click", (event) => {
     const target = event.target;
@@ -687,7 +659,6 @@ export function setUpSidebar(): void {
   setUpUnread();
   setUpSessionTree();
   setUpProjectFilter();
-  setUpFolderGroups();
   setUpRegion("#explorer-toggle", mountExplorerFold);
   setUpRegion("#sidebar-refresh", mountSidebarRefresh);
   setUpRowMenus();

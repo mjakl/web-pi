@@ -1,28 +1,10 @@
-import { randomUUID } from "node:crypto";
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { syncDirectory, writeFileAtomic } from "@adapters/fs/atomic-write";
+import { mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 export function webStatePath(agentDir: string, file: string): string {
   return join(agentDir, "web-pi", file);
-}
-
-function syncDirectory(path: string): void {
-  const fd = openSync(path, "r");
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
 }
 
 /** A failed read is not permission to replace someone's only copy. */
@@ -50,23 +32,9 @@ export function readWebState<T>(
 export function writeWebState(path: string, value: unknown): void {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, JSON.stringify(value), {
-      flag: "wx",
-      mode: 0o600,
-      flush: true,
-    });
-    renameSync(temporary, path);
-    syncDirectory(directory);
-    syncDirectory(dirname(directory));
-  } finally {
-    try {
-      unlinkSync(temporary);
-    } catch {
-      /* Preserve the original write error; any leftover is private. */
-    }
-  }
+  writeFileAtomic(path, JSON.stringify(value), 0o600);
+  // The first write may have created the directory itself.
+  syncDirectory(dirname(directory));
 }
 
 /** One cutover, with old web runtimes stopped. Equal copies resume an interrupted move. */

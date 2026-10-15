@@ -55,7 +55,7 @@ const mutations: [
     (workspace, id) =>
       workspace.setModel(id, {
         provider: "test",
-        modelId: "fake",
+        id: "fake",
         thinkingLevel: "high",
       }),
   ],

@@ -1,5 +1,6 @@
+import { Composer } from "@web/views/Composer";
 import { describe, expect, it, vi } from "vitest";
-import { area, blockStorage, mount } from "./helpers.ts";
+import { area, blockStorage, byId, field, mount, render } from "./helpers.ts";
 
 // An unsent prompt survives a reload: text only, keyed by the session, or by
 // the folder until the server names the session.
@@ -89,6 +90,30 @@ describe("drafts", () => {
     vi.advanceTimersByTime(300);
     expect(localStorage.getItem("web-pi:draft:s7")).toBe("next prompt");
   });
+
+  it.each([
+    ["a session", "s1"],
+    ["a folder", null],
+  ])(
+    "restores the text and skills stored for %s by an earlier page",
+    async (_, sessionId) => {
+      const key = sessionId ?? "new:/repo";
+      const alpha = { id: "/repo/.agents/skills/alpha/SKILL.md", name: "a" };
+      localStorage.setItem(`web-pi:draft:${key}`, "half a thought");
+      localStorage.setItem(
+        `web-pi:draft-skills:${key}`,
+        JSON.stringify([alpha]),
+      );
+      mount(
+        render(Composer({ ...(sessionId ? { sessionId } : {}), cwd: "/repo" })),
+      );
+      const { setUpComposer } = await import("@web/client/composer");
+      setUpComposer();
+      expect(area().value).toBe("half a thought");
+      expect(JSON.parse(field("#composer-skills").value)).toEqual([alpha]);
+      expect(byId("skills-label").textContent).toBe("Skills (1)");
+    },
+  );
 
   it("survives a browser that refuses storage", async () => {
     blockStorage();

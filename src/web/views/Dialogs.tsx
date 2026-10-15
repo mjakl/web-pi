@@ -1,40 +1,12 @@
 import { TrustDialogShieldIcon, TrustShieldIcon } from "./icons.tsx";
 import { ConfigButton } from "./ConfigControls.tsx";
 
-// The dialogs the shell owns: the modal shell every one of them is built from,
-// the host they are swapped into, and the trust flow. The workspace picker
-// lives with the sidebar (Workspace.tsx) and reuses `Dialog` from here.
+// The dialogs the shell owns: the host they are swapped into and the trust
+// flow. The workspace picker's dialog is its own (Workspace.tsx).
 
 /** Everything modal renders here; the client turns it into a real modal. */
 export function DialogHost() {
   return <div id="dialogs" />;
-}
-
-export function Dialog({
-  id,
-  title,
-  children,
-}: {
-  id: string;
-  title: string;
-  children?: unknown;
-}) {
-  return (
-    <dialog id={id} data-modal open>
-      <div>
-        <div>
-          <h2>{title}</h2>
-          <form method="dialog">
-            <button aria-label="Close">✕</button>
-          </form>
-        </div>
-        {children}
-      </div>
-      <form method="dialog">
-        <button aria-label="Close">close</button>
-      </form>
-    </dialog>
-  );
 }
 
 /**
@@ -85,8 +57,8 @@ export function TrustDialog({ cwd }: { cwd: string }) {
 }
 
 /**
- * The top bar's trust warning (ui-map 2.3). pi-web keeps it beside the tabs,
- * in `--warning`, and it opens the dialog.
+ * The top bar's trust warning. pi-web keeps it beside the tabs, in
+ * `--warning`, and it opens the dialog.
  */
 export function TrustBadge({
   cwd,
@@ -103,7 +75,7 @@ export function TrustBadge({
     <button
       type="button"
       data-trust-warning
-      {...(banner === true ? { "data-mobile-trust-banner": "true" } : {})}
+      data-mobile-trust-banner={banner === true ? "true" : undefined}
       class={`project-trust-badge${banner === true ? " is-banner" : ""}`}
       title="Restricted mode"
       aria-label="Restricted mode"

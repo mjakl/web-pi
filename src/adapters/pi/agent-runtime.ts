@@ -11,6 +11,7 @@ import type {
   LiveStatus,
   ModelOption,
   ModelCatalog,
+  ProjectResources,
   PromptInput,
   QueuedMessage,
   RunningTool,
@@ -19,18 +20,13 @@ import type {
   ThinkingLevel,
 } from "@core/ports";
 import type { DialogAnswer } from "@core/extension-ui";
-import {
-  initialModel,
-  initialThinking,
-  startupWrites,
-  type StartupChoice,
-} from "@core/models";
+import { startupWrites, type StartupChoice } from "@core/models";
 import { createCompletionTracker } from "@core/turn-completion";
 import { toolParameters } from "@core/tools";
 import { toolProgress } from "@core/transcript";
-import { STAR_TYPE } from "@core/session-entries";
+import { isBusy, STAR_TYPE, starTarget } from "@core/session-entries";
 import { selectedSkillPrompt } from "./selected-skills.ts";
-import type { SessionSummary } from "@core/sessions";
+import { stopsInTime, type SessionSummary } from "@core/sessions";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type AgentSession,
@@ -46,17 +42,24 @@ import {
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { createProjectBashOperations } from "./bash-env.ts";
 import { createExtensionUi } from "./extension-ui.ts";
-import { createPiModelCatalog, resolveModelListing } from "./model-catalog.ts";
-import { createPiServicePreparations } from "./session-services.ts";
+import { createPiModelCatalog, startupModel } from "./model-catalog.ts";
+import {
+  createPiServicePreparations,
+  slashCommands,
+} from "./session-services.ts";
 import { defaultSessionDir, type PiSessionCatalog } from "./session-catalog.ts";
 import { resolveSnapshotEntryId } from "./session-snapshot.ts";
+import { checkSettingsErrors } from "./settings-errors.ts";
 
 /** Streaming tool arguments kept for the card; the entry holds the rest. */
 const PARTIAL_ARGUMENT_CHARS = 4096;
 
 type Partial = Extract<AgentMessage, { role: "assistant" }>;
 
-/** Pi defers the first file until an assistant reply; shell-only turns need it too. */
+/**
+ * Pi writes a new session's file once it holds a user or assistant message,
+ * so a session that has only run shell commands is written here.
+ */
 function persistShellSession(manager: SessionManager): void {
   const file = manager.getSessionFile();
   if (!file || existsSync(file)) return;
@@ -105,17 +108,14 @@ class PiLiveSession implements LiveSession {
   readonly services: AgentSessionServices;
   private readonly invalidatePreparation: () => void;
   private readonly inner: AgentSession;
-  private readonly agentDir: string;
-  private readonly shellPath: string | undefined;
-  private readonly bashOperations: BashOperations | undefined;
+  private readonly shellOperations: () => BashOperations;
   private readonly onStop: () => void;
 
   constructor(
     inner: AgentSession,
     options: {
-      agentDir: string;
-      shellPath?: string;
-      bashOperations?: BashOperations;
+      /** Asked for each command, so it can follow the current settings. */
+      shellOperations: () => BashOperations;
       queuedImages: Map<string, ImageAttachment[]>;
       services: AgentSessionServices;
       invalidatePreparation: () => void;
@@ -125,10 +125,8 @@ class PiLiveSession implements LiveSession {
     this.inner = inner;
     this.services = options.services;
     this.invalidatePreparation = options.invalidatePreparation;
-    this.agentDir = options.agentDir;
     this.queuedImages = options.queuedImages;
-    this.shellPath = options.shellPath;
-    this.bashOperations = options.bashOperations;
+    this.shellOperations = options.shellOperations;
     this.onStop = onStop;
     this.id = inner.sessionId;
     this.turnStart = inner.sessionManager.getBranch().length;
@@ -507,8 +505,10 @@ class PiLiveSession implements LiveSession {
                 })),
               }
             : {}),
-          preflightResult: (ok) => {
-            if (ok) resolve();
+          // Pi calls this only for an accepted prompt: started, queued or
+          // handled by an extension.
+          preflightResult: () => {
+            resolve();
           },
         })
         .then(
@@ -530,9 +530,11 @@ class PiLiveSession implements LiveSession {
   }
 
   /**
-   * Stopping a turn on a session Pi never wrote to disk is the reader saying
-   * they are done with it: pi-web's `forceShutdownOnIdle`. It shuts down as
-   * soon as the turn really stops, instead of idling for ten minutes.
+   * Stop on a session Pi never wrote to disk is the reader saying they are
+   * done with it: pi-web's `forceShutdownOnIdle`. It shuts down instead of
+   * idling for ten minutes. Pi writes the file with the first prompt, so this
+   * is a session that opened with `/name` or `/reload`, or whose first prompt
+   * Pi refused, and whose page still offers Stop and Escape.
    */
   async abort(): Promise<void> {
     const draft = !this.hasTranscript();
@@ -559,12 +561,9 @@ class PiLiveSession implements LiveSession {
 
   setStar(targetId: string, starred: boolean): string {
     const manager = this.inner.sessionManager;
-    const target = manager.getEntry(
-      resolveSnapshotEntryId(manager.getEntries(), targetId),
+    const target = starTarget(
+      manager.getEntry(resolveSnapshotEntryId(manager.getEntries(), targetId)),
     );
-    if (target?.type !== "message" || target.message.role !== "assistant") {
-      throw new Error("Star target must be an assistant answer");
-    }
     manager.appendCustomEntry(STAR_TYPE, { targetId: target.id, starred });
     this.emit({ type: "activity" });
     return target.id;
@@ -599,35 +598,8 @@ class PiLiveSession implements LiveSession {
     return result;
   }
 
-  /**
-   * Extension commands, prompt templates, and skills, as the SDK reports them
-   * for this session. Skills Pi may not invoke on its own are marked so the
-   * menu can say who may run them.
-   */
   commands(): SlashCommand[] {
-    return [
-      ...this.inner.extensionRunner
-        .getRegisteredCommands()
-        .map((command): SlashCommand => ({
-          name: command.invocationName,
-          description: command.description ?? "",
-          source: "extension",
-        })),
-      ...this.inner.promptTemplates.map((prompt): SlashCommand => ({
-        name: prompt.name,
-        description: prompt.description,
-        source: "prompt",
-      })),
-      ...this.inner.resourceLoader
-        .getSkills()
-        .skills.map((skill): SlashCommand => ({
-          name: `skill:${skill.name}`,
-          description: skill.description,
-          source: "skill",
-          skillId: skill.filePath,
-          ...(skill.disableModelInvocation ? { manual: true } : {}),
-        })),
-    ];
+    return slashCommands(this.inner.extensionRunner, this.inner.resourceLoader);
   }
 
   /** Every configured tool; the active ones are what this turn may call. */
@@ -748,12 +720,7 @@ class PiLiveSession implements LiveSession {
     }
     if (!command.trim())
       return Promise.reject(new Error("Type a shell command first."));
-    const operations =
-      this.bashOperations ??
-      createProjectBashOperations({
-        agentDir: this.agentDir,
-        ...(this.shellPath === undefined ? {} : { shellPath: this.shellPath }),
-      });
+    const operations = this.shellOperations();
     this.turnStart = this.inner.sessionManager.getBranch().length;
     this.bash = { command, output: "" };
     // executeBash has no SDK preflight callback. Validation and reserving the
@@ -799,11 +766,10 @@ class PiLiveSession implements LiveSession {
   }
 
   get busy(): boolean {
-    return (
-      this.bash !== undefined ||
-      this.inner.isStreaming ||
-      this.inner.isBashRunning
-    );
+    return isBusy({
+      running: this.inner.isStreaming,
+      bashRunning: this.bash !== undefined || this.inner.isBashRunning,
+    });
   }
 
   subscribe(listener: (event: LiveEvent) => void): () => void {
@@ -860,21 +826,19 @@ async function persistStartup(
   const model = session.model;
   if (!model) return;
   const writes = startupWrites(explicit, {
-    model: { provider: model.provider, modelId: model.id },
+    model,
     thinkingLevel: session.thinkingLevel,
     supportsThinking: model.reasoning,
   });
   if (writes.model) {
-    settings.setDefaultModelAndProvider(
-      writes.model.provider,
-      writes.model.modelId,
-    );
+    settings.setDefaultModelAndProvider(writes.model.provider, writes.model.id);
   }
   if (writes.thinkingLevel !== undefined) {
     settings.setDefaultThinkingLevel(writes.thinkingLevel);
   }
   if (!writes.model && writes.thinkingLevel === undefined) return;
   await settings.flush();
+  checkSettingsErrors(settings, "global");
 }
 
 /** Abandoned drafts are shut down; a session with a file on disk is not. */
@@ -889,7 +853,7 @@ export function createPiAgentRuntime(options: {
   /** Inject the shell backend for offline hosts and tests. */
   bashOperations?: BashOperations;
   draftIdleMs?: number;
-}): AgentRuntime & { models: ModelCatalog } {
+}): AgentRuntime & { models: ModelCatalog; resources: ProjectResources } {
   const preparations = createPiServicePreparations(options);
   const draftIdleMs = options.draftIdleMs ?? DRAFT_IDLE_MS;
   const live = new Map<string, PiLiveSession>();
@@ -908,89 +872,61 @@ export function createPiAgentRuntime(options: {
     const { services, queuedImages } = await preparations.claim(cwd);
     const settingsManager = services.settingsManager;
     await settingsManager.reload();
-    // Pi's cycling scope supplies defaults and reasoning pins, not an allowlist
-    // for deliberate web choices. Existing transcripts retain SDK restoration.
-    let effective: StartupChoice = {};
-    if (manager.buildSessionContext().messages.length === 0) {
-      const listing = await resolveModelListing(
-        services.modelRuntime,
-        settingsManager,
-      );
-      const requested = startup.model;
-      const selected = requested
-        ? (
-            await resolveModelListing(
-              services.modelRuntime,
-              settingsManager,
-              true,
-            )
-          ).models.find(
-            (model) =>
-              model.provider === requested.provider &&
-              model.id === requested.modelId,
-          )
-        : initialModel(listing.models, listing.preferred);
-      if (requested && !selected) {
-        throw new Error(
-          `Model is not available: ${requested.provider}/${requested.modelId}`,
-        );
-      }
-      const scoped = listing.models.find(
-        (model) =>
-          model.provider === selected?.provider && model.id === selected.id,
-      );
-      const thinkingLevel =
-        startup.thinkingLevel ?? initialThinking(scoped ?? selected);
-      effective = {
-        ...(selected
-          ? { model: { provider: selected.provider, modelId: selected.id } }
-          : {}),
-        ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-      };
-    }
-    const wanted = effective.model
-      ? services.modelRuntime.getModel(
-          effective.model.provider,
-          effective.model.modelId,
-        )
-      : undefined;
+    // An existing transcript keeps the SDK's own restoration.
+    const choice =
+      manager.buildSessionContext().messages.length === 0
+        ? await startupModel(services.modelRuntime, settingsManager, startup)
+        : {};
     const { session } = await createAgentSessionFromServices({
       services,
       sessionManager: manager,
-      ...(wanted ? { model: wanted } : {}),
-      ...(effective.thinkingLevel === undefined
-        ? {}
-        : { thinkingLevel: effective.thinkingLevel }),
+      ...choice,
     });
-    await persistStartup(settingsManager, startup, session);
+    // The session runs on the choice either way; only the default is lost.
+    const unsaved = await persistStartup(
+      settingsManager,
+      startup,
+      session,
+    ).then(
+      () => undefined,
+      (error: unknown) =>
+        `Could not save this choice as Pi's default: ${error instanceof Error ? error.message : String(error)}`,
+    );
     const id = session.sessionId;
-    const shellPath = settingsManager.getShellPath();
     const wrapper = new PiLiveSession(
       session,
       {
-        agentDir: options.agentDir,
         services,
         invalidatePreparation: () => {
           preparations.invalidate(cwd);
         },
         queuedImages,
-        ...(shellPath === undefined ? {} : { shellPath }),
-        ...(options.bashOperations
-          ? { bashOperations: options.bashOperations }
-          : {}),
+        // `/reload` re-reads the settings, and the agent's bash tool with
+        // them; `!cmd` reads the shell path when it runs, so both agree.
+        shellOperations: () =>
+          options.bashOperations ??
+          createProjectBashOperations({
+            agentDir: options.agentDir,
+            shellPath: settingsManager.getShellPath(),
+          }),
       },
       () => {
         live.delete(id);
         announce({ type: "stopped", sessionId: id });
       },
     );
+    if (unsaved) wrapper.ui.context.notify(unsaved, "warning");
+    // Armed only while the session has no file: once Pi wrote one, activity
+    // stops re-arming it.
     let idle: ReturnType<typeof setTimeout> | undefined;
     const resetIdle = () => {
-      if (idle) clearTimeout(idle);
-      idle = setTimeout(() => {
-        if (!wrapper.hasTranscript() && !wrapper.busy) void wrapper.stop();
-        else resetIdle();
-      }, draftIdleMs).unref();
+      clearTimeout(idle);
+      idle = wrapper.hasTranscript()
+        ? undefined
+        : setTimeout(() => {
+            if (wrapper.busy || wrapper.hasTranscript()) resetIdle();
+            else void wrapper.stop();
+          }, draftIdleMs).unref();
     };
     let wasBusy = wrapper.busy;
     wrapper.subscribe((event) => {
@@ -1003,9 +939,8 @@ export function createPiAgentRuntime(options: {
       if (event.type === "completed") {
         announce({ type: "completed", sessionId: id });
       }
-      if (event.type === "stopped") {
-        if (idle) clearTimeout(idle);
-      } else resetIdle();
+      if (event.type === "stopped") clearTimeout(idle);
+      else if (idle) resetIdle();
     });
     resetIdle();
     try {
@@ -1031,7 +966,14 @@ export function createPiAgentRuntime(options: {
       preparations,
       sessionServices: (id) => live.get(id)?.services,
     }),
-    get: (sessionId) => live.get(sessionId),
+    // The preparation a session started there would claim, so the menu
+    // matches before and after the start.
+    resources: { commands: (cwd) => preparations.commands(cwd) },
+    get(sessionId) {
+      const session = live.get(sessionId);
+      // A stopping session takes no new work; open() may resume its transcript.
+      return session?.stopping ? undefined : session;
+    },
     live: () => [...live.values()],
     subscribeAll(listener) {
       watchers.add(listener);
@@ -1053,15 +995,31 @@ export function createPiAgentRuntime(options: {
         );
       }
       const existing = live.get(target.sessionId);
-      if (existing) return existing;
+      if (existing && !existing.stopping) return existing;
       const inflight = starting.get(target.sessionId);
       if (inflight) return inflight;
       // The lock has to be in place before the first await, or two opens that
       // arrive together both pass this point and start two sessions on one file.
       const promise = (async () => {
+        // A stopping runtime still writes its last entries; its successor
+        // opens the file only once it is done.
+        if (existing && !(await stopsInTime(existing.stop())))
+          throw new Error("Cannot reopen a session that is still stopping.");
         const filePath = await options.catalog.pathOf(target.sessionId);
         if (!filePath) throw new Error(`Unknown session ${target.sessionId}`);
-        return start(SessionManager.open(filePath));
+        // Pi opens a missing path as a new session in the server's cwd, and
+        // writes a new session's header into an empty file. Neither a draft's
+        // prospective path nor an empty file is a transcript we can resume.
+        if (!statSync(filePath, { throwIfNoEntry: false })?.size)
+          throw new Error(
+            `Cannot reopen session ${target.sessionId}: no saved transcript.`,
+          );
+        const manager = SessionManager.open(filePath);
+        if (manager.getSessionId() !== target.sessionId)
+          throw new Error(
+            `Cannot reopen session ${target.sessionId}: transcript ID does not match.`,
+          );
+        return start(manager);
       })().finally(() => {
         starting.delete(target.sessionId);
       });

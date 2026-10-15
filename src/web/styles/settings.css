@@ -1,7 +1,4 @@
-/* Shared settings and configuration surfaces. ConfigPanelShell only ever
-   fills its SettingsPanel section, so the modal variant and the is-embedded
-   modifier that distinguished it are gone; the border/radius/shadow resets
-   went with the modal box they were undoing. */
+/* Shared settings and configuration surfaces. */
 .config-panel-root {
   display: flex;
   width: 100%;
@@ -153,16 +150,8 @@
 
 .config-sidebar-message {
   padding: var(--space-5) var(--space-4);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.config-sidebar-message.is-error {
-  color: var(--danger);
-}
-
-.config-sidebar-message.is-empty {
   color: var(--text-dim);
+  font-size: var(--text-sm);
 }
 
 .config-detail {
@@ -381,10 +370,6 @@
   font-size: var(--text-sm);
 }
 
-.skill-update-status.is-checking {
-  color: var(--accent);
-}
-
 .skill-update-status.is-success {
   color: var(--success);
 }
@@ -459,10 +444,6 @@
 .config-switch:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-.config-switch.is-loading:disabled {
-  cursor: wait;
 }
 
 .config-switch-knob {
@@ -752,10 +733,6 @@
   cursor: pointer;
 }
 
-.settings-model-row[hidden] {
-  display: none;
-}
-
 .settings-model-row:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -782,10 +759,6 @@
 .settings-model-include {
   color: var(--text-dim);
   font-size: var(--text-xs);
-}
-
-.settings-models .settings-prompt-actions {
-  flex-wrap: wrap;
 }
 
 .settings-general-title {
@@ -828,7 +801,9 @@
   background: var(--bg-panel);
 }
 
+/* A label around a visually hidden radio: the option paints its state. */
 .settings-theme-option {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -836,34 +811,27 @@
   min-width: 0;
   height: 42px;
   padding: 0 var(--space-4);
-  border: 0;
   border-radius: var(--radius-md);
-  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 400;
 }
 
-.settings-theme-option[aria-checked="true"] {
+.settings-theme-option:has(:checked) {
   background: var(--bg-selected);
   color: var(--accent);
   font-weight: 600;
 }
 
-.settings-theme-option:not(:disabled, [aria-checked="true"]):hover,
-.settings-theme-option:not(:disabled, [aria-checked="true"]):focus-visible {
+.settings-theme-option:not(:has(:checked)):hover,
+.settings-theme-option:not(:has(:checked)):has(:focus-visible) {
   background: var(--bg-hover);
 }
 
-.settings-theme-option:focus-visible {
+.settings-theme-option:has(:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-.settings-theme-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .settings-theme-option-label {
@@ -978,7 +946,6 @@
     border-radius: var(--radius-lg);
     background: var(--bg);
     color: var(--text);
-    font-size: 16px;
   }
 }
 
@@ -1009,7 +976,8 @@
   }
 }
 
-/* Global / project scope picker (ConfigScopePicker). */
+/* Global / project scope picker (ConfigScopePicker): labels around visually
+   hidden radios. */
 .config-scope-picker {
   display: inline-flex;
   flex-shrink: 0;
@@ -1019,31 +987,37 @@
   overflow: hidden;
   font-size: var(--text-sm);
 }
-.config-scope-picker button {
+.config-scope-picker label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 76px;
   padding: 0 var(--space-5);
-  border: 0;
-  background: none;
   color: var(--text-muted);
   cursor: pointer;
-  font: inherit;
-  font-size: var(--text-sm);
 }
-.config-scope-picker button + button {
+.config-scope-picker label + label {
   border-left: 1px solid var(--border);
 }
-.config-scope-picker button[aria-pressed="true"] {
+.config-scope-picker label:has(:checked) {
   background: var(--bg-selected);
   color: var(--text);
   font-weight: 600;
 }
-.config-scope-picker button:disabled {
+.config-scope-picker label:has(:disabled) {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.config-scope-picker button:focus-visible {
+.config-scope-picker label:has(:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+/* The install path beside the picker follows the checked scope. */
+form:has(.config-scope-picker [value="project"]:checked) .config-scope-global,
+form:not(:has(.config-scope-picker [value="project"]:checked))
+  .config-scope-project {
+  display: none;
 }
 
 /* Text inputs align with the standard action row. */

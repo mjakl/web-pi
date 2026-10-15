@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { HTMLButtonElement, HTMLSelectElement } from "happy-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createHarness,
   gate,
@@ -21,29 +21,29 @@ import {
   PROVIDER,
   next,
   type Harness,
+  type Script,
 } from "#/adapters/pi-harness";
+import { required } from "#/web/helpers";
 import { htmxBrowser, page } from "#/web/htmx4-browser";
 
-function required<T>(value: T | null | undefined): T {
-  if (value == null) throw new Error("Missing fixture value");
-  return value;
-}
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-let h: Harness | undefined;
-const browsers: Awaited<ReturnType<typeof htmxBrowser>>[] = [];
-afterEach(async () => {
-  await Promise.all(browsers.splice(0).map((browser) => browser.close()));
-  await h?.dispose();
-  h = undefined;
+afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Disposed when the test finishes, after the pages it served have closed. */
+async function harness(
+  options: Parameters<typeof createHarness>[0],
+): Promise<Harness> {
+  const created = await createHarness(options);
+  onTestFinished(() => created.dispose());
+  return created;
+}
+
 async function fixture(bashOperations?: BashOperations) {
-  h = await createHarness({
+  const h = await harness({
     settings: { defaultThinkingLevel: "low" },
     ...(bashOperations ? { bashOperations } : {}),
   });
-  const harness = h;
   // The extension owns the offline provider; disk overrides compose over it
   // in both the menu and startup. Neither path calls a real model endpoint.
   await writeFile(
@@ -85,7 +85,7 @@ async function fixture(bashOperations?: BashOperations) {
     staticRoot: "static",
     renderIntervalMs: 1,
   });
-  return { app, h: harness };
+  return { app, h };
 }
 
 type App = Awaited<ReturnType<typeof fixture>>["app"];
@@ -94,20 +94,19 @@ async function composer(app: App, id?: string) {
     await app.request(id ? `/sessions/${id}` : "/new")
   ).text();
   const form = required(/<form id="composer"[\s\S]*?<\/form>/.exec(html)?.[0]);
-  const browser = await htmxBrowser(
+  return htmxBrowser(
     page(
       `<div id="session-region" hx-history-elt hx-sync="this:replace"><main ${id ? `data-session-id="${id}"` : ""}>${form}</main><div id="toasts"></div></div>`,
     ),
     (request) => app.request(request),
   );
-  browsers.push(browser);
-  return browser;
 }
 
-it("refuses the compact route after Stop without invoking the provider or rewriting history", async () => {
+it("compacts after Stop on a fresh runtime, once the stopped one has finished", async () => {
   const entered = gate();
   const release = gate();
-  h = await createHarness({
+  const order: string[] = [];
+  const h = await harness({
     settings: {
       compaction: { enabled: true, reserveTokens: 1000, keepRecentTokens: 20 },
     },
@@ -116,6 +115,7 @@ it("refuses the compact route after Stop without invoking the provider or rewrit
         pi.on("session_shutdown", async () => {
           entered.open();
           await release.wait;
+          order.push("stopped");
         });
       },
     ],
@@ -139,34 +139,27 @@ it("refuses the compact route after Stop without invoking the provider or rewrit
   });
   const stopping = session.stop();
   await entered.wait;
-  const before = session.snapshot().branch;
-  const callsBefore = h.calls.length;
-  h.script(
-    reply("Unexpected compaction summary"),
-    reply("Unexpected second summary"),
-  );
-  let response: Response;
-  let callsAfter: number;
-  let branchAfter: typeof before;
-  try {
-    expect(h.runtime.get(session.id)).toBe(session);
-    response = await app.request(`/sessions/${session.id}/compact`, {
-      method: "POST",
-    });
-    callsAfter = h.calls.length;
-    branchAfter = session.snapshot().branch;
-    expect(session.stop()).toBe(stopping);
-  } finally {
-    release.open();
-    await stopping;
-  }
-  expect(callsAfter).toBe(callsBefore);
-  expect(response.status).toBe(200);
-  expect(response.headers.get("HX-Trigger")).toContain(
-    "Cannot compact a stopping or stopped session",
-  );
-  expect(response.headers.get("HX-Reswap")).toBe("none");
-  expect(branchAfter).toEqual(before);
+  const summary: Script = (turn) => {
+    order.push("summary");
+    turn.text("Summary");
+    turn.done();
+  };
+  h.script(summary, summary);
+  const compacting = app.request(`/sessions/${session.id}/compact`, {
+    method: "POST",
+  });
+  release.open();
+  const response = await compacting;
+  await stopping;
+  expect(response.status).toBe(204);
+  // The stopping runtime never summarised; only its successor did.
+  expect(order[0]).toBe("stopped");
+  expect(order).toContain("summary");
+  const fresh = h.runtime.get(session.id);
+  expect(fresh).not.toBe(session);
+  expect(
+    fresh?.snapshot().entries.some((entry) => entry.type === "compaction"),
+  ).toBe(true);
 });
 
 function shell() {
@@ -724,25 +717,17 @@ describe("production shell admission and persistence", () => {
       await expect
         .poll(() => control.operations.exec.mock.calls.length)
         .toBe(1);
-      const response = await Promise.race([
-        request,
-        pause(100).then(() => null),
-      ]);
-      expect(
-        response,
-        "response must not wait for shell completion",
-      ).not.toBeNull();
+      // The shell is still running, so a response that waited for it never comes.
+      const response = await request;
       const live = required(h.runtime.live()[0]);
       expect(
-        JSON.parse(required(response).headers.get("HX-Location") ?? "{}"),
+        JSON.parse(response.headers.get("HX-Location") ?? "{}"),
       ).toMatchObject({
         path: `/sessions/${live.id}`,
         target: "#session-region",
       });
-      expect(required(response).headers.get("HX-Trigger")).toContain(live.id);
-      expect(required(response).headers.get("X-Web-Pi-Submission")).toBe(
-        "accepted",
-      );
+      expect(response.headers.get("HX-Trigger")).toContain(live.id);
+      expect(response.headers.get("X-Web-Pi-Submission")).toBe("accepted");
       expect(live.snapshot().status.bashRunning).toBe(true);
       const browser = await composer(app, live.id);
       const button = required(
@@ -790,11 +775,8 @@ describe("production shell admission and persistence", () => {
       await expect
         .poll(() => control.operations.exec.mock.calls.length)
         .toBe(1);
-      const response = await Promise.race([
-        request,
-        pause(100).then(() => null),
-      ]);
-      expect(response).not.toBeNull();
+      // The shell is still running, so a response that waited for it never comes.
+      await request;
       const live = required(h.runtime.live()[0]);
       const browser = await composer(app, live.id);
       const draft = required(browser.document.querySelector("textarea"));

@@ -27,6 +27,23 @@ export type SessionTree = {
   scores: ReadonlyMap<string, SessionTreeScore>;
 };
 
+/** A delegated session cannot be older than the session it belongs to. */
+export function delegationInTime(
+  child: SessionSummary,
+  parent: SessionSummary,
+): boolean {
+  return Date.parse(child.createdAt) >= Date.parse(parent.createdAt);
+}
+
+/** A subtree sorts by its most urgent session and its latest activity. */
+export function mergeSessionTreeScore(
+  into: SessionTreeScore,
+  from: SessionTreeScore,
+): void {
+  into.rank = Math.min(into.rank, from.rank);
+  if (from.modifiedAt > into.modifiedAt) into.modifiedAt = from.modifiedAt;
+}
+
 /** Delegation is the only edge: Pi's parentId describes a fork, not a child. */
 export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
   const byId = new Map<string, SessionTreeNode>(
@@ -65,14 +82,7 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
   for (const [id, parentId] of parents) {
     const child = byId.get(id),
       parent = byId.get(parentId);
-    if (
-      !child ||
-      !parent ||
-      !(
-        Date.parse(child.summary.createdAt) >=
-        Date.parse(parent.summary.createdAt)
-      )
-    )
+    if (!child || !parent || !delegationInTime(child.summary, parent.summary))
       parents.delete(id);
   }
 
@@ -112,10 +122,7 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
     const parent = byId.get(parentId);
     if (!score || !parentScore || !parent)
       throw new Error("Missing session tree parent");
-    parentScore.rank = Math.min(parentScore.rank, score.rank);
-    if (score.modifiedAt > parentScore.modifiedAt) {
-      parentScore.modifiedAt = score.modifiedAt;
-    }
+    mergeSessionTreeScore(parentScore, score);
     const left = (remaining.get(parentId) ?? 0) - 1;
     remaining.set(parentId, left);
     if (left === 0) ready.push(parent);

@@ -1,3 +1,4 @@
+import { baseName } from "@core/file-types";
 import type {
   SubagentCall,
   SubagentRun,
@@ -71,10 +72,7 @@ function SubagentBody({
 }) {
   const model = run?.model ?? call.model;
   const cwd = run?.cwd ?? call.cwd ?? actions?.cwd;
-  const folder =
-    cwd === undefined
-      ? undefined
-      : (cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd);
+  const folder = cwd === undefined ? undefined : baseName(cwd) || cwd;
   return (
     <div class="subagent-body">
       <div class="subagent-meta">
@@ -241,33 +239,22 @@ export function SubagentContent({
         </div>
       ) : null}
       {single ? (
-        <SubagentBody
-          call={single}
-          {...(runs?.[0] ? { run: runs[0] } : {})}
-          actions={actions}
-        />
+        <SubagentBody call={single} run={runs?.[0]} actions={actions} />
       ) : (
         calls.map((item, index) => (
-          <details class="subagent-agent">
-            <summary>
-              <span class="subagent-summary-label">
-                <span class="subagent-header">
-                  <span class="subagent-name">{item.agent}</span>
-                  <SubagentStatusView
-                    status={runs?.[index]?.status ?? "unknown"}
-                  />
-                </span>
+          <SubagentDisclosure
+            class="subagent-agent"
+            label={
+              <span class="subagent-header">
+                <span class="subagent-name">{item.agent}</span>
+                <SubagentStatusView
+                  status={runs?.[index]?.status ?? "unknown"}
+                />
               </span>
-              <span class="subagent-chevron">
-                <CardChevronIcon colour="currentColor" />
-              </span>
-            </summary>
-            <SubagentBody
-              call={item}
-              {...(runs?.[index] ? { run: runs[index] } : {})}
-              actions={actions}
-            />
-          </details>
+            }
+          >
+            <SubagentBody call={item} run={runs?.[index]} actions={actions} />
+          </SubagentDisclosure>
         ))
       )}
       <div class="subagent-raw">

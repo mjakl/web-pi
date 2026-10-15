@@ -1,14 +1,15 @@
 import {
   type AtQuery,
   buildAtInsertText,
-  buildEntriesFromFiles,
   extractAtQuery,
   type FileEntry,
-  filterFileEntries,
+  type FileSearch,
+  fileSearch,
   isFilePathQuery,
 } from "@core/composer";
-import { catppuccinIcon } from "@core/file-types";
+import { baseName, catppuccinIcon } from "@core/file-types";
 import { escapeHtml } from "@core/html";
+import { catppuccinIconUrl } from "@web/views/icons";
 import { type MenuEndpoints, replaceRange } from "./editor.ts";
 import { createMenu, handleMenuKey, type Menu } from "./menu.ts";
 
@@ -19,30 +20,28 @@ import { createMenu, handleMenuKey, type Menu } from "./menu.ts";
 const INDEX_TTL_MS = 10_000;
 const SEARCH_DEBOUNCE_MS = 150;
 
-/** pi-web's Catppuccin mask, built here because the rows are (§6.4). */
+/** pi-web's Catppuccin mask, built here because the rows are. */
 function icon(entry: FileEntry): string {
   const name = entry.isDir ? "_folder" : catppuccinIcon(entry.path);
-  const root = "/static/icons/catppuccin";
-  return `<span aria-hidden="true" class="catppuccin-file-icon composer-file-icon" style="--catppuccin-icon-light: url(${root}/latte/${name}.svg); --catppuccin-icon-dark: url(${root}/mocha/${name}.svg)"></span>`;
+  return `<span aria-hidden="true" class="catppuccin-file-icon" style="--catppuccin-icon: url(${catppuccinIconUrl(name)})"></span>`;
 }
 
 /** One row: the directory prefix dim, the name plain, "/" dim for folders. */
 function row(entry: FileEntry, index: number): string {
-  const name = entry.path.split(/[\\/]/).pop() ?? entry.path;
+  const name = baseName(entry.path);
   const prefix = entry.path.slice(0, entry.path.length - name.length);
   const dim = (text: string) =>
     `<span class="composer-file-prefix">${escapeHtml(text)}</span>`;
   return (
     `<button type="button" class="menu-item composer-file-option"` +
     ` data-index="${String(index)}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.isDir ? "1" : ""}">` +
-    `<span class="composer-file-icon-host">${icon(entry)}</span>` +
-    `<span class="composer-file-name">` +
+    `${icon(entry)}<span class="composer-file-name">` +
     `${prefix === "" ? "" : dim(prefix)}${escapeHtml(name)}${entry.isDir ? dim("/") : ""}` +
     `</span></button>`
   );
 }
 
-/** pi-web's `@` panel: the count header, then the matches (§6.4). */
+/** pi-web's `@` panel: the count header, then the matches. */
 function panel(title: string, body: string): string {
   return (
     `<div class="composer-menu-header"><span>${escapeHtml(title)}</span>` +
@@ -80,9 +79,12 @@ export function setUpAtCompletion(
   const textarea = () =>
     owner.querySelector<HTMLTextAreaElement>("#composer-text");
   let token: AtQuery | null = null;
-  let index: { files: string[]; truncated: boolean; loadedAt: number } | null =
-    null;
-  let indexInFlight = false;
+  let index: {
+    search: FileSearch;
+    truncated: boolean;
+    loadedAt: number;
+  } | null = null;
+  let indexLoad: Promise<void> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let search: AbortController | undefined;
   const indexController = new AbortController();
@@ -128,18 +130,29 @@ export function setUpAtCompletion(
       : query === ""
         ? " · index truncated"
         : " · searching all files…";
-    menu.render(
-      renderEntries(
-        filterFileEntries(buildEntriesFromFiles(index.files), query),
-        hint,
-      ),
-    );
+    menu.render(renderEntries(index.search(query), hint));
   }
 
-  async function loadIndex(): Promise<void> {
-    if (signal?.aborted || endpoints === null || indexInFlight) return;
-    if (index && Date.now() - index.loadedAt < INDEX_TTL_MS) return;
-    indexInFlight = true;
+  /**
+   * Every keystroke waits for the same request, so the menu opens as soon as
+   * the list arrives however fast the reader types.
+   */
+  function loadIndex(): Promise<void> {
+    if (index && Date.now() - index.loadedAt < INDEX_TTL_MS) {
+      return Promise.resolve();
+    }
+    if (!indexLoad) {
+      const load = fetchIndex();
+      indexLoad = load;
+      void load.then(() => {
+        indexLoad = undefined;
+      });
+    }
+    return indexLoad;
+  }
+
+  async function fetchIndex(): Promise<void> {
+    if (signal?.aborted || endpoints === null) return;
     try {
       const response = await fetch(endpoints.index(""), {
         signal: indexController.signal,
@@ -149,15 +162,14 @@ export function setUpAtCompletion(
         files?: string[];
         truncated?: boolean;
       };
+      // Prepared once per load: a keystroke only runs the query.
       index = {
-        files: body.files ?? [],
+        search: fileSearch(body.files ?? []),
         truncated: body.truncated ?? false,
         loadedAt: Date.now(),
       };
     } catch {
-      // Keep whatever index we had; the menu degrades to server search.
-    } finally {
-      indexInFlight = false;
+      // Keep whatever index we had; without one, the next keystroke asks again.
     }
   }
 

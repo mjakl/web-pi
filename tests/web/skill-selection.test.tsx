@@ -3,13 +3,14 @@ import {
   createFakeWorld,
   userEntry,
 } from "@adapters/fake/index";
+import { skillsConflict } from "@core/composer";
 import { encodeSkillPrompt } from "@core/skill-prompt";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { Status } from "@web/views/Status";
 import { html } from "@web/routes/shared";
-import { Window } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseHtml } from "#/web/helpers";
 
 const testing = { id: "/fake/skills/testing/SKILL.md", name: "testing" };
 const other = { id: "/fake/skills/other/SKILL.md", name: "other" };
@@ -19,15 +20,7 @@ const expanded = encodeSkillPrompt(
   [testing, other],
   "SECRET INSTRUCTIONS",
 );
-const windows: Window[] = [];
-function documentOf(html: string) {
-  const window = new Window();
-  windows.push(window);
-  window.document.body.innerHTML = html;
-  return window.document;
-}
-afterEach(async () => {
-  await Promise.all(windows.splice(0).map((window) => window.happyDOM.close()));
+afterEach(() => {
   vi.restoreAllMocks();
 });
 function fixture(userText = expanded) {
@@ -78,7 +71,7 @@ describe("skill selection HTTP and display boundary", () => {
     "lists discovered manual skills at %s without starting a runtime",
     async (url) => {
       const { app, world } = fixture();
-      const document = documentOf(await (await app.request(url)).text());
+      const document = parseHtml(await (await app.request(url)).text());
       const option = document.querySelector("[data-skill-id]");
       expect(option?.getAttribute("data-skill-id")).toBe(testing.id);
       expect(option?.textContent).toContain("Manual");
@@ -151,7 +144,9 @@ describe("skill selection HTTP and display boundary", () => {
         body: submission(text),
       });
       expect(response.headers.get("X-Web-Pi-Submission")).toBeNull();
-      expect(response.headers.get("HX-Trigger")).toContain("selected skills");
+      expect(response.headers.get("HX-Trigger")).toContain(
+        skillsConflict(text),
+      );
       expect(create).not.toHaveBeenCalled();
     },
   );
@@ -166,7 +161,7 @@ describe("skill selection HTTP and display boundary", () => {
     async (prefix, suffix) => {
       const { app } = fixture(`${prefix}${expanded}${suffix}`);
       const readable = `${prefix}${original}${suffix}`;
-      const document = documentOf(
+      const document = parseHtml(
         await (await app.request("/sessions/s1")).text(),
       );
       const message = document.querySelector("#entry-u1");
@@ -200,7 +195,7 @@ describe("skill selection HTTP and display boundary", () => {
         method: "POST",
         body,
       });
-      const document = documentOf(await response.text());
+      const document = parseHtml(await response.text());
       const area = document.querySelector("#composer-text");
       expect(area?.textContent).toBe(original);
       expect(
@@ -249,7 +244,7 @@ describe("skill selection HTTP and display boundary", () => {
             ) as string,
           },
         });
-      const document = documentOf(await response.text());
+      const document = parseHtml(await response.text());
       expect(document.querySelector("#composer-text")?.textContent).toBe(
         `${original}\n\n/skill:other later`,
       );
@@ -288,7 +283,7 @@ describe("skill selection HTTP and display boundary", () => {
     const view = await workspace.viewSession("s1");
     if (!view?.status) throw new Error("Missing live fixture");
     view.status.queue = queue;
-    const preview = documentOf(await html(<Status view={view} />));
+    const preview = parseHtml(await html(<Status view={view} />));
     expect(preview.body.textContent).toContain(
       `Context note.\n${original}\nHook suffix`,
     );
@@ -299,13 +294,21 @@ describe("skill selection HTTP and display boundary", () => {
     const live = world.runtime.get("s1");
     if (!live) throw new Error("Missing live fixture");
     vi.spyOn(live, "clearQueue").mockReturnValue(queue);
-    const document = documentOf(
+    // The reader's own draft and selection come along and stay.
+    const mine = { id: "/fake/skills/mine/SKILL.md", name: "mine" };
+    const draft = new FormData();
+    draft.set("text", "typed meanwhile");
+    draft.set("skills", JSON.stringify([other, mine]));
+    const document = parseHtml(
       await (
-        await app.request("/sessions/s1/queue/recall", { method: "POST" })
+        await app.request("/sessions/s1/queue/recall", {
+          method: "POST",
+          body: draft,
+        })
       ).text(),
     );
     expect(document.querySelector("#composer-text")?.textContent).toBe(
-      `${original}\n\nsecond request`,
+      `${original}\n\nsecond request\n\ntyped meanwhile`,
     );
     expect(
       JSON.parse(
@@ -313,6 +316,27 @@ describe("skill selection HTTP and display boundary", () => {
           .querySelector("#composer-text")
           ?.getAttribute("data-restored-skills") ?? "null",
       ),
-    ).toEqual([testing, other]);
+    ).toEqual([testing, other, mine]);
+  });
+
+  it("refuses a recall with a damaged selection and keeps the queue", async () => {
+    const { app, workspace, world } = fixture();
+    await workspace.activate("s1");
+    const live = world.runtime.get("s1");
+    if (!live) throw new Error("Missing live fixture");
+    const clear = vi.spyOn(live, "clearQueue");
+    const draft = new FormData();
+    draft.set("text", "typed");
+    draft.set("skills", "{not json");
+    const response = await app.request("/sessions/s1/queue/recall", {
+      method: "POST",
+      body: draft,
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("HX-Reswap")).toBe("none");
+    expect(response.headers.get("HX-Trigger")).toContain(
+      "Invalid skill selection",
+    );
+    expect(clear).not.toHaveBeenCalled();
   });
 });

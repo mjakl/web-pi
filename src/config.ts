@@ -14,6 +14,9 @@ export type Config = {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const host = env["WEB_PI_HOST"] ?? "127.0.0.1";
+  // listen() takes an empty host as every interface.
+  if (host.trim() === "") throw new Error("WEB_PI_HOST must not be empty");
   const port = Number(env["WEB_PI_PORT"] ?? 30142);
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error("WEB_PI_PORT must be a positive integer");
@@ -31,7 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   return {
     notificationGracePeriodMs: Number(graceMinutes) * 60_000,
-    host: env["WEB_PI_HOST"] ?? "127.0.0.1",
+    host,
     port,
     agentDir: getAgentDir(),
     defaultCwd: env["WEB_PI_DEFAULT_CWD"] ?? homedir(),

@@ -56,8 +56,8 @@ export function contextUsage(input: {
 
 /**
  * pi-web's `formatCompactCount`: one decimal from a million, whole thousands
- * below that. Kept separate from `formatTokens` because the top bar reads
- * "1.9M" where the stats panel reads the exact number.
+ * below that. The top bar reads "1.9M" where the stats panel reads the exact
+ * number.
  */
 export function formatCompactCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -99,11 +99,4 @@ export function formatContextTooltip(usage: ContextUsage): string {
           `${usage.percent.toLocaleString("en", { maximumFractionDigits: 1 })}%`,
         );
   return `Context: ${used} / ${usage.contextWindow.toLocaleString("en")} tokens (${percent})`;
-}
-
-export function formatTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (tokens >= 10_000) return `${String(Math.round(tokens / 1000))}k`;
-  if (tokens >= 1_000) return `${(tokens / 1000).toFixed(1)}k`;
-  return String(tokens);
 }

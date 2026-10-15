@@ -1,4 +1,10 @@
 import {
+  BUILTIN_COMMANDS,
+  rankCommands,
+  type SlashCommand,
+} from "@core/composer";
+import {
+  directoryWithin,
   FileAccessError,
   isAbsolutePath,
   parentPath,
@@ -13,6 +19,7 @@ import type {
   Git,
   ModelCatalog,
   ModelListing,
+  LiveSession,
   LiveSnapshot,
   Packages,
   ProjectResolver,
@@ -120,6 +127,40 @@ export function createShared(deps: WorkspaceDeps) {
     });
   }
 
+  /**
+   * The runtime this process holds for a session, including one that is
+   * still stopping and writing its last entries, which `get` no longer
+   * returns.
+   */
+  function heldRuntime(id: string): LiveSession | undefined {
+    return deps.runtime.live().find((live) => live.id === id);
+  }
+
+  // A rewind or a delete stops the runtime and then rewrites or removes the
+  // file. A runtime opened in between would load the old file or write the
+  // removed one, and one already being opened would load it too late to be
+  // stopped. So per session, those edits and this workspace's runtime opens
+  // run one at a time, in the order they arrive.
+  const sessionQueues = new Map<string, Promise<unknown>>();
+
+  function serialised<T>(id: string, task: () => Promise<T>): Promise<T> {
+    const run = (sessionQueues.get(id) ?? Promise.resolve()).then(task);
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    sessionQueues.set(id, settled);
+    void settled.then(() => {
+      if (sessionQueues.get(id) === settled) sessionQueues.delete(id);
+    });
+    return run;
+  }
+
+  /** A session's runtime, once no rewind or delete of it is under way. */
+  function openRuntime(id: string): Promise<LiveSession> {
+    return serialised(id, () => deps.runtime.open({ sessionId: id }));
+  }
+
   /** Classify from persisted origin, never from a possibly unrelated runtime. */
   async function inspectionOnly(id: string): Promise<boolean> {
     if (id.startsWith("subagent.")) return true;
@@ -130,7 +171,17 @@ export function createShared(deps: WorkspaceDeps) {
     if (stored.kind === "unavailable") return true;
     // Existing runtimes passed writable admission or were created fresh. Their
     // snapshot is conversation state, not the authority for source ownership.
-    return deps.runtime.get(id) === undefined;
+    return heldRuntime(id) === undefined;
+  }
+
+  /**
+   * The runtime of a session this workspace may drive. Without one there is
+   * nothing to classify, so a stopped session costs no file read here; with
+   * one, the persisted origin decides, never the runtime's own snapshot.
+   */
+  async function ownedRuntime(id: string): Promise<LiveSession | undefined> {
+    if (heldRuntime(id) === undefined) return undefined;
+    return (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
   }
 
   async function requireWritableSession(id: string): Promise<void> {
@@ -144,9 +195,9 @@ export function createShared(deps: WorkspaceDeps) {
    */
   async function requireFolder(id: string): Promise<void> {
     await requireWritableSession(id);
-    const summary = await summaryOf(id);
-    if (summary?.cwdAvailable === false) {
-      throw new Error(unavailableFolderMessage(summary.cwd));
+    const cwd = await cwdOf(id);
+    if (cwd !== "" && !(await deps.projects.available(cwd))) {
+      throw new Error(unavailableFolderMessage(cwd));
     }
   }
 
@@ -154,25 +205,28 @@ export function createShared(deps: WorkspaceDeps) {
     return deps.projects.available(cwd);
   }
 
-  async function summaryOf(id: string): Promise<SessionSummary | undefined> {
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
-    if (live) {
-      const snapshot = live.snapshot();
-      const [decorated] = await decorate(
-        [snapshot.summary],
-        new Map([[id, snapshot]]),
-      );
-      return decorated;
-    }
-    const stored = await deps.sessions.read(id);
-    if (!stored) return undefined;
-    const [decorated] = await decorate([stored.summary]);
-    return decorated;
+  /**
+   * The slash menu: built-ins, then what the live session offers, or else
+   * what a session started in `cwd` would.
+   */
+  async function slashMenu(
+    query: string,
+    cwd: string | undefined,
+    live?: LiveSession,
+  ): Promise<SlashCommand[]> {
+    const listed = live
+      ? live.commands()
+      : cwd === undefined
+        ? []
+        : await deps.resources.commands(cwd).catch(() => []);
+    return rankCommands([...BUILTIN_COMMANDS, ...listed], query, {
+      running: live?.snapshot().status.running ?? false,
+    });
   }
 
   /** Whichever of the two writers owns this session right now. */
   async function entriesOf(id: string): Promise<SessionRead | undefined> {
-    const live = (await inspectionOnly(id)) ? undefined : deps.runtime.get(id);
+    const live = await ownedRuntime(id);
     if (live) {
       const snapshot = live.snapshot();
       return {
@@ -182,14 +236,68 @@ export function createShared(deps: WorkspaceDeps) {
         leafId: snapshot.branch.at(-1)?.id ?? null,
       };
     }
-    return deps.sessions.read(id);
+    return (await savedRead(id))?.read;
+  }
+
+  // A page's images, thinking blocks, tool bodies and shell captures each
+  // need a stopped session's entries. The last read of each session is kept,
+  // and every use first asks the catalog's stat-based readSaved whether the
+  // file still matches it; uses of one session queue behind each other, so
+  // requests that arrive together share one parse. Bound: the kept reads
+  // come from at most 32 MiB of session files, about as much heap once
+  // parsed and twice that with the JSON a reference check keeps; a larger
+  // file is not kept.
+  const SAVED_READ_BYTES = 32 * 1024 * 1024;
+  type SavedRead = { read: SessionRead; json?: string };
+  type Kept = { read: Promise<SavedRead | undefined>; bytes?: number };
+  const savedReads = new Map<string, Kept>();
+
+  async function savedRead(id: string): Promise<SavedRead | undefined> {
+    const previous = savedReads.get(id)?.read.catch(() => undefined);
+    const kept: Kept = {
+      read: (async () => {
+        const last = await previous;
+        const check = await deps.sessions.readSaved(id, last?.read.revision);
+        if (check.kind === "unchanged") return last;
+        if (check.kind === "changed") return { read: check.snapshot };
+        // Only strict, stable reads come back "changed". A file with a line
+        // Pi skips is read the tolerant way and kept under the revision that
+        // read saw, so it is parsed once per revision too; a file that
+        // changed while it was read gets one that never matches.
+        const tolerant = await deps.sessions.read(id);
+        return tolerant && { read: tolerant };
+      })(),
+    };
+    savedReads.delete(id);
+    savedReads.set(id, kept);
+    let saved: SavedRead | undefined;
+    try {
+      saved = await kept.read;
+    } finally {
+      if (savedReads.get(id) === kept) {
+        if (saved) fit(kept, saved.read.summary.fileSize);
+        else savedReads.delete(id);
+      }
+    }
+    return saved;
+  }
+
+  /** Drops the oldest settled reads until the kept files fit the bound. */
+  function fit(kept: Kept, bytes: number): void {
+    kept.bytes = bytes;
+    let total = 0;
+    for (const other of savedReads.values()) total += other.bytes ?? 0;
+    for (const [id, other] of savedReads) {
+      if (total <= SAVED_READ_BYTES) return;
+      if (other.bytes === undefined) continue;
+      savedReads.delete(id);
+      total -= other.bytes;
+    }
   }
 
   async function cwdOf(sessionId: string | undefined): Promise<string> {
     if (sessionId === undefined) return "";
-    const live = (await inspectionOnly(sessionId))
-      ? undefined
-      : deps.runtime.get(sessionId);
+    const live = await ownedRuntime(sessionId);
     return live
       ? live.snapshot().summary.cwd
       : ((await deps.sessions.folder(sessionId)) ?? "");
@@ -200,7 +308,9 @@ export function createShared(deps: WorkspaceDeps) {
   // One policy for every file route: lexical containment against the roots
   // this request may reach, then the same check on the resolved path. The
   // cheap roots (the open session's folder and its repository) are tried
-  // first; the full set costs a pass over every session header.
+  // first, then every session's folder, which costs a pass over every
+  // session header, and only when no folder holds the path the repositories
+  // they sit in, which may run Git.
 
   async function projectRootOf(cwd: string): Promise<string | undefined> {
     return deps.projects.resolve(cwd).then(
@@ -224,20 +334,35 @@ export function createShared(deps: WorkspaceDeps) {
     return roots;
   }
 
-  /** Every session's working folder, and the repository each sits in. */
-  async function everyRoot(): Promise<string[]> {
-    const cwds = [
-      ...new Set((await deps.sessions.list()).map((session) => session.cwd)),
-    ];
-    const roots = await Promise.all(cwds.map(projectRootOf));
-    return [...cwds, ...roots.filter((root) => root !== undefined)];
+  // Concurrent requests share one listing of these, reused for a few
+  // seconds because opening one file sends several requests. Creating or
+  // deleting a session, or choosing a folder, starts a fresh one, so a new
+  // project is not refused and a deleted session's folder not served in the
+  // meantime.
+  const everyFolder = sharedFor(FALLBACK_ROOTS_MS, async () => [
+    ...new Set((await deps.sessions.list()).map((session) => session.cwd)),
+  ]);
+  const everyRepository = sharedFor(FALLBACK_ROOTS_MS, async () => {
+    const roots = await Promise.all(
+      (await everyFolder.get()).map(projectRootOf),
+    );
+    return roots.filter((root) => root !== undefined);
+  });
+
+  function refreshRoots(): void {
+    everyFolder.refresh();
+    everyRepository.refresh();
   }
 
   async function sessionReferences(id: string, path: string): Promise<boolean> {
-    const stored = await entriesOf(id);
-    return stored
-      ? referencesPath(JSON.stringify(stored.entries), path)
-      : false;
+    const live = await ownedRuntime(id);
+    if (live) {
+      return referencesPath(JSON.stringify(live.snapshot().entries), path);
+    }
+    const saved = await savedRead(id);
+    if (!saved) return false;
+    saved.json ??= JSON.stringify(saved.read.entries);
+    return referencesPath(saved.json, path);
   }
 
   /**
@@ -258,8 +383,22 @@ export function createShared(deps: WorkspaceDeps) {
     if (!isAbsolutePath(path)) {
       throw new FileAccessError("Path must be absolute", 400);
     }
-    const roots = await nearRoots(options.sessionId, options.sessionCwd);
-    if (!withinAny(roots, path)) roots.push(...(await everyRoot()));
+    const roots = new Set(
+      await nearRoots(options.sessionId, options.sessionCwd),
+    );
+    // A path the request's own roots hold never widens to the others.
+    const wider = withinAny(roots, path)
+      ? []
+      : [everyFolder.get, everyRepository.get];
+    async function widen(): Promise<boolean> {
+      const next = wider.shift();
+      if (next === undefined) return false;
+      for (const root of await next()) roots.add(root);
+      return true;
+    }
+    while (!withinAny(roots, path)) {
+      if (!(await widen())) break;
+    }
     let referenced = false;
     if (!withinAny(roots, path)) {
       if (options.listing === true || options.sessionId === undefined) {
@@ -275,21 +414,32 @@ export function createShared(deps: WorkspaceDeps) {
     if (options.listing === true && info !== undefined && !info.isDirectory) {
       throw new FileAccessError("Not a directory", 400);
     }
-    if (!referenced) {
-      // The lexical check proved the spelling; this proves the file.
-      const real = await deps.files.realpath(
-        info === undefined ? parentPath(path) : path,
-      );
-      if (real === undefined) throw new FileAccessError("Not found", 404);
-      const resolved = await Promise.all(
-        roots.map((root) => deps.files.realpath(root)),
-      );
-      const known = resolved.filter((root) => root !== undefined);
-      if (!withinAny(known, real)) {
-        throw new FileAccessError("Access denied", 403);
+    if (referenced) return info;
+    // The lexical check proved the spelling; this proves the file.
+    const real = await deps.files.realpath(
+      info === undefined ? parentPath(path) : path,
+    );
+    if (real === undefined) throw new FileAccessError("Not found", 404);
+    // Each root is resolved once, the ones the path's spelling matched first,
+    // and the rest only if those do not hold the file.
+    const asked = new Set<string>();
+    const known: string[] = [];
+    const holds = async (candidates: string[]): Promise<boolean> => {
+      const fresh = candidates.filter((root) => !asked.has(root));
+      for (const root of fresh) asked.add(root);
+      for (const root of await Promise.all(
+        fresh.map((root) => deps.files.realpath(root)),
+      )) {
+        if (root !== undefined) known.push(root);
       }
-    }
-    return info;
+      return withinAny(known, real);
+    };
+    if (await holds([...roots].filter((root) => directoryWithin(root, path))))
+      return info;
+    do {
+      if (await holds([...roots])) return info;
+    } while (await widen());
+    throw new FileAccessError("Access denied", 403);
   }
 
   return {
@@ -298,13 +448,45 @@ export function createShared(deps: WorkspaceDeps) {
     modelsFor,
     decorate,
     requireFolder,
+    heldRuntime,
+    serialised,
+    openRuntime,
     inspectionOnly,
+    ownedRuntime,
     requireWritableSession,
     folderAvailable,
-    summaryOf,
+    slashMenu,
     entriesOf,
     cwdOf,
     projectRootOf,
+    refreshRoots,
     authorize,
+  };
+}
+
+/** How long every session's folders and repositories are reused. */
+const FALLBACK_ROOTS_MS = 5_000;
+
+/** One computation shared by concurrent callers and reused for `ms` after it settles. */
+function sharedFor<T>(ms: number, compute: () => Promise<T>) {
+  let kept: { value: Promise<T>; until: number } | undefined;
+  return {
+    get: (): Promise<T> => {
+      if (kept && Date.now() < kept.until) return kept.value;
+      const entry = { value: compute(), until: Number.POSITIVE_INFINITY };
+      kept = entry;
+      entry.value.then(
+        () => {
+          entry.until = Date.now() + ms;
+        },
+        () => {
+          if (kept === entry) kept = undefined;
+        },
+      );
+      return entry.value;
+    },
+    refresh: (): void => {
+      kept = undefined;
+    },
   };
 }

@@ -2,9 +2,12 @@
   Element defaults, kept in a cascade layer so every unlayered rule in the
   app stylesheets wins over them. Copied from Tailwind CSS v4.2.2 preflight
   (MIT) when Tailwind was removed, minus rules for elements web-pi never
-  renders (visible file inputs, date/time/search inputs, multi-select
-  optgroups, progress, datalist pickers, abbr, small, menu, video, embed,
-  object).
+  renders (visible file inputs, date/time inputs, multi-select optgroups,
+  progress, datalist pickers, abbr, b, small, samp, sub, sup, menu, canvas,
+  video, embed, object), minus an @supports guard that every browser on the
+  floor passes, and minus the ::-webkit-search-decoration reset, which
+  Tailwind adds to remove the inner padding of search inputs in Chrome and
+  Safari on macOS. The skills, model and explorer filters are search inputs.
 */
 
 @layer base {
@@ -47,33 +50,15 @@
     text-decoration: inherit;
   }
 
-  b,
   strong {
     font-weight: bolder;
   }
 
   code,
   kbd,
-  samp,
   pre {
     font-family: var(--font-mono);
     font-size: 1em;
-  }
-
-  sub,
-  sup {
-    font-size: 75%;
-    line-height: 0;
-    position: relative;
-    vertical-align: baseline;
-  }
-
-  sub {
-    bottom: -0.25em;
-  }
-
-  sup {
-    top: -0.5em;
   }
 
   table {
@@ -97,7 +82,6 @@
 
   img,
   svg,
-  canvas,
   audio,
   iframe {
     display: block;
@@ -125,13 +109,7 @@
 
   ::placeholder {
     opacity: 1;
-  }
-
-  @supports (not (-webkit-appearance: -apple-pay-button)) or
-    (contain-intrinsic-size: 1px) {
-    ::placeholder {
-      color: color-mix(in oklab, currentcolor 50%, transparent);
-    }
+    color: color-mix(in oklab, currentcolor 50%, transparent);
   }
 
   textarea {

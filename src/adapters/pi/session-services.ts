@@ -1,3 +1,4 @@
+import type { SlashCommand } from "@core/composer";
 import {
   DEFAULT_SYSTEM_PROMPT_ADDITION,
   type WebSettingsStore,
@@ -8,11 +9,15 @@ import {
   createCodemodeExtension,
   createMcpExtension,
   createToolSearchExtension,
+  ExtensionRunner,
   getAgentDir,
+  ModelRegistry,
+  SessionManager,
   SettingsManager,
   type AgentSessionServices,
   type BashOperations,
   type InlineExtension,
+  type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -78,6 +83,36 @@ function resourceSettingsStamp(agentDir: string): string {
   }
 }
 
+/**
+ * The `/` menu Pi offers a session: extension commands under the invocation
+ * names Pi gives duplicates (`name:2`), prompt templates, and skills, those
+ * Pi may not invoke on its own marked so the menu can say who may run them.
+ */
+export function slashCommands(
+  runner: ExtensionRunner,
+  loader: ResourceLoader,
+): SlashCommand[] {
+  return [
+    ...runner.getRegisteredCommands().map((command): SlashCommand => ({
+      name: command.invocationName,
+      description: command.description ?? "",
+      source: "extension",
+    })),
+    ...loader.getPrompts().prompts.map((prompt): SlashCommand => ({
+      name: prompt.name,
+      description: prompt.description,
+      source: "prompt",
+    })),
+    ...loader.getSkills().skills.map((skill): SlashCommand => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: "skill",
+      skillId: skill.filePath,
+      ...(skill.disableModelInvocation ? { manual: true } : {}),
+    })),
+  ];
+}
+
 /** Unbound services only. A claim removes ownership before its first await. */
 export function createPiServicePreparations(options: {
   agentDir: string;
@@ -88,7 +123,7 @@ export function createPiServicePreparations(options: {
   // Retain a few recently selected folders, not one runtime per saved transcript.
   const cache = new Map<
     string,
-    { stamp: string; state: Promise<PreparedSession> }
+    { stamp: string; expiresAt: number; state: Promise<PreparedSession> }
   >();
   async function load(cwd: string): Promise<PreparedSession> {
     // Capture once: even resource reloads keep this runtime's addition stable.
@@ -189,21 +224,48 @@ export function createPiServicePreparations(options: {
       options.webSettings?.get().systemPromptAddition,
     ].join(":");
     const hit = cache.get(folder);
-    if (hit?.stamp === stamp) return hit.state;
-    const state = load(folder);
+    // Config stamps cannot see external prompt, skill, or extension additions.
+    // Bound freshness for stopped-session menus without reloading live sessions.
+    if (hit?.stamp === stamp && Date.now() < hit.expiresAt) return hit.state;
+    // The ten seconds start once the load settles: a load that installs a
+    // missing package can take longer, and a second one would install it again.
+    const entry = {
+      stamp,
+      expiresAt: Number.POSITIVE_INFINITY,
+      state: load(folder),
+    };
     cache.delete(folder);
-    cache.set(folder, { stamp, state });
+    cache.set(folder, entry);
     if (cache.size > 4) {
       const oldest = cache.keys().next().value;
       if (oldest !== undefined) cache.delete(oldest);
     }
-    void state.catch(() => {
-      if (cache.get(folder)?.state === state) cache.delete(folder);
-    });
-    return state;
+    void entry.state.then(
+      () => {
+        entry.expiresAt = Date.now() + 10_000;
+      },
+      () => {
+        if (cache.get(folder) === entry) cache.delete(folder);
+      },
+    );
+    return entry.state;
   }
   return {
     prepare: stateFor,
+    /** The menu a session started in `cwd` would offer, without one. */
+    async commands(cwd: string): Promise<SlashCommand[]> {
+      const { services } = await stateFor(cwd);
+      const { extensions, runtime } = services.resourceLoader.getExtensions();
+      // Never bound: only here for Pi's naming of duplicate commands.
+      const runner = new ExtensionRunner(
+        extensions,
+        runtime,
+        services.cwd,
+        SessionManager.inMemory(services.cwd),
+        new ModelRegistry(services.modelRuntime),
+      );
+      return slashCommands(runner, services.resourceLoader);
+    },
     claim(cwd: string) {
       const state = stateFor(cwd);
       cache.delete(resolve(cwd || options.agentDir));

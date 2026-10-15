@@ -1,5 +1,6 @@
 import { BUILTIN_COMMANDS, rankCommands } from "@core/composer";
 import { CommandMenu, Composer, ModelSelector } from "@web/views/Composer";
+import { ComposerActionIcon } from "@web/views/icons";
 import { describe, expect, it, vi } from "vitest";
 import {
   area,
@@ -71,6 +72,21 @@ function page({
 
 function behavior(): string {
   return field("#composer-behavior").value;
+}
+
+/** The button's icon is the one the server draws for the same action. */
+function drawsItsAction(): void {
+  const action = primary().dataset["action"];
+  if (
+    action !== "send" &&
+    action !== "stop" &&
+    action !== "steer" &&
+    action !== "followup"
+  )
+    throw new Error(`Unknown action ${String(action)}`);
+  expect(primary().querySelector("svg")?.outerHTML).toBe(
+    render(ComposerActionIcon({ action })),
+  );
 }
 
 function primary(): HTMLButtonElement {
@@ -179,6 +195,21 @@ describe("sending", () => {
       method: "POST",
     });
   });
+
+  it("leaves Escape in the textarea to an open top panel", async () => {
+    const fetch = mockFetch(() => text(""));
+    page();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div id="system-panel" class="shell-top-panel" popover="auto"></div>',
+    );
+    const { setUpComposer } = await load();
+    setUpComposer();
+    byId("system-panel").showPopover();
+    // The browser closes the popover after the key's listeners have run.
+    expect(keydown(area(), "Escape").defaultPrevented).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("the primary button", () => {
@@ -188,6 +219,7 @@ describe("the primary button", () => {
     setUpComposer();
     expect(primary().disabled).toBe(true);
     expect(primary().dataset["action"]).toBe("send");
+    drawsItsAction();
     type(area(), "go");
     expect(primary().disabled).toBe(false);
     click(primary());
@@ -199,12 +231,15 @@ describe("the primary button", () => {
     const { setUpComposer } = await load();
     setUpComposer();
     expect(primary().dataset["action"]).toBe("stop");
+    drawsItsAction();
     expect(primary().disabled).toBe(false);
     expect(primary().getAttribute("aria-label")).toBe("Stop agent");
     type(area(), "change course");
     expect(primary().dataset["action"]).toBe("steer");
+    drawsItsAction();
     keydown(document.body, "Alt", { altKey: true });
     expect(primary().dataset["action"]).toBe("followup");
+    drawsItsAction();
     expect(primary().dataset["behavior"]).toBe("followUp");
     expect(primary().getAttribute("aria-label")).toBe("Queue");
     keyup(document.body, "Alt");
@@ -673,6 +708,41 @@ describe("the extension shelf", () => {
     click(query('[data-widget="b"]'));
     expect(byId("widget-panel-1").hidden).toBe(true);
     expect(query(".extension-widget-panels").hidden).toBe(true);
+  });
+
+  it("follows each session's default panel until the reader picks one there", async () => {
+    // A session page, with the panel the server opened for it.
+    const session = (id: string, open: string) => {
+      const main = document.createElement("main");
+      main.dataset["sessionId"] = id;
+      main.innerHTML = SHELF;
+      main
+        .querySelector(`[data-widget="${open}"]`)
+        ?.setAttribute("aria-expanded", "true");
+      return main.outerHTML;
+    };
+    const navigate = (id: string, open: string) => {
+      query("main").outerHTML = session(id, open);
+      htmxEvent(query("main"), "htmx:after:settle");
+    };
+    mount(session("s1", "a"));
+    const { setUpComposer } = await load();
+    setUpComposer();
+    expect(byId("widget-panel-0").hidden).toBe(false);
+    click(query('[data-widget="a"]'));
+    expect(query(".extension-widget-panels").hidden).toBe(true);
+    navigate("s2", "b");
+    expect(byId("widget-panel-0").hidden).toBe(true);
+    expect(byId("widget-panel-1").hidden).toBe(false);
+    expect(query('[data-widget="b"]').getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    // Back in the first session, its reader's choice still stands.
+    navigate("s1", "a");
+    expect(query(".extension-widget-panels").hidden).toBe(true);
+    expect(query('[data-widget="a"]').getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 
   it("adopts the panel the server opened", async () => {

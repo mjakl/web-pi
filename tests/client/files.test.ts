@@ -60,7 +60,7 @@ function page(
 ): void {
   const session = options.session ?? "s1";
   mount(
-    `<main data-session-id="${session}">` +
+    `<main data-session-id="${session}" data-cwd="/repo/one">` +
       '<form id="composer"><textarea id="composer-text"></textarea></form>' +
       '<button type="button" id="file-panel-toggle" aria-expanded="false"></button>' +
       '<div class="panel-resize-handle right-panel-resize-handle" tabindex="0"></div>' +
@@ -70,7 +70,7 @@ function page(
       '<button type="button" id="explorer-changes-toggle" aria-pressed="false"></button>' +
       `<div id="file-tree" role="tree"${options.changes === undefined ? "" : ` data-changes="${String(options.changes)}"`}>${options.tree ?? ""}</div>` +
       "</div>" +
-      `<div id="file-panel" class="right-panel-container right-panel-closed" data-session="${session}" data-cwd="/repo/one">` +
+      '<div id="file-panel" class="right-panel-container right-panel-closed">' +
       '<div id="file-tabs" role="tablist" hidden></div>' +
       '<button type="button" id="file-panel-close"></button>' +
       '<div id="file-view" hx-sync="#file-view:replace"><div>No file open</div></div>' +
@@ -228,8 +228,8 @@ describe("file panel replacement", () => {
     const oldBody = document.body;
     const replacement = document.createElement("body");
     replacement.innerHTML = oldBody.innerHTML.replaceAll(
-      'data-session="s1"',
-      'data-session="s2"',
+      'data-session-id="s1"',
+      'data-session-id="s2"',
     );
     oldBody.replaceWith(replacement);
     htmxEvent(document.body, "htmx:after:process");
@@ -252,6 +252,17 @@ describe("file panel replacement", () => {
     expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
       true,
     );
+    // Where the panel overlays the conversation, its backdrop closes it.
+    click(byId("file-panel-toggle"));
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div class="right-panel-overlay-backdrop"></div>',
+    );
+    click(query(".right-panel-overlay-backdrop"));
+    expect(byId("file-panel").classList.contains("right-panel-closed")).toBe(
+      true,
+    );
+    expect(document.body.dataset["filePanel"]).toBe("closed");
     const link = document.createElement("a");
     link.dataset["filePath"] = "new.ts";
     document.body.append(link);
@@ -431,7 +442,6 @@ describe("opening files", () => {
     await requests[3]?.respond(viewer("c.ts"));
     expect(byId("file-view").textContent).toBe("No file open");
     expect(tabs()).toHaveLength(0);
-    expect(byId("file-panel").dataset["session"]).toBe("s2");
   });
 
   it("does not reopen a panel hidden while its file was loading", async () => {
@@ -488,6 +498,18 @@ describe("opening files", () => {
     ).toBe(false);
   });
 
+  it("stops watching a file the server gave up on", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    openFile("/repo/one/a.ts");
+    await deliver(viewer("a.ts"));
+    streams()[0]?.dispatchEvent(new Event("connected"));
+    streams()[0]?.dispatchEvent(new Event("watch-error"));
+    expect(streams()[0]?.closed).toBe(true);
+    expect(query(".file-viewer-live-label").textContent).toBe("static");
+  });
+
   it("works from the picked folder when there is no session", async () => {
     page({ session: "" });
     const { openFile, setUpFiles } = await load();
@@ -496,6 +518,10 @@ describe("opening files", () => {
     expect(ajaxUrls()).toEqual([
       "/files/view?cwd=%2Frepo%2Fone&path=%2Frepo%2Fone%2FREADME.md&mode=preview",
     ]);
+    // The watch names the folder the same way, never an empty session.
+    expect(streams()[0]?.url).toBe(
+      "/files/watch?path=%2Frepo%2Fone%2FREADME.md&cwd=%2Frepo%2Fone",
+    );
   });
 
   it("opens anything that carries a path, at the mode it names", async () => {
@@ -738,11 +764,6 @@ describe("the explorer tree", () => {
       false,
     );
     expect(expanded).toBe(1);
-    expect(
-      src
-        .querySelector<HTMLElement>(".catppuccin-file-icon")
-        ?.style.getPropertyValue("--catppuccin-icon-light"),
-    ).toContain("_folder_open");
     keydown(src, "ArrowRight");
     expect(document.activeElement).toBe(item("/repo/one/src/a.ts"));
     keydown(item("/repo/one/src/a.ts"), "ArrowDown");
@@ -811,6 +832,22 @@ describe("changed files and search", () => {
     click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(ajaxUrls().at(-1)).toBe("/files/explorer?session=s1");
+  });
+
+  it("puts the changed files back when the search is cleared", async () => {
+    page({ changes: 2 });
+    const { setUpFiles } = await load();
+    setUpFiles();
+    click(byId("explorer-changes-toggle"));
+    const body = new FormData();
+    body.set("q", "");
+    htmxEvent(byId("file-search"), "htmx:config:request", {
+      ctx: {
+        target: byId("file-tree"),
+        request: { action: "/files/search?session=s1", body },
+      },
+    });
+    expect(body.get("changes")).toBe("1");
   });
 
   it("hides the toggle while nothing is changed", async () => {

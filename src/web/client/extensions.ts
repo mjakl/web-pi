@@ -72,21 +72,31 @@ function setUpDialogCancel(): void {
 }
 
 /**
- * The server renders "Closes in Ns" once, with the deadline beside it; this
- * counts it down while a dialog with a timeout is on the page.
+ * The server renders "Closes in Ns" once, with the time left beside it; this
+ * counts it down while a dialog with a timeout is on the page. Each dialog
+ * arrives in new elements, which fix their deadline on this browser's clock.
  */
 function setUpDialogCountdown(): void {
+  const deadlines = new WeakMap<HTMLElement, number>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  const lines = () =>
+    document.querySelectorAll<HTMLElement>("[data-expires-in]");
   const tick = (): void => {
-    const lines = document.querySelectorAll<HTMLElement>("[data-expires-at]");
-    for (const line of lines)
-      line.textContent = closesIn(Number(line.dataset["expiresAt"]));
-    if (lines.length === 0) {
+    const shown = lines();
+    for (const line of shown) {
+      const deadline = deadlines.get(line);
+      if (deadline !== undefined) line.textContent = closesIn(deadline);
+    }
+    if (shown.length === 0) {
       clearInterval(timer);
       timer = undefined;
     }
   };
   const start = (): void => {
+    for (const line of lines()) {
+      if (!deadlines.has(line))
+        deadlines.set(line, Date.now() + Number(line.dataset["expiresIn"]));
+    }
     timer ??= setInterval(tick, 1000);
   };
   document.body.addEventListener("htmx:after:settle", start);

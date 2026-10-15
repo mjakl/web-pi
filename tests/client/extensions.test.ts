@@ -73,6 +73,26 @@ describe("dialogs", () => {
     expect(line.textContent).toBe("Closes in 0s if unanswered.");
   });
 
+  it("counts down from the time left, whatever the browser's clock says", async () => {
+    const html = render(
+      ExtensionDialog({
+        sessionId: "s1",
+        dialog: {
+          id: "d",
+          method: "confirm",
+          title: "Push?",
+          expiresAt: Date.now() + 30_000,
+        },
+      }),
+    );
+    // This browser's clock runs two minutes ahead of the server's.
+    vi.setSystemTime(Date.now() + 120_000);
+    await load(html);
+    const line = query(".extension-dialog-timeout");
+    vi.advanceTimersByTime(1000);
+    expect(line.textContent).toBe("Closes in 29s if unanswered.");
+  });
+
   it("saves the editor dialog on Ctrl+Enter", async () => {
     await load(
       '<form><textarea data-dialog-submit></textarea><textarea id="other"></textarea></form>',

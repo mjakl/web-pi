@@ -136,10 +136,14 @@ export function ExtensionDialogBody({
       >
         <div class="extension-dialog-heading">
           <div class="extension-dialog-title">{dialog.title}</div>
-          {/* The client bundle counts the timeout down from the deadline. */}
+          {/* The time left, not the deadline: the browser's clock may differ. */}
           <div
             class="extension-dialog-timeout"
-            data-expires-at={dialog.expiresAt}
+            data-expires-in={
+              dialog.expiresAt === undefined
+                ? undefined
+                : dialog.expiresAt - Date.now()
+            }
           >
             {dialog.expiresAt === undefined
               ? "extension request"

@@ -333,6 +333,38 @@ describe("opening", () => {
     await done;
   });
 
+  it("refuses to reopen an unsaved stopping session instead of creating another in the server folder", async () => {
+    const shutdown = gate();
+    h = await createHarness({
+      extensions: [
+        (pi) => {
+          pi.on("session_shutdown", (event) =>
+            event.reason === "quit" ? shutdown.wait : Promise.resolve(),
+          );
+        },
+      ],
+    });
+    const first = await h.open();
+    await first.reload();
+    const file = await h.catalog.pathOf(first.id);
+    expect(file).toBeDefined();
+    expect(existsSync(file ?? "")).toBe(false);
+    expect(first.snapshot().summary.cwd).toBe(h.cwd);
+    const stopping = first.stop();
+    const reopening = h.open({ sessionId: first.id }).then(
+      (session) => `Opened ${session.id} in ${session.snapshot().summary.cwd}`,
+      (error: unknown) => String(error),
+    );
+    shutdown.open();
+    await stopping;
+    expect(await reopening).toBe(
+      `Error: Cannot reopen session ${first.id}: no saved transcript.`,
+    );
+    expect(h.runtime.live()).toEqual([]);
+    expect(existsSync(file ?? "")).toBe(false);
+    expect(h.calls).toHaveLength(0);
+  });
+
   it("gives up reopening a session whose stop does not finish", async () => {
     const shutdown = gate();
     h = await createHarness({

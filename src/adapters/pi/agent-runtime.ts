@@ -971,7 +971,7 @@ export function createPiAgentRuntime(options: {
     resources: { commands: (cwd) => preparations.commands(cwd) },
     get(sessionId) {
       const session = live.get(sessionId);
-      // A stopping session takes no new work; open() starts a fresh one.
+      // A stopping session takes no new work; open() may resume its transcript.
       return session?.stopping ? undefined : session;
     },
     live: () => [...live.values()],
@@ -1007,7 +1007,18 @@ export function createPiAgentRuntime(options: {
           throw new Error("Cannot reopen a session that is still stopping.");
         const filePath = await options.catalog.pathOf(target.sessionId);
         if (!filePath) throw new Error(`Unknown session ${target.sessionId}`);
-        return start(SessionManager.open(filePath));
+        // Pi opens a missing path as a new session in the server's cwd. A
+        // draft's prospective path is not a transcript we can resume.
+        if (!existsSync(filePath))
+          throw new Error(
+            `Cannot reopen session ${target.sessionId}: no saved transcript.`,
+          );
+        const manager = SessionManager.open(filePath);
+        if (manager.getSessionId() !== target.sessionId)
+          throw new Error(
+            `Cannot reopen session ${target.sessionId}: transcript ID does not match.`,
+          );
+        return start(manager);
       })().finally(() => {
         starting.delete(target.sessionId);
       });

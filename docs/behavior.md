@@ -61,6 +61,14 @@ the readout shows an estimate marked with `~`.
 - Attach up to **10 images, 10 MiB each**. Image drafts survive in-app
   navigation in memory, not a reload. Text drafts persist per session or
   new-session folder.
+- **Dictate** records microphone audio after a click and permission grant. Click
+  **Stop** to transcribe with OpenAI, then review and edit the appended text.
+  Repeated recordings add text; dictation never sends an instruction. Edits made
+  while transcription is pending are preserved. Leaving the composer,
+  submitting, or restoring another draft cancels pending dictation; hiding the
+  page cancels an active recording. Each recording is limited to **2 minutes /
+  20 MiB**. Requires HTTPS or localhost, browser WebM/MP4 recording support, and
+  [server configuration](deployment.md#voice-dictation).
 - A successful submit clears only the originating draft revision and submitted
   attachments, not edits made while the response was pending.
 - During a run, sending steers by default; Alt selects a queued follow-up. Queue

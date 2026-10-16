@@ -28,6 +28,11 @@ import type { ProjectInfo } from "./workspaces.ts";
 // system; adapters in src/adapters implement them. Everything here is an
 // Internal interface: all consumers live in this repository.
 
+/** Completed, explicitly recorded speech; never starts an agent or stores audio. */
+export type AudioTranscriber = {
+  transcribe(file: File, signal: AbortSignal): Promise<string>;
+};
+
 /** A thinking level plus the label the model gives it. */
 export type ThinkingChoice = { level: ThinkingLevel; label: string };
 

@@ -39,6 +39,16 @@ describe("notification grace configuration", () => {
   });
 });
 
+describe("dictation credentials", () => {
+  it("reads the optional OpenAI key only from the server environment", () => {
+    expect(loadConfig({}).openaiApiKey).toBeUndefined();
+    expect(loadConfig({ OPENAI_API_KEY: "   " }).openaiApiKey).toBeUndefined();
+    expect(
+      loadConfig({ OPENAI_API_KEY: "  server-secret  " }).openaiApiKey,
+    ).toBe("server-secret");
+  });
+});
+
 describe("host configuration", () => {
   it("defaults to the loopback address", () => {
     expect(loadConfig({}).host).toBe("127.0.0.1");

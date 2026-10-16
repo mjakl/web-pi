@@ -666,18 +666,38 @@ export function Composer({
               <MoreControls sessionId={sessionId} />
               {pick === undefined ? null : <ModelSelector pick={pick} />}
               <SkillsSelector sessionId={sessionId} cwd={cwd} skills={skills} />
-              <button
-                type="submit"
-                class="composer-action-primary"
-                data-action="send"
-                data-behavior="steer"
-                aria-label="Send"
-                title="Send"
-                disabled
-              >
-                <ComposerActionIcon action="send" />
-              </button>
+              <div class="composer-dictation-actions">
+                <button
+                  type="button"
+                  id="dictation-button"
+                  class="composer-dictation"
+                  aria-label="Record dictation"
+                  aria-describedby="dictation-status"
+                  title="Record dictation"
+                  disabled
+                >
+                  Dictate
+                </button>
+                <button
+                  type="submit"
+                  class="composer-action-primary"
+                  data-action="send"
+                  data-behavior="steer"
+                  aria-label="Send"
+                  title="Send"
+                  disabled
+                >
+                  <ComposerActionIcon action="send" />
+                </button>
+              </div>
             </div>
+            <div
+              id="dictation-status"
+              class="composer-dictation-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            />
           </div>
         </div>
         <div class="composer-shell-mode" id="shell-hint" hidden />

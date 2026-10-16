@@ -11,6 +11,8 @@ export type Config = {
   runtime: "pi" | "fake";
   staticRoot: string;
   notificationGracePeriodMs: number;
+  /** Server-only credentials for recorded dictation; never sent to the browser. */
+  openaiApiKey?: string;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -32,7 +34,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       "WEB_PI_NOTIFICATION_GRACE_PERIOD must be a whole number of minutes from 0 to 35791",
     );
   }
+  const openaiApiKey = env["OPENAI_API_KEY"]?.trim();
   return {
+    ...(openaiApiKey ? { openaiApiKey } : {}),
     notificationGracePeriodMs: Number(graceMinutes) * 60_000,
     host,
     port,

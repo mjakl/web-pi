@@ -1,5 +1,6 @@
 import { createFakeWorld } from "@adapters/fake/index";
 import { createDeps, disposeWorld } from "@/container";
+import { loadConfig } from "@/config";
 import { createWebApp } from "@web/app";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -13,6 +14,7 @@ let h: Harness | undefined;
 afterEach(async () => {
   await h?.dispose();
   h = undefined;
+  vi.unstubAllGlobals();
 });
 
 it("stops every live session on shutdown, as Stop does", async () => {
@@ -53,6 +55,53 @@ it("stops every live session on shutdown, as Stop does", async () => {
   expect(h.runtime.live()).toEqual([]);
   expect(closePush).toHaveBeenCalledOnce();
 });
+
+it.each([undefined, "server-secret"])(
+  "wires dictation independently of the agent runtime (key: %s)",
+  async (key) => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ text: "Recorded words." }));
+    vi.stubGlobal("fetch", fetch);
+    const { workspace, dispose } = createDeps(
+      loadConfig({
+        WEB_PI_RUNTIME: "fake",
+        OPENAI_API_KEY: key,
+      }),
+    );
+    try {
+      const form = new FormData();
+      form.set(
+        "file",
+        new File([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3])], "recording.webm", {
+          type: "audio/webm",
+        }),
+      );
+      const app = createWebApp({
+        workspace,
+        staticRoot: "/nonexistent",
+        defaultCwd: "/repo",
+      });
+      const response = await app.request("/dictation/transcribe", {
+        method: "POST",
+        headers: { "X-Web-Pi-Dictation": "1" },
+        body: form,
+      });
+      expect(response.status).toBe(key ? 200 : 503);
+      expect(await response.json()).toEqual(
+        key
+          ? { text: "Recorded words." }
+          : {
+              error:
+                "Dictation is unavailable. Set OPENAI_API_KEY on the server.",
+            },
+      );
+      expect(fetch).toHaveBeenCalledTimes(key ? 1 : 0);
+    } finally {
+      await dispose();
+    }
+  },
+);
 
 it("serves the demo sessions for --runtime fake", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "web-pi-demo-"));

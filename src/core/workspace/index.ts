@@ -1,5 +1,6 @@
 import { configUseCases } from "./config.ts";
 import { createShared, type WorkspaceDeps } from "./deps.ts";
+import { dictationUseCases } from "./dictation.ts";
 import { fileUseCases } from "./files.ts";
 import { liveUseCases } from "./live.ts";
 import { sessionUseCases } from "./sessions.ts";
@@ -32,5 +33,6 @@ export function createWorkspace(deps: WorkspaceDeps) {
     ...liveUseCases(shared),
     ...fileUseCases(shared),
     ...configUseCases(shared),
+    ...dictationUseCases(deps),
   };
 }

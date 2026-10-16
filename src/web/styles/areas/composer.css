@@ -36,11 +36,13 @@
 }
 .composer-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
 .composer-toolbar > button,
+.composer-dictation-actions > button,
 .model-selector.is-composer > button,
 .skills-selector.is-composer > button {
   display: flex;
@@ -57,11 +59,13 @@
   cursor: pointer;
 }
 .composer-toolbar > button:hover:not(:disabled),
+.composer-dictation-actions > button:hover:not(:disabled),
 .model-selector.is-composer > button:hover:not(:disabled),
 .skills-selector.is-composer > button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
-.composer-toolbar > button:disabled {
+.composer-toolbar > button:disabled,
+.composer-dictation-actions > button:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -96,16 +100,41 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
-.composer-toolbar > .composer-action-primary {
+.composer-dictation-actions > .composer-action-primary {
   position: relative;
   width: 36px;
   padding: 0;
-  margin-left: auto;
+  margin-left: 0;
   color: var(--bg);
   background: none;
 }
-.skills-selector.is-composer + .composer-action-primary {
+.composer-dictation-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.skills-selector.is-composer + .composer-dictation-actions {
   margin-left: 0;
+}
+.composer-dictation {
+  font-size: var(--text-sm);
+}
+.composer-dictation-actions > .composer-dictation.is-recording {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.composer-dictation-status {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.composer-dictation-status:not(:empty) {
+  margin-top: var(--space-2);
+}
+.composer-dictation-status.is-error {
+  color: var(--danger);
 }
 .composer-action-primary::before {
   content: "";
@@ -115,7 +144,7 @@
   border-radius: 50%;
   background: var(--text);
 }
-.composer-toolbar > .composer-action-primary:hover:not(:disabled) {
+.composer-dictation-actions > .composer-action-primary:hover:not(:disabled) {
   background: none;
 }
 .composer-action-primary:hover:not(:disabled)::before {
@@ -857,15 +886,17 @@ button.extension-widget-trigger:focus-visible {
 
 @media (max-width: 640px), (pointer: coarse) {
   .composer-toolbar > button,
+  .composer-dictation-actions > button,
   .model-selector.is-composer > button,
   .skills-selector.is-composer > button {
     min-height: 44px;
   }
-  .composer-toolbar > button {
+  .composer-toolbar > button,
+  .composer-dictation-actions > button {
     min-width: 44px;
   }
   .model-selector.is-composer {
-    max-width: calc(100% - 210px);
+    max-width: max(96px, calc(100% - 270px));
   }
   .skills-selector.is-composer > button {
     padding-inline: var(--space-2);

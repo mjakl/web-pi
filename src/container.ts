@@ -3,6 +3,7 @@ import { createDirectoryBrowser } from "@adapters/fs/browse";
 import { createFileTree } from "@adapters/fs/file-tree";
 import { createWatcher } from "@adapters/fs/watch";
 import { createGit } from "@adapters/git/git";
+import { createOpenAITranscriber } from "@adapters/openai/transcription";
 import { createPiAgentRuntime } from "@adapters/pi/agent-runtime";
 import { createPiPackages } from "@adapters/pi/packages";
 import { createPiProjectResolver } from "@adapters/pi/projects";
@@ -34,11 +35,14 @@ export function createDeps(config: Config): {
   workspace: Workspace;
   dispose: () => Promise<void>;
 } {
+  const transcription = config.openaiApiKey
+    ? { transcription: createOpenAITranscriber(config.openaiApiKey) }
+    : {};
   if (config.runtime === "fake") {
     const world = createDemoWorld(config.defaultCwd);
     return {
       dispose: () => disposeWorld(world),
-      workspace: createWorkspace(world),
+      workspace: createWorkspace({ ...world, ...transcription }),
     };
   }
   const catalog = createPiSessionCatalog({ agentDir: config.agentDir });
@@ -55,6 +59,7 @@ export function createDeps(config: Config): {
   return {
     dispose: () => disposeWorld({ runtime, push }),
     workspace: createWorkspace({
+      ...transcription,
       sessions: catalog,
       runtime,
       models: runtime.models,

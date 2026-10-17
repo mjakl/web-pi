@@ -201,8 +201,8 @@ export function SessionRow({
         </div>
       </a>
       <div class="session-row-actions">
-        {/* ⌘1…⌘0 take the menu trigger's place on the first ten rows while a
-            modifier is held. Which row is which is a browser-side count — a
+        {/* Ctrl+Shift+1–9 replace the first nine visible menu triggers while
+            Control and Shift are held. Positions are a browser-side count — a
             row re-rendered on its own does not know its position — so
             client/sidebar.ts fills this in and decides what shows. */}
         <kbd class="session-shortcut" aria-hidden="true" hidden />

@@ -1,6 +1,16 @@
 import { Composer } from "@web/views/Composer";
 import { describe, expect, it, vi } from "vitest";
-import { area, byId, frame, htmxEvent, mount, render } from "./helpers.ts";
+import {
+  area,
+  byId,
+  frame,
+  htmx,
+  htmxEvent,
+  keydown,
+  mount,
+  render,
+  type,
+} from "./helpers.ts";
 
 function region(id: string): string {
   return `<div id="session-region"><main data-session-id="${id}" data-cwd="/repo">${render(Composer({ sessionId: id, cwd: "/repo" }))}</main></div>`;
@@ -44,6 +54,41 @@ describe("session input autofocus", () => {
     arrive();
     frame();
     expect(document.activeElement).toBe(area());
+  });
+
+  it("switches from the composer through normal navigation, preserving drafts and focus", async () => {
+    await page();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<aside id="sidebar"><div id="session-list"><div class="session-row" data-session-id="s1"><a href="/sessions/s1">Current</a></div><div class="session-row" data-session-id="s2" id="destination"></div></div></aside>',
+    );
+    byId("destination").append(byId("link"));
+    const { setUpSidebar } = await import("@web/client/sidebar");
+    setUpSidebar();
+    localStorage.setItem("web-pi:draft:s2", "Other draft");
+    frame();
+    type(area(), "Unsent message");
+    const event = keydown(area(), "@", {
+      code: "Digit2",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(htmx().ajax).toHaveBeenCalledExactlyOnceWith(
+      "GET",
+      "/sessions/s2",
+      expect.objectContaining({
+        target: "#session-region",
+        push: "/sessions/s2",
+      }),
+    );
+    request();
+    arrive();
+    frame();
+    expect(localStorage.getItem("web-pi:draft:s1")).toBe("Unsent message");
+    expect(area().value).toBe("Other draft");
+    expect(document.activeElement).toBe(area());
+    expect(area().selectionStart).toBe("Other draft".length);
   });
 
   it("focuses once on initial load after restoring the draft, without scrolling", async () => {

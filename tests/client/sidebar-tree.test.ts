@@ -247,18 +247,32 @@ describe("visible shortcuts and selection recovery", () => {
     await setup();
     const other = vi.spyOn(query("#row-other a"), "click");
     const child = vi.spyOn(query("#row-child a"), "click");
-    keydown(document.body, "Meta", { metaKey: true });
-    expect(query("#row-other .session-shortcut").textContent).toBe("⌘2");
+    keydown(document.body, "Shift", { ctrlKey: true, shiftKey: true });
+    expect(query("#row-other .session-shortcut").textContent).toBe(
+      "Ctrl+Shift+2",
+    );
     expect(query("#row-child .session-shortcut").hidden).toBe(true);
-    keydown(document.body, "2", { metaKey: true });
+    keydown(document.body, "@", {
+      code: "Digit2",
+      ctrlKey: true,
+      shiftKey: true,
+    });
     expect(other).toHaveBeenCalledOnce();
     toggle("parent", true);
-    expect(query("#row-child .session-shortcut").textContent).toBe("⌘2");
+    expect(query("#row-child .session-shortcut").textContent).toBe(
+      "Ctrl+Shift+2",
+    );
     expect(query("#row-grandchild .session-shortcut").hidden).toBe(true);
-    keydown(document.body, "2", { metaKey: true });
+    keydown(document.body, "@", {
+      code: "Digit2",
+      ctrlKey: true,
+      shiftKey: true,
+    });
     expect(child).toHaveBeenCalledOnce();
     toggle("parent", false);
-    expect(query("#row-other .session-shortcut").textContent).toBe("⌘2");
+    expect(query("#row-other .session-shortcut").textContent).toBe(
+      "Ctrl+Shift+2",
+    );
   });
 
   it("requests a missing selected path once and does not loop on a nonexistent ID", async () => {

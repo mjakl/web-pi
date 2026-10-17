@@ -335,6 +335,9 @@
   font-size: var(--text-xs);
   color: var(--text);
 }
+.session-row:has(.session-shortcut:not([hidden])) .session-row-location {
+  padding-right: 80px;
+}
 .session-row-location.is-unavailable {
   color: var(--text-dim);
 }
@@ -380,7 +383,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 76px;
   height: 28px;
   color: var(--text-dim);
   font-family: var(--font-mono);

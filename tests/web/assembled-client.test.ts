@@ -51,7 +51,7 @@ async function open() {
   };
   const browser = await htmxBrowser(
     page(
-      `<aside id="sidebar">${String(await html`${SessionList({ view })}`)}</aside>${await region("s1")}<input id="search"><select id="choice"><option>One</option></select>`,
+      `<aside id="sidebar">${String(await html`${SessionList({ view })}`)}</aside>${await region("s1")}<input id="search"><select id="choice"><option>One</option></select><textarea id="notes"></textarea>`,
     ),
     async (request) =>
       new Response(
@@ -68,18 +68,25 @@ async function open() {
 describe("assembled client shortcuts", () => {
   it("opens exactly one visible session through HTMX for each digit shortcut", async () => {
     const { document, window, requests, depart } = await open();
-    for (const [key, modifier, id] of [
-      ["2", "ctrlKey", "s2"],
-      ["0", "metaKey", "s10"],
+    for (const [key, code, id] of [
+      ["@", "Digit2", "s2"],
+      ["(", "Digit9", "s9"],
+      ["+", "Digit1", "s1"],
     ] as const) {
       const before = requests.length;
       const event = new window.KeyboardEvent("keydown", {
         key,
-        [modifier]: true,
+        code,
+        ctrlKey: true,
+        shiftKey: true,
         bubbles: true,
         cancelable: true,
       });
-      document.body.dispatchEvent(event);
+      const composer = document.getElementById("composer-text");
+      if (!(composer instanceof window.HTMLTextAreaElement))
+        throw new Error("Missing composer");
+      composer.focus();
+      composer.dispatchEvent(event);
       await expect
         .poll(() => document.querySelector("main")?.dataset["sessionId"])
         .toBe(id);
@@ -91,13 +98,16 @@ describe("assembled client shortcuts", () => {
     }
     const count = requests.length;
     for (const init of [
-      { ctrlKey: true, shiftKey: true },
-      { ctrlKey: true, altKey: true },
-      { ctrlKey: true, repeat: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { metaKey: true, shiftKey: true },
+      { ctrlKey: true, shiftKey: true, altKey: true },
+      { ctrlKey: true, shiftKey: true, repeat: true },
       {},
     ]) {
       const event = new window.KeyboardEvent("keydown", {
-        key: "2",
+        key: "@",
+        code: "Digit2",
         bubbles: true,
         cancelable: true,
         ...init,
@@ -105,10 +115,13 @@ describe("assembled client shortcuts", () => {
       document.body.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(false);
     }
+    document.getElementById("node-s9")?.remove();
     document.getElementById("node-s10")?.remove();
     const missing = new window.KeyboardEvent("keydown", {
-      key: "0",
-      metaKey: true,
+      key: "(",
+      code: "Digit9",
+      ctrlKey: true,
+      shiftKey: true,
       bubbles: true,
       cancelable: true,
     });
@@ -118,16 +131,18 @@ describe("assembled client shortcuts", () => {
     expect(depart).not.toHaveBeenCalled();
   });
 
-  it("does not hijack session digits from textareas, inputs or selects", async () => {
+  it("does not hijack session shortcuts from other form fields", async () => {
     const { document, window, requests, depart } = await open();
-    for (const id of ["composer-text", "search", "choice"]) {
+    for (const id of ["notes", "search", "choice"]) {
       const field = document.getElementById(id);
       if (!(field instanceof window.HTMLElement))
         throw new Error(`Missing ${id}`);
       field.focus();
       const event = new window.KeyboardEvent("keydown", {
-        key: "2",
+        key: "@",
+        code: "Digit2",
         ctrlKey: true,
+        shiftKey: true,
         bubbles: true,
         cancelable: true,
       });

@@ -707,7 +707,7 @@ export function Composer({
             </div>
             <div
               id="dictation-status"
-              class="composer-dictation-status"
+              class="composer-dictation-status sr-only"
               role="status"
               aria-live="polite"
               aria-atomic="true"

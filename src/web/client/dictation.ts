@@ -31,6 +31,7 @@ export function setUpDictation(
   const display = (message: string, error = false): void => {
     status.textContent = message;
     status.classList.toggle("is-error", error);
+    status.classList.toggle("sr-only", !error);
     button.disabled = active?.phase === "transcribing";
     const state = active?.phase ?? "idle";
     const label = {

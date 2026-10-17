@@ -132,16 +132,11 @@
 .composer-dictation.is-recording::before {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
-.composer-dictation-status {
-  color: var(--text-muted);
+.composer-dictation-status.is-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-.composer-dictation-status:not(:empty) {
-  margin-top: var(--space-2);
-}
-.composer-dictation-status.is-error {
-  color: var(--danger);
 }
 .composer-action-primary::before,
 .composer-dictation::before {

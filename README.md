@@ -123,9 +123,11 @@ _This is browser emulation, not a physical-device test. Read
   submission is pending stay in the composer after that submission succeeds.
 - **Steer or queue.** During a run, sending steers the current work. Hold Alt to
   queue a follow-up instead. Recall queued requests with their text and images.
-- **Keyboard access.** Ctrl/⌘ + 1–0 opens the first ten visible sessions when
-  focus is outside a form field. Hold the modifier to reveal the row shortcuts.
-  Up/Down in an empty composer recalls that conversation's requests.
+- **Keyboard access.** Ctrl+Shift+1–9 opens the first nine visible sessions,
+  including while composing a message. Use Control on every OS, not Command, and
+  the top number row, not the numpad. Hold Ctrl+Shift to reveal the row
+  shortcuts; 0 is unassigned. Up/Down in an empty composer recalls that
+  conversation's requests.
 - **Context in view.** Inspect token counts, context usage and active time. Set
   the context-warning threshold, compact when needed, and inspect the system
   prompt or tool definitions from the session header.

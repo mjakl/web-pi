@@ -503,22 +503,68 @@ describe("the explorer fold", () => {
 });
 
 describe("shortcuts", () => {
-  it("shows ⌘ badges while Meta is held and Ctrl+ while Ctrl is", async () => {
+  it.each([
+    ["!", "Digit1", "s1"],
+    ["+", "Digit1", "s1"],
+    ["@", "Digit2", "s2"],
+    ["#", "Digit3", "s3"],
+    ["$", "Digit4", "s4"],
+    ["%", "Digit5", "s5"],
+    ["^", "Digit6", "s6"],
+    ["&", "Digit7", "s7"],
+    ["*", "Digit8", "s8"],
+    ["(", "Digit9", "s9"],
+  ])("opens %s / %s from the composer", async (key, code, id) => {
+    page({ rows: Array.from({ length: 10 }, (_, i) => `s${String(i + 1)}`) });
+    document
+      .querySelector("main")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<textarea id="composer-text">Unsent draft</textarea>',
+      );
+    const composer = query("#composer-text");
+    composer.focus();
+    const opened = vi.fn((event: Event) => {
+      event.preventDefault();
+    });
+    query(`#row-${id} a[href]`).addEventListener("click", opened);
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    const event = keydown(composer, key, {
+      code,
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(opened).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(composer);
+    expect((composer as HTMLTextAreaElement).value).toBe("Unsent draft");
+  });
+
+  it("shows session badges only for Control+Shift, keeping new-session hints", async () => {
     page();
     const { setUpSidebar } = await load();
     setUpSidebar();
     keydown(document.body, "Meta", { metaKey: true });
-    expect(query("#row-s1 .session-shortcut").textContent).toBe("⌘1");
-    expect(query("#row-s2 .session-shortcut").textContent).toBe("⌘2");
-    expect(query("#row-s1 .session-shortcut").hidden).toBe(false);
-    expect(query("#row-s1 .session-menu-trigger").hidden).toBe(true);
+    expect(query("#row-s1 .session-shortcut").hidden).toBe(true);
+    expect(query("#row-s1 .session-menu-trigger").hidden).toBe(false);
     expect(query(".new-session-shortcut").textContent).toBe("⌘K");
     expect(query(".new-session-plus").hidden).toBe(true);
     keyup(document.body, "Meta");
     expect(query("#row-s1 .session-shortcut").hidden).toBe(true);
     expect(query("#row-s1 .session-menu-trigger").hidden).toBe(false);
     keydown(document.body, "Control", { ctrlKey: true });
-    expect(query("#row-s1 .session-shortcut").textContent).toBe("Ctrl+1");
+    expect(query("#row-s1 .session-shortcut").hidden).toBe(true);
+    expect(query(".new-session-shortcut").textContent).toBe("Ctrl+K");
+    keydown(document.body, "Shift", { ctrlKey: true, shiftKey: true });
+    expect(query("#row-s1 .session-shortcut").textContent).toBe("Ctrl+Shift+1");
+    expect(query("#row-s2 .session-shortcut").textContent).toBe("Ctrl+Shift+2");
+    expect(query("#row-s1 .session-shortcut").hidden).toBe(false);
+    expect(query("#row-s1 .session-menu-trigger").hidden).toBe(true);
+    keyup(document.body, "Shift", { ctrlKey: true });
+    expect(query("#row-s1 .session-shortcut").hidden).toBe(true);
+    expect(query("#row-s1 .session-menu-trigger").hidden).toBe(false);
+    keydown(document.body, "Shift", { ctrlKey: true, shiftKey: true });
     window.dispatchEvent(new Event("blur"));
     expect(query("#row-s1 .session-shortcut").hidden).toBe(true);
   });
@@ -527,10 +573,164 @@ describe("shortcuts", () => {
     page();
     const { setUpSidebar } = await load();
     setUpSidebar();
-    keydown(document.body, "Meta", { metaKey: true });
+    keydown(document.body, "Shift", { ctrlKey: true, shiftKey: true });
     byId("row-s1").outerHTML = row("s1");
     htmxEvent(byId("session-list"), "htmx:after:settle");
-    expect(query("#row-s1 .session-shortcut").textContent).toBe("⌘1");
+    expect(query("#row-s1 .session-shortcut").textContent).toBe("Ctrl+Shift+1");
+    expect(query("#row-s1 .session-shortcut").hidden).toBe(false);
+  });
+
+  it("leaves the tenth row without a shortcut badge", async () => {
+    page({ rows: Array.from({ length: 10 }, (_, i) => `s${String(i + 1)}`) });
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    keydown(document.body, "Shift", { ctrlKey: true, shiftKey: true });
+    expect(query("#row-s9 .session-shortcut").textContent).toBe("Ctrl+Shift+9");
+    expect(query("#row-s9 .session-shortcut").hidden).toBe(false);
+    expect(query("#row-s10 .session-shortcut").hidden).toBe(true);
+    expect(query("#row-s10 .session-menu-trigger").hidden).toBe(false);
+    keydown(document.body, "Alt", {
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: true,
+    });
+    expect(query("#row-s9 .session-shortcut").hidden).toBe(true);
+  });
+
+  it.each([
+    ["old Control", "1", { code: "Digit1", ctrlKey: true }],
+    ["old Command", "1", { code: "Digit1", metaKey: true }],
+    ["Command+Shift", "!", { code: "Digit1", metaKey: true, shiftKey: true }],
+    ["Shift alone", "!", { code: "Digit1", shiftKey: true }],
+    [
+      "extra Alt",
+      "!",
+      { code: "Digit1", ctrlKey: true, shiftKey: true, altKey: true },
+    ],
+    [
+      "extra Meta",
+      "!",
+      { code: "Digit1", ctrlKey: true, shiftKey: true, metaKey: true },
+    ],
+    ["zero", ")", { code: "Digit0", ctrlKey: true, shiftKey: true }],
+    ["old zero", "0", { code: "Digit0", ctrlKey: true }],
+    ["numpad", "1", { code: "Numpad1", ctrlKey: true, shiftKey: true }],
+    ["key without code", "1", { ctrlKey: true, shiftKey: true }],
+    [
+      "repeat",
+      "!",
+      { code: "Digit1", ctrlKey: true, shiftKey: true, repeat: true },
+    ],
+    [
+      "IME",
+      "!",
+      { code: "Digit1", ctrlKey: true, shiftKey: true, isComposing: true },
+    ],
+    [
+      "legacy IME",
+      "!",
+      // oxlint-disable-next-line typescript/no-deprecated -- Exercise the legacy IME guard.
+      { code: "Digit1", ctrlKey: true, shiftKey: true, keyCode: 229 },
+    ],
+    ["ordinary editing", "ArrowUp", {}],
+  ] satisfies [string, string, KeyboardEventInit][])(
+    "does not intercept %s",
+    async (_, key, init) => {
+      page({ rows: Array.from({ length: 10 }, (_, i) => `s${String(i + 1)}`) });
+      const opened = vi.fn((event: Event) => {
+        event.preventDefault();
+      });
+      byId("session-list").addEventListener("click", opened);
+      const { setUpSidebar } = await load();
+      setUpSidebar();
+      expect(keydown(document.body, key, init).defaultPrevented).toBe(false);
+      expect(opened).not.toHaveBeenCalled();
+    },
+  );
+
+  it("waits for active IME composition to end before switching from the composer", async () => {
+    page();
+    document
+      .querySelector("main")
+      ?.insertAdjacentHTML(
+        "beforeend",
+        '<textarea id="composer-text"></textarea>',
+      );
+    const composer = query("#composer-text");
+    const opened = vi.fn((event: Event) => {
+      event.preventDefault();
+    });
+    query("#row-s1 a[href]").addEventListener("click", opened);
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    composer.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
+    expect(
+      keydown(composer, "!", { code: "Digit1", ctrlKey: true, shiftKey: true })
+        .defaultPrevented,
+    ).toBe(false);
+    expect(opened).not.toHaveBeenCalled();
+    composer.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+    keydown(composer, "!", { code: "Digit1", ctrlKey: true, shiftKey: true });
+    expect(opened).toHaveBeenCalledOnce();
+  });
+
+  it("does not intercept a shortcut already handled by another control", async () => {
+    page();
+    const opened = vi.spyOn(query("#row-s1 a[href]"), "click");
+    document.body.addEventListener("keydown", (event) => {
+      event.preventDefault();
+    });
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    keydown(document.body, "!", {
+      code: "Digit1",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("keeps other form fields and open dialogs out of session navigation", async () => {
+    page();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<input id="other-field"><dialog open><button id="dialog-action">Action</button></dialog>',
+    );
+    const opened = vi.spyOn(query("#row-s1 a[href]"), "click");
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    for (const target of [document.body, byId("dialog-action")]) {
+      expect(
+        keydown(target, "!", { code: "Digit1", ctrlKey: true, shiftKey: true })
+          .defaultPrevented,
+      ).toBe(false);
+    }
+    document.querySelector("dialog")?.remove();
+    expect(
+      keydown(byId("other-field"), "!", {
+        code: "Digit1",
+        ctrlKey: true,
+        shiftKey: true,
+      }).defaultPrevented,
+    ).toBe(false);
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("leaves an unavailable session position unhandled", async () => {
+    page();
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    expect(
+      keydown(document.body, "(", {
+        code: "Digit9",
+        ctrlKey: true,
+        shiftKey: true,
+      }).defaultPrevented,
+    ).toBe(false);
   });
 
   it("opens a row from a click anywhere on it but its controls", async () => {

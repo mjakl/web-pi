@@ -110,9 +110,10 @@ has not loaded through the "load earlier" sentinel with `through=`.
 
 `GET /sessions/:id/events` is one SSE stream per open session page. Its unnamed
 messages are HTML built from HTMX 4 `hx-partial` elements, each naming its
-target and swap. Runtime `activity` is coalesced into one render every 100 ms,
-and `turn_done` renders at once. Each render sends one frame with
-`id: settled=<cursor>`:
+target and swap. Runtime `activity` is coalesced over 100 ms windows, with at
+most one activity render waiting to start when enrichment or transport is slow.
+`turn_done` queues a distinct render immediately. Each render sends one frame
+with `id: settled=<cursor>`:
 
 - `#messages` gets the settled items after the cursor the stream last delivered
   (`beforeend`).
@@ -129,9 +130,11 @@ and `turn_done` renders at once. Each render sends one frame with
   Morphing ignores `open`, so disclosure choices survive.
 - `#rail` gets the conversation rail when its marks or branch state changed.
 - `#status` gets model-scope warnings, the queue, retry and compaction notes,
-  the running state and an extension's title; the context readout and the
-  compact button follow out of band. The model selector is re-sent only when its
-  choices changed, because it may hold an open menu.
+  the running state and an extension's title. The cumulative counts, tooltip and
+  context gauge morph together as `#stats-trigger`, preserving the button and
+  its separate popover; the compact button also follows out of band. The model
+  selector is re-sent only when its choices changed, because it may hold an open
+  menu.
 
 Then, each only when it changed, because each may hold what the reader is doing:
 `#shelf` (the extension status line and widgets, `outerHTML`),

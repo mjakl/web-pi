@@ -650,9 +650,17 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       };
       let timer: ReturnType<typeof setTimeout> | undefined;
       let queue: Promise<void> = Promise.resolve();
+      let activityWaiting = false;
       const enqueue = (kind: "activity" | "turn_done") => {
+        // A waiting activity render reads the latest state when it starts.
+        // Keep semantic settlements distinct, even behind a blocked write.
+        if (kind === "activity") {
+          if (activityWaiting) return;
+          activityWaiting = true;
+        }
         queue = queue
           .then(async () => {
+            if (kind === "activity") activityWaiting = false;
             await render(kind);
           })
           .catch(fail);

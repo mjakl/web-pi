@@ -91,11 +91,8 @@ export function setUpAtCompletion(
   signal?.addEventListener(
     "abort",
     () => {
-      clearTimeout(timer);
-      search?.abort();
+      close();
       indexController.abort();
-      token = null;
-      menu.close();
     },
     { once: true },
   );
@@ -228,13 +225,20 @@ export function setUpAtCompletion(
     });
   }
 
+  function close(): void {
+    clearTimeout(timer);
+    search?.abort();
+    // The shared index may finish and remain reusable, but must not reopen
+    // a dismissed query. The next input supplies a new token.
+    token = null;
+    menu.close();
+  }
+
   return {
     refresh,
-    close: () => {
-      menu.close();
-    },
+    close,
     handleKey(event, completeOnEnter) {
-      return handleMenuKey(menu, event, completeOnEnter);
+      return handleMenuKey(menu, event, completeOnEnter, close);
     },
   };
 }

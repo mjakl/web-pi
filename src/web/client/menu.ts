@@ -15,6 +15,7 @@ export function handleMenuKey(
   menu: Menu,
   event: KeyboardEvent,
   completeOnEnter: boolean,
+  dismiss: () => void,
 ): boolean {
   if (!menu.isOpen()) return false;
   switch (event.key) {
@@ -25,7 +26,7 @@ export function handleMenuKey(
       return true;
     case "Escape":
       event.preventDefault();
-      menu.close();
+      dismiss();
       return true;
     case "Tab":
       event.preventDefault();

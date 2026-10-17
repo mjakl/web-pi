@@ -107,6 +107,7 @@ export function sessionStats(entries: readonly SessionEntry[]): SessionStats {
 
   for (const entry of entries) {
     switch (entry.type) {
+      case "usage":
       case "compaction":
       case "branch_summary":
         add(entry.usage);
@@ -116,6 +117,7 @@ export function sessionStats(entries: readonly SessionEntry[]): SessionStats {
         if (message.role === "user") userMessages += 1;
         else if (message.role === "toolResult") {
           toolResults += 1;
+          add(message.usage);
         } else if (message.role === "assistant") {
           assistantMessages += 1;
           toolCalls += message.content.filter(

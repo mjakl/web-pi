@@ -81,7 +81,15 @@ function button(): HTMLButtonElement {
 function status(): string {
   return byId("dictation-status").textContent ?? "";
 }
+function errorStatus(): string {
+  expect(byId("dictation-status").classList.contains("sr-only")).toBe(false);
+  expect(byId("dictation-status").classList.contains("is-error")).toBe(true);
+  expect(byId("dictation-status").getAttribute("role")).toBe("status");
+  return status();
+}
 function expectButtonState(state: string, label: string): void {
+  expect(byId("dictation-status").classList.contains("sr-only")).toBe(true);
+  expect(byId("dictation-status").classList.contains("is-error")).toBe(false);
   expect(button().textContent?.trim()).toBe("");
   expect(button().getAttribute("aria-label")).toBe(label);
   expect(button().title).toBe(label);
@@ -179,6 +187,7 @@ describe("composer dictation", () => {
     click(button());
     click(button());
     expect(status()).toMatch(/canceled/i);
+    expectButtonState("idle", "Record dictation");
     pending.resolve(stream);
     await flush();
     expect(trackStop).toHaveBeenCalledOnce();
@@ -407,7 +416,7 @@ describe("composer dictation", () => {
       recorder().dispatchEvent(new Event("stop"));
     });
     await transcribe();
-    expect(status()).toMatch(/recording is empty/i);
+    expect(errorStatus()).toMatch(/recording is empty/i);
     expect(trackStop).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(button().disabled).toBe(false);
@@ -451,7 +460,7 @@ describe("composer dictation", () => {
     expect(trackStop).not.toHaveBeenCalled();
     recorder().data(new Blob(["x"]));
     await flush();
-    expect(status()).toMatch(/20 MiB limit/i);
+    expect(errorStatus()).toMatch(/20 MiB limit/i);
     expect(trackStop).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(button().disabled).toBe(false);
@@ -465,7 +474,7 @@ describe("composer dictation", () => {
     await record();
     recorder().data(new Blob([new Uint8Array(DICTATION_MAX_BYTES)]));
     await transcribe();
-    expect(status()).toMatch(/20 MiB limit/i);
+    expect(errorStatus()).toMatch(/20 MiB limit/i);
     expect(trackStop).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -493,7 +502,7 @@ describe("composer dictation", () => {
         Recorder.isTypeSupported.mockReturnValue(false);
       await page();
       await record();
-      expect(status()).toMatch(
+      expect(errorStatus()).toMatch(
         reason === "insecure"
           ? /secure connection/i
           : reason === "missing API"
@@ -511,7 +520,7 @@ describe("composer dictation", () => {
     );
     await page();
     await record();
-    expect(status()).toMatch(/permission denied/i);
+    expect(errorStatus()).toMatch(/permission denied/i);
     expect(button().disabled).toBe(false);
     await record();
     await transcribe();
@@ -522,7 +531,7 @@ describe("composer dictation", () => {
     await page();
     await record();
     recorder().dispatchEvent(new Event("error"));
-    expect(status()).toMatch(/recording failed/i);
+    expect(errorStatus()).toMatch(/recording failed/i);
     expect(trackStop).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
     await record();
@@ -547,7 +556,7 @@ describe("composer dictation", () => {
       type(area(), "Keep my draft");
       await record();
       await transcribe();
-      expect(status()).toMatch(
+      expect(errorStatus()).toMatch(
         reason === "API"
           ? /OPENAI_API_KEY/
           : reason === "empty speech"
@@ -557,8 +566,10 @@ describe("composer dictation", () => {
       expect(area().value).toBe("Keep my draft");
       expect(button().disabled).toBe(false);
       await record();
+      expectButtonState("recording", "Stop dictation");
       await transcribe();
       expect(area().value).toBe("Keep my draft dictated words");
+      expectButtonState("idle", "Record dictation");
     },
   );
 });

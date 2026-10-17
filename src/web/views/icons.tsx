@@ -713,6 +713,15 @@ export function AttachImageIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function MicrophoneIcon({ size = 16 }: IconProps) {
+  return (
+    <Stroked size={size} width={1.8}>
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
+    </Stroked>
+  );
+}
+
 /* 51 · the composer's primary action. The button keeps its one `<svg>` and
    the client bundle swaps only the shape inside, so the shapes are markup. */
 export const COMPOSER_ACTION_SHAPES = {

@@ -100,13 +100,17 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
-.composer-dictation-actions > .composer-action-primary {
+.composer-dictation-actions > .composer-action-primary,
+.composer-dictation-actions > .composer-dictation {
   position: relative;
   width: 36px;
   padding: 0;
   margin-left: 0;
-  color: var(--bg);
+  border-radius: 50%;
   background: none;
+}
+.composer-dictation-actions > .composer-action-primary {
+  color: var(--bg);
 }
 .composer-dictation-actions {
   display: flex;
@@ -118,11 +122,14 @@
 .skills-selector.is-composer + .composer-dictation-actions {
   margin-left: 0;
 }
-.composer-dictation {
-  font-size: var(--text-sm);
+.composer-dictation > span {
+  position: relative;
+  line-height: 0;
 }
 .composer-dictation-actions > .composer-dictation.is-recording {
   color: var(--danger);
+}
+.composer-dictation.is-recording::before {
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 .composer-dictation-status {
@@ -136,7 +143,8 @@
 .composer-dictation-status.is-error {
   color: var(--danger);
 }
-.composer-action-primary::before {
+.composer-action-primary::before,
+.composer-dictation::before {
   content: "";
   position: absolute;
   width: 28px;
@@ -144,8 +152,18 @@
   border-radius: 50%;
   background: var(--text);
 }
-.composer-dictation-actions > .composer-action-primary:hover:not(:disabled) {
+.composer-dictation:not(.is-recording)::before {
+  background: var(--bg-hover);
+}
+.composer-dictation-actions > .composer-action-primary:hover:not(:disabled),
+.composer-dictation-actions > .composer-dictation:hover:not(:disabled) {
   background: none;
+}
+.composer-dictation:hover:not(:disabled)::before {
+  background: var(--border);
+}
+.composer-dictation.is-recording:hover:not(:disabled)::before {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 .composer-action-primary:hover:not(:disabled)::before {
   background: var(--text-muted);

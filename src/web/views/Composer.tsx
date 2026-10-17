@@ -13,10 +13,13 @@ import { SkillsSelector } from "./Skills.tsx";
 import {
   AttachImageIcon,
   ChevronDownIcon,
+  CloseIcon,
   ComposerActionIcon,
   DropZoneIcon,
+  MicrophoneIcon,
   ModelCheckIcon,
   MoreDotsIcon,
+  SpinnerIcon,
   WarningTriangleIcon,
 } from "./icons.tsx";
 
@@ -676,7 +679,18 @@ export function Composer({
                   title="Record dictation"
                   disabled
                 >
-                  Dictate
+                  <span data-dictation-icon="idle">
+                    <MicrophoneIcon />
+                  </span>
+                  <span data-dictation-icon="permission" hidden>
+                    <CloseIcon size={16} />
+                  </span>
+                  <span data-dictation-icon="recording" hidden>
+                    <ComposerActionIcon action="stop" size={14} />
+                  </span>
+                  <span data-dictation-icon="transcribing" hidden>
+                    <SpinnerIcon size={16} />
+                  </span>
                 </button>
                 <button
                   type="submit"

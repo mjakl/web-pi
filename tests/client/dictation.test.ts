@@ -81,6 +81,19 @@ function button(): HTMLButtonElement {
 function status(): string {
   return byId("dictation-status").textContent ?? "";
 }
+function expectButtonState(state: string, label: string): void {
+  expect(button().textContent?.trim()).toBe("");
+  expect(button().getAttribute("aria-label")).toBe(label);
+  expect(button().title).toBe(label);
+  const visibleIcons = [
+    ...button().querySelectorAll<HTMLElement>("[data-dictation-icon]"),
+  ].filter((icon) => !icon.hidden);
+  expect(visibleIcons).toHaveLength(1);
+  expect(visibleIcons[0]?.dataset["dictationIcon"]).toBe(state);
+  expect(
+    visibleIcons[0]?.querySelector("svg")?.getAttribute("aria-hidden"),
+  ).toBe("true");
+}
 function recorder(): Recorder {
   const value = Recorder.instances.at(-1);
   if (!value) throw new Error("No recorder started");
@@ -113,6 +126,7 @@ describe("composer dictation", () => {
     expect(permission).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(button().type).toBe("button");
+    expectButtonState("idle", "Record dictation");
     expect(button().nextElementSibling).toBe(query(".composer-action-primary"));
     expect(byId("dictation-status").getAttribute("role")).toBe("status");
     type(area(), "Keep this.");
@@ -120,10 +134,13 @@ describe("composer dictation", () => {
     fetchMock.mockReturnValueOnce(pending.promise);
     click(button());
     expect(status()).toMatch(/permission/i);
+    expectButtonState("permission", "Cancel dictation");
     await flush();
     expect(status()).toMatch(/recording/i);
+    expectButtonState("recording", "Stop dictation");
     await transcribe();
     expect(status()).toMatch(/transcribing/i);
+    expectButtonState("transcribing", "Transcribing dictation");
     expect(button().disabled).toBe(true);
     click(button());
     expect(permission).toHaveBeenCalledOnce();
@@ -131,6 +148,7 @@ describe("composer dictation", () => {
     pending.resolve(json({ text: "First dictation." }));
     await flush();
     expect(area().value).toBe("Edited while waiting. First dictation.");
+    expectButtonState("idle", "Record dictation");
     await record();
     await transcribe();
     expect(area().value).toBe(

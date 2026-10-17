@@ -32,18 +32,20 @@ export function setUpDictation(
     status.textContent = message;
     status.classList.toggle("is-error", error);
     button.disabled = active?.phase === "transcribing";
-    const label =
-      active?.phase === "permission"
-        ? "Cancel"
-        : active?.phase === "recording"
-          ? "Stop"
-          : "Dictate";
-    button.textContent = label;
-    button.setAttribute(
-      "aria-label",
-      label === "Dictate" ? "Record dictation" : `${label} dictation`,
-    );
-    button.title = button.getAttribute("aria-label") ?? "Record dictation";
+    const state = active?.phase ?? "idle";
+    const label = {
+      idle: "Record dictation",
+      permission: "Cancel dictation",
+      recording: "Stop dictation",
+      transcribing: "Transcribing dictation",
+    }[state];
+    for (const icon of button.querySelectorAll<HTMLElement>(
+      "[data-dictation-icon]",
+    )) {
+      icon.hidden = icon.dataset["dictationIcon"] !== state;
+    }
+    button.setAttribute("aria-label", label);
+    button.title = label;
     button.classList.toggle("is-recording", active?.phase === "recording");
   };
 
@@ -188,7 +190,7 @@ export function setUpDictation(
       bytes: 0,
     };
     active = operation;
-    display("Requesting microphone permission… Click Cancel to stop waiting.");
+    display("Requesting microphone permission… Click again to cancel.");
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -244,7 +246,9 @@ export function setUpDictation(
       });
       recorder.start(1000);
       operation.phase = "recording";
-      display("Recording… Click Stop when finished (2 minute limit).");
+      display(
+        "Recording… Click again to stop and transcribe (2 minute limit).",
+      );
       operation.timer = setTimeout(() => {
         stop(operation, true);
       }, DICTATION_MAX_RECORDING_MS);

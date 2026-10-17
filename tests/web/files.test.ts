@@ -30,6 +30,8 @@ let outside = "";
 let pickable = "";
 let app: ReturnType<typeof createWebApp>;
 let streams = 0;
+let watches = 0;
+let stoppedWatches = 0;
 let statted: string[] = [];
 
 function git(...args: string[]): void {
@@ -120,6 +122,15 @@ beforeAll(async () => {
   world.files.stream = (path, range) => {
     streams += 1;
     return opened(path, range);
+  };
+  const watch = world.watcher.watch.bind(world.watcher);
+  world.watcher.watch = (path, handlers) => {
+    const stop = watch(path, handlers);
+    watches += 1;
+    return () => {
+      stop();
+      stoppedWatches += 1;
+    };
   };
   // `authorize` stats the path it checks once per call.
   const stat = world.files.stat.bind(world.files);
@@ -422,6 +433,46 @@ describe("viewer", () => {
     expect(html.split(line.trimEnd()).length - 1).toBe(1025);
     expect(html).not.toContain("hljs-keyword");
   });
+
+  it.each([
+    [
+      "one MiB on one line",
+      "function f(x){return x+1;}".repeat(43_691).slice(0, 1024 * 1024),
+    ],
+    [
+      "large input below the line limit",
+      `${"const x=1;".repeat(64)}\n`.repeat(200),
+    ],
+    ["a long line below the total-size limit", "const x=1;".repeat(1000)],
+  ])(
+    "keeps %s as complete plain source with a working download",
+    async (_name, text) => {
+      const path = join(repo, "generated.js");
+      await writeFile(path, text);
+      try {
+        const res = await app.request(
+          `/files/view?session=s1&mode=source&path=${encodeURIComponent(path)}`,
+        );
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        expect(html.includes("is-lightweight")).toBe(true);
+        expect(html.includes("hljs-")).toBe(false);
+        const source = [
+          ...html.matchAll(/class="file-source-line-content">([^<]*)<\/span>/g),
+        ]
+          .map((match) => match[1])
+          .join("\n");
+        expect(source).toBe(text);
+        const download = await app.request(
+          `/files/raw?session=s1&download=1&path=${encodeURIComponent(path)}`,
+        );
+        expect(download.status).toBe(200);
+        expect(await download.text()).toBe(text);
+      } finally {
+        await rm(path);
+      }
+    },
+  );
 
   it.each([100_001, 262_145])(
     "renders Markdown previews with %i characters in full",
@@ -780,17 +831,39 @@ describe("unsupported documents", () => {
 });
 
 describe("watching", () => {
-  it("opens a watch stream and announces itself", async () => {
-    const res = await app.request(
-      `/files/watch?session=s1&path=${encodeURIComponent(join(repo, "notes.md"))}`,
-    );
-    expect(res.headers.get("content-type")).toContain("text/event-stream");
-    const reader = res.body?.getReader();
-    const chunk = await reader?.read();
-    expect(new TextDecoder().decode(chunk?.value)).toContain(
-      "event: connected",
-    );
-    await reader?.cancel();
+  it("announces each established watch so the client can reconcile edits made while disconnected", async () => {
+    const path = join(repo, "reconnect.txt");
+    const query = new URLSearchParams({ session: "s1", path });
+    try {
+      for (const revision of ["revision A", "revision B"]) {
+        // The second write happens after the previous transport was closed.
+        await writeFile(path, revision);
+        const started = watches;
+        const stopped = stoppedWatches;
+        const res = await app.request(`/files/watch?${query}`);
+        expect(res.headers.get("content-type")).toContain("text/event-stream");
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No stream");
+        try {
+          const chunk = await reader.read();
+          expect(new TextDecoder().decode(chunk.value)).toContain(
+            "event: connected",
+          );
+          expect(watches).toBe(started + 1);
+          // This is the read the client's connected handler must request.
+          const viewer = await app.request(`/files/view?${query}`);
+          expect(viewer.status).toBe(200);
+          expect(await viewer.text()).toContain(revision);
+        } finally {
+          await reader.cancel();
+        }
+        await vi.waitFor(() => {
+          expect(stoppedWatches).toBe(stopped + 1);
+        });
+      }
+    } finally {
+      await rm(path);
+    }
   });
 
   it("refuses a file it may not watch with a status EventSource does not retry", async () => {

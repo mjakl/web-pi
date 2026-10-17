@@ -223,7 +223,7 @@ function restoreViewer(): void {
   if (body && state.scrollTop > 0) body.scrollTop = state.scrollTop;
   // Every mode switch and every change replaces the toolbar, so the live
   // indicator has to be re-lit from the stream that is already open.
-  showWatching(stream !== null && watching === active);
+  showWatching(watchConnected && watching === active);
 }
 
 /** pi-web re-renders the source with different inline styles; a class does. */
@@ -289,6 +289,7 @@ function closeTab(path: string): void {
 let stream: EventSource | null = null;
 let watchController: AbortController | null = null;
 let watching: string | null = null;
+let watchConnected = false;
 
 function disconnectWatch(): void {
   watchController?.abort();
@@ -296,6 +297,7 @@ function disconnectWatch(): void {
   stream?.close();
   stream = null;
   watching = null;
+  watchConnected = false;
 }
 
 /** The dot, and the "live"/"static" word the media toolbars carry beside it. */
@@ -332,26 +334,27 @@ function connectWatch(): void {
   stream = source;
   watchController = new AbortController();
   const { signal } = watchController;
+  const refresh = () => {
+    if (active !== null) {
+      saveActiveState();
+      loadViewer(active);
+    }
+  };
   source.addEventListener(
     "connected",
     () => {
-      showWatching(true);
+      watchConnected = true;
+      // A new watch starts at the current disk revision, not the one shown
+      // before a disconnect. Read after establishment to cover that gap.
+      refresh();
     },
     { signal },
   );
-  source.addEventListener(
-    "change",
-    () => {
-      if (active !== null) {
-        saveActiveState();
-        loadViewer(active);
-      }
-    },
-    { signal },
-  );
+  source.addEventListener("change", refresh, { signal });
   source.addEventListener(
     "error",
     () => {
+      watchConnected = false;
       showWatching(false);
     },
     { signal },

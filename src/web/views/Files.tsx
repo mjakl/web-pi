@@ -576,10 +576,12 @@ function SourceView({ view }: { view: FileView }) {
   // pi-web counts the newline that ends the file as starting another line,
   // both in the gutter and in the toolbar's "N lines".
   const lines = text.split("\n");
-  // Above a thousand lines the colouring costs more than it is worth, so the
-  // text is printed plain, exactly as pi-web does. A file whose grammar is
-  // not registered is escaped the same way, but it is not the big-file path.
-  const lightweight = lines.length > 1000;
+  // Minified/generated source can be expensive even with few lines. Bound
+  // synchronous tokenization, not the content available to read or download.
+  const lightweight =
+    lines.length > 1000 ||
+    text.length > 100_000 ||
+    lines.some((line) => line.length > 2000);
   const coloured = lightweight ? null : highlightLines(text, view.language);
   const rows = lines
     .map((line, index) => {
@@ -786,7 +788,7 @@ function ViewerContent({
         <div class="markdown-body markdown-file-preview">
           {raw(
             renderMarkdown(parsed.body, {
-              cwd: view.cwd,
+              documentPath: view.path,
               sessionId,
               filePreview: true,
             }),

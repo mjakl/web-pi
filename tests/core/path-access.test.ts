@@ -1,5 +1,6 @@
 import {
   directoryWithin,
+  documentFilePath,
   isBashOutputPath,
   localFilePath,
   resolveUnder,
@@ -100,6 +101,47 @@ describe("localFilePath", () => {
     expect(localFilePath("//x.dev/a", "/repo")).toBeNull();
     expect(localFilePath("../../etc/passwd", "/repo")).toBeNull();
     expect(localFilePath("just words", "/repo")).toBeNull();
+  });
+});
+
+describe("documentFilePath", () => {
+  it("decodes absolute and file URL paths exactly once, without decoding the document path", () => {
+    expect(
+      documentFilePath("/repo/space%20name.md#heading", "/repo/docs/guide.md"),
+    ).toBe("/repo/space name.md");
+    expect(
+      documentFilePath(
+        "file:///repo/literal%2520name.md",
+        "/repo/docs/guide.md",
+      ),
+    ).toBe("/repo/literal%20name.md");
+    expect(
+      documentFilePath("./name%3A12.md", "/repo/docs%20literal/guide.md"),
+    ).toBe("/repo/docs%20literal/name:12.md");
+  });
+
+  it.each([
+    "./bad%escape.md",
+    "./bad%FF.md",
+    "file:///repo/bad%ZZ.md",
+    "//host/file.md",
+    "https://host/file.md",
+    "javascript:alert(1)",
+    "data:text/plain,x",
+    "#heading",
+    "?q=1",
+  ])("does not turn %s into a local file", (href) => {
+    expect(documentFilePath(href, "/repo/docs/guide.md")).toBeNull();
+  });
+
+  it("does not change conversation-relative path acceptance or literal path resolution", () => {
+    expect(localFilePath("../README.md", "/repo/docs")).toBeNull();
+    expect(localFilePath("./space%20name.md", "/repo")).toBe(
+      "/repo/space%20name.md",
+    );
+    expect(resolveUnder("/repo", "./space%20name.md")).toBe(
+      "/repo/space%20name.md",
+    );
   });
 });
 

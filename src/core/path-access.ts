@@ -146,6 +146,30 @@ export function localFilePath(
   return directoryWithin(cwd, resolved) ? resolved : null;
 }
 
+/**
+ * A file preview resolves URLs against its document, not the conversation cwd.
+ * Parent references are valid here; the resulting path still needs workspace
+ * authorization. Decode only the URL, never the literal document path.
+ */
+export function documentFilePath(
+  href: string,
+  documentPath: string,
+): string | null {
+  const clean = (href.split(/[?#]/)[0] ?? "").trim();
+  if (clean === "" || clean.startsWith("//")) return null;
+  try {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(clean)) {
+      if (!clean.toLowerCase().startsWith("file:")) return null;
+      return decodeURIComponent(new URL(clean).pathname);
+    }
+    const path = decodeURIComponent(clean.replace(LINE_REFERENCE, ""));
+    return resolveUnder(parentPath(documentPath), path);
+  } catch {
+    // Malformed URL escapes do not identify a filesystem path.
+    return null;
+  }
+}
+
 const BASH_OUTPUT_NAME = /^pi-bash-[A-Za-z0-9_-]+\.log$/;
 
 /**

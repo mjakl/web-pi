@@ -481,6 +481,11 @@ export type Files = {
   children(query: string, cwd: string): Promise<FileEntry[]>;
   /** A shell-output capture file, capped; throws when it cannot be read. */
   readOutput(path: string): Promise<string>;
+  /**
+   * Uncapped capture bytes from a checked regular, non-symlink file. The
+   * stream owns that opened file and closes it on completion or cancellation.
+   */
+  streamOutput(path: string): Promise<ReadableStream<Uint8Array>>;
   /** Directory children, sorted and filtered by the explorer's ignore list. */
   list(directory: string): Promise<DirEntry[]>;
   /** Undefined when the path does not exist. */

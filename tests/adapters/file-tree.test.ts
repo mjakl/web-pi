@@ -1,6 +1,14 @@
 import { createFileTree } from "@adapters/fs/file-tree";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, truncate, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rename,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -167,6 +175,28 @@ describe("file tree", () => {
     await writeFile(join(root, "capture.log"), "output");
     expect(await files.readOutput(join(root, "capture.log"))).toBe("output");
     await expect(files.readOutput(join(root, "src"))).rejects.toThrow();
+  });
+
+  it("streams the checked capture even if its path is replaced before consumption", async () => {
+    const files = createFileTree();
+    const path = join(root, "opened-capture.log");
+    const content = "checked output\n".repeat(100_000);
+    await writeFile(path, content);
+    const stream = await files.streamOutput(path);
+    await rename(path, `${path}.old`);
+    await symlink(join(root, "README.md"), path);
+    expect(await new Response(stream).text()).toBe(content);
+    await expect(files.streamOutput(path)).rejects.toThrow();
+  });
+
+  it("allows cancellation of a capture download", async () => {
+    const path = join(root, "cancelled-capture.log");
+    await writeFile(path, "output".repeat(100_000));
+    const stream = await createFileTree().streamOutput(path);
+    const reader = stream.getReader();
+    expect((await reader.read()).done).toBe(false);
+    await reader.cancel();
+    expect((await reader.read()).done).toBe(true);
   });
 
   it("answers 413, not 404, for a capture past the 5 MiB cap", async () => {

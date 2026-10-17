@@ -1,6 +1,6 @@
 import { formatBytes } from "@core/file-types";
 import { escapeHtml } from "@core/html";
-import { localFilePath } from "@core/path-access";
+import { documentFilePath, localFilePath } from "@core/path-access";
 import { Marked, type Token, type Tokens } from "marked";
 
 // Model output is untrusted. Raw HTML inside Markdown is shown as text rather
@@ -12,6 +12,8 @@ const MAX_MARKDOWN_CHARS = 100_000;
 export type MarkdownOptions = {
   /** Resolves relative file links; the session's working folder. */
   cwd?: string;
+  /** A file preview's literal path; relative URLs may reach authorized parents. */
+  documentPath?: string;
   /** Opens local paths in the file panel and serves local images. */
   sessionId?: string;
   /**
@@ -75,6 +77,12 @@ function remoteImage(
   );
 }
 
+function localFile(href: string, options: MarkdownOptions): string | null {
+  return options.documentPath === undefined
+    ? localFilePath(href, options.cwd)
+    : documentFilePath(href, options.documentPath);
+}
+
 function navigation(
   href: string,
   options: MarkdownOptions,
@@ -87,7 +95,7 @@ function navigation(
     return (content, attributes = "") =>
       `<a href="${attribute(href)}"${webLink} target="_blank" rel="noopener noreferrer"${attributes}>${content}</a>`;
   }
-  const file = localFilePath(href, options.cwd);
+  const file = localFile(href, options);
   if (file === null) return undefined;
   return (content, attributes = "") =>
     `<button type="button" class="markdown-file-ref" data-file-path="${attribute(file)}" title="${attribute(file)}"${attributes}>${content}</button>`;
@@ -106,7 +114,7 @@ function renderImage(
     const image = `<img src="${attribute(href)}" alt="${alt}"${titleAttribute} loading="lazy">`;
     return navigate?.(image) ?? image;
   }
-  const file = localFilePath(href, options.cwd);
+  const file = localFile(href, options);
   if (file === null) return navigate?.(alt) ?? alt;
   const label = alt === "" ? attribute(file) : alt;
   if (options.sessionId === undefined) {

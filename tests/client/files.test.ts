@@ -486,6 +486,7 @@ describe("opening files", () => {
       "/files/watch?path=%2Frepo%2Fone%2Fsrc%2Fa.ts&session=s1",
     );
     streams()[0]?.dispatchEvent(new Event("connected"));
+    await deliver(viewer("src/a.ts"));
     expect(query(".file-viewer-live-indicator").title).toBe("Live sync active");
     expect(query(".file-viewer-live-label").textContent).toBe("live");
     expect(
@@ -506,6 +507,7 @@ describe("opening files", () => {
     await deliver(viewer("a.ts"));
     streams()[0]?.dispatchEvent(new Event("connected"));
     streams()[0]?.dispatchEvent(new Event("watch-error"));
+    await deliver(viewer("a.ts"));
     expect(streams()[0]?.closed).toBe(true);
     expect(query(".file-viewer-live-label").textContent).toBe("static");
   });
@@ -668,6 +670,80 @@ describe("per-tab state", () => {
     openFile("/repo/one/b.ts");
     openFile("/repo/one/a.ts");
     expect(ajaxUrls().at(-1)).toContain("mode=diff");
+  });
+
+  it("reconciles on establishment and reconnection without losing tab state or accepting stale content", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.md", "preview");
+    const source = streams()[0];
+    source?.dispatchEvent(new Event("connected"));
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.ctx.request.signal.aborted).toBe(true);
+    await requests[1]?.respond(
+      viewer("a.md", "preview").replace("line 1", "revision B"),
+    );
+    await requests[0]?.respond(
+      viewer("a.md", "preview").replace("line 1", "revision A"),
+    );
+    expect(byId("file-view").textContent).toContain("revision B");
+    expect(byId("file-view").textContent).not.toContain("revision A");
+    query(".file-viewer-content").scrollTop = 137;
+    click(query("[data-wrap-toggle]"));
+    source?.dispatchEvent(new Event("error"));
+    expect(query(".file-viewer-live-label").textContent).toBe("static");
+    source?.dispatchEvent(new Event("connected"));
+    expect(requests).toHaveLength(3);
+    expect(ajaxUrls().at(-1)).toContain("mode=preview");
+    expect(byId("file-view").textContent).not.toContain("revision B");
+    // A response settling after a transport error must not claim live sync.
+    source?.dispatchEvent(new Event("error"));
+    await requests[2]?.respond(viewer("a.md", "preview"));
+    expect(query(".file-viewer-live-label").textContent).toBe("static");
+    source?.dispatchEvent(new Event("connected"));
+    await requests[3]?.respond(
+      viewer("a.md", "preview").replace("line 1", "revision C"),
+    );
+    expect(byId("file-view").textContent).toContain("revision C");
+    expect(query(".file-viewer-content").scrollTop).toBe(137);
+    expect(query(".file-source-view").classList.contains("is-wrapped")).toBe(
+      true,
+    );
+    expect(query(".file-viewer-live-label").textContent).toBe("live");
+    expect(streams()).toHaveLength(1);
+  });
+
+  it("ignores retired watch events and cancels a reconnect refresh when the active tab changes", async () => {
+    page();
+    const { openFile, setUpFiles } = await load();
+    setUpFiles();
+    const requests = delayedViewers();
+    openFile("/repo/one/a.ts");
+    await requests[0]?.respond(viewer("a.ts"));
+    const old = streams()[0];
+    old?.dispatchEvent(new Event("connected"));
+    expect(requests).toHaveLength(2);
+    openFile("/repo/one/b.ts");
+    expect(old?.closed).toBe(true);
+    expect(requests[1]?.ctx.request.signal.aborted).toBe(true);
+    old?.dispatchEvent(new Event("connected"));
+    old?.dispatchEvent(new Event("change"));
+    expect(requests).toHaveLength(3);
+    await requests[2]?.respond(viewer("b.ts"));
+    await requests[1]?.respond(viewer("a.ts"));
+    expect(query(".file-viewer-shell").dataset["path"]).toBe("/repo/one/b.ts");
+    const current = streams()[1];
+    click(byId("file-panel-close"));
+    expect(current?.closed).toBe(true);
+    current?.dispatchEvent(new Event("connected"));
+    expect(requests).toHaveLength(3);
+    click(byId("file-panel-toggle"));
+    streams()[2]?.dispatchEvent(new Event("connected"));
+    expect(requests).toHaveLength(4);
+    await requests[3]?.respond(viewer("b.ts"));
+    expect(query(".file-viewer-live-label").textContent).toBe("live");
   });
 
   it("reloads the viewer when the watched file changes", async () => {

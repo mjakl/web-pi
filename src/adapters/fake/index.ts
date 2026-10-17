@@ -1404,6 +1404,8 @@ export function createFakeWorld(
             .filter((entry) => entry.path.includes(query.replace(/^\.\//, ""))),
         ),
       readOutput: () => Promise.resolve("full shell output"),
+      streamOutput: () =>
+        Promise.resolve(new Blob(["full shell output"]).stream()),
       // The file system itself is never faked: a viewer or a diff is only
       // worth checking against real bytes in a temporary directory.
       list: (directory) => realFiles.list(directory),

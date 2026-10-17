@@ -291,8 +291,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     const path = c.req.query("path") ?? "";
     const download = c.req.query("download") === "1";
     try {
-      const output = await deps.workspace.bashOutput(id, path);
-      return c.text(output, 200, {
+      const output = download
+        ? await deps.workspace.bashOutputDownload(id, path)
+        : await deps.workspace.bashOutput(id, path);
+      return c.body(output, 200, {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",

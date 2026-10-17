@@ -118,6 +118,19 @@ type Listing = {
   search: FileSearch;
 };
 
+async function openOutput(path: string) {
+  // O_NOFOLLOW: the name was validated, a symlink at that name was not.
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error("Not a regular file");
+    return { handle, size: info.size };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
 export function createFileTree(): Files {
   const cache = new Map<
     string,
@@ -195,23 +208,31 @@ export function createFileTree(): Files {
     },
 
     async readOutput(path) {
-      // O_NOFOLLOW: the name was validated, a symlink at that name was not.
-      const handle = await open(
-        path,
-        constants.O_RDONLY | constants.O_NOFOLLOW,
-      );
+      const { handle, size } = await openOutput(path);
       try {
-        const info = await handle.stat();
-        if (!info.isFile()) throw new Error("Not a regular file");
-        if (info.size > MAX_OUTPUT_BYTES) {
+        if (size > MAX_OUTPUT_BYTES) {
           throw new FileAccessError(
-            `Output file is ${String(info.size)} bytes, above the 5 MiB this route serves. Download it instead.`,
+            `Output file is ${String(size)} bytes, above the 5 MiB the inline view serves. Download it instead.`,
             413,
           );
         }
         return await handle.readFile("utf8");
       } finally {
         await handle.close();
+      }
+    },
+
+    async streamOutput(path) {
+      const { handle } = await openOutput(path);
+      try {
+        // Stream the checked descriptor, not a second lookup of its path.
+        // The Node stream closes it on completion, error, or cancellation.
+        return Readable.toWeb(
+          handle.createReadStream(),
+        ) as ReadableStream<Uint8Array>;
+      } catch (error) {
+        await handle.close();
+        throw error;
       }
     },
 

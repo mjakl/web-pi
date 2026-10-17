@@ -758,6 +758,11 @@ class FakeLiveSession implements LiveSession {
         new Error("Cannot compact a stopping or stopped session."),
       );
     }
+    if (this.running || this.bashRunning || this.compacting) {
+      return Promise.reject(
+        new Error("Cannot compact until the session is idle."),
+      );
+    }
     this.compacting = true;
     this.compaction = null;
     this.compactionError = null;
@@ -789,6 +794,11 @@ class FakeLiveSession implements LiveSession {
     if (this.stopTask) {
       return Promise.reject(
         new Error("Cannot reload a stopping or stopped session."),
+      );
+    }
+    if (this.running || this.bashRunning || this.compacting) {
+      return Promise.reject(
+        new Error("Cannot reload until the session is idle."),
       );
     }
     this.notices.push({ level: "info", message: "Resources reloaded." });
@@ -1394,6 +1404,8 @@ export function createFakeWorld(
             .filter((entry) => entry.path.includes(query.replace(/^\.\//, ""))),
         ),
       readOutput: () => Promise.resolve("full shell output"),
+      streamOutput: () =>
+        Promise.resolve(new Blob(["full shell output"]).stream()),
       // The file system itself is never faked: a viewer or a diff is only
       // worth checking against real bytes in a temporary directory.
       list: (directory) => realFiles.list(directory),

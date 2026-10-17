@@ -92,7 +92,7 @@ class PiLiveSession implements LiveSession {
   private bashTask: Promise<void> | undefined;
   private stopTask: Promise<void> | undefined;
   private lifecycleTask: Promise<void> = Promise.resolve();
-  private pendingPrompts = 0;
+  private readonly pendingPrompts = new Set<Promise<void>>();
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
   private readonly tools = new Map<string, RunningTool>();
@@ -490,9 +490,21 @@ class PiLiveSession implements LiveSession {
     }
     // The SDK's prompt() resolves when the whole run ends; the caller only
     // needs to know the prompt was accepted, so settle on preflight instead.
-    this.pendingPrompts += 1;
     return new Promise((resolve, reject) => {
-      this.inner
+      // abort() does not wait for input hooks. Register ownership before
+      // entering the SDK, since an extension can itself request shutdown.
+      const finished = Promise.withResolvers<undefined>();
+      this.pendingPrompts.add(finished.promise);
+      const fail = (error: unknown) => {
+        this.notices.push({
+          level: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        this.emit({ type: "turn_done" });
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      let cancellation: Promise<void> | undefined;
+      void this.inner
         .prompt(promptText, {
           ...(hasSkills ? { expandPromptTemplates: false } : {}),
           streamingBehavior: input.behavior ?? "steer",
@@ -507,25 +519,24 @@ class PiLiveSession implements LiveSession {
             : {}),
           // Pi calls this only for an accepted prompt: started, queued or
           // handled by an extension.
-          preflightResult: () => {
-            resolve();
+          preflightResult: (disposition) => {
+            // A handled command has already completed (including a command
+            // that requested shutdown). A resumed run is cancelled while we
+            // still own its persistence; this callback is not a throwing hook.
+            if (this.stopping && disposition !== "handled") {
+              cancellation = this.inner.abort().catch(fail);
+              reject(
+                new Error("Prompt cancelled because the session is stopping."),
+              );
+            } else resolve();
           },
         })
-        .then(
-          () => {
-            this.pendingPrompts -= 1;
-            resolve();
-          },
-          (error: unknown) => {
-            this.pendingPrompts -= 1;
-            this.notices.push({
-              level: "error",
-              message: error instanceof Error ? error.message : String(error),
-            });
-            this.emit({ type: "turn_done" });
-            reject(error instanceof Error ? error : new Error(String(error)));
-          },
-        );
+        .then(resolve, fail)
+        .then(() => cancellation)
+        .finally(() => {
+          this.pendingPrompts.delete(finished.promise);
+          finished.resolve(undefined);
+        });
     });
   }
 
@@ -624,6 +635,9 @@ class PiLiveSession implements LiveSession {
     if (this.stopping) {
       throw new Error("Cannot compact a stopping or stopped session.");
     }
+    if (this.busy || this.inner.isCompacting) {
+      throw new Error("Cannot compact until the session is idle.");
+    }
     this.compaction = null;
     this.compactionError = null;
     await this.inner.compact(instructions);
@@ -645,6 +659,10 @@ class PiLiveSession implements LiveSession {
   }
 
   private async reloadResources(): Promise<void> {
+    // Check in the lifecycle lane: work may have started since reload() queued.
+    if (this.busy || this.inner.isCompacting) {
+      throw new Error("Cannot reload until the session is idle.");
+    }
     this.invalidatePreparation();
     this.services.diagnostics = [];
     this.ui.resetForReload();
@@ -711,7 +729,7 @@ class PiLiveSession implements LiveSession {
         ),
       );
     }
-    if (this.busy || this.compacting || this.pendingPrompts > 0) {
+    if (this.busy || this.compacting || this.pendingPrompts.size > 0) {
       return Promise.reject(
         new Error(
           "Cannot run a shell command while the session is busy. Stop the current run first.",
@@ -784,7 +802,16 @@ class PiLiveSession implements LiveSession {
     this.run.cancel();
     this.ui.dispose();
     this.inner.abortBash();
-    const work = Promise.all([this.inner.abort(), this.bashTask]);
+    // Keep the owner even if one abort fails: every pending input operation
+    // must finish before disposal can disconnect the persistence listeners.
+    const work = Promise.allSettled([
+      this.inner.abort(),
+      this.bashTask,
+      ...this.pendingPrompts,
+    ]).then((results) => {
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    });
     // Abort is signalled now, but its result is collected after lifecycle work.
     void work.catch(() => {});
     return this.stopTask;

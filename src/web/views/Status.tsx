@@ -1,5 +1,9 @@
 import { Partial } from "@web/views/Partial";
-import { formatContextUsage } from "@core/context-usage";
+import {
+  formatCompactCount,
+  formatContextTooltip,
+  formatContextUsage,
+} from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { LiveStatus } from "@core/ports";
 import type { SessionStats } from "@core/session-entries";
@@ -7,45 +11,92 @@ import { displaySkillPrompt } from "@core/skill-prompt";
 import type { SessionView } from "@core/workspace";
 import { ModelSelector, ModelScopeWarning, modelPick } from "./Composer.tsx";
 import {
+  CacheReadIcon,
   CompactIcon,
   ContextGaugeIcon,
   RecallQueueIcon,
   RefreshIcon,
   SpinnerIcon,
+  TokenArrowIcon,
 } from "./icons.tsx";
 
 // Everything about a running session that is not the transcript: the banners
-// and the queue panel above the composer surface (pi-web keeps them inside
-// ChatInput's 820px column), plus the two things elsewhere on the page
-// that the same render owns — the model selector in the toolbar and the
-// context readout in the top bar, both swapped out of band.
+// and the queue panel above the composer surface, plus the model selector
+// and the top-bar statistics and compaction controls updated out of band.
 
 /**
- * The context gauge the top bar shows; red, amber or plain by threshold. It
- * lives here because this render owns it: tokens move while a turn runs, and
- * pi-web has no status row left to show them in, so the stream re-renders it
- * in place (`oob`) wherever the shell put it.
+ * The stats cluster on the right of the bar: cumulative tokens, then the
+ * context gauge. pi-web drops a group whose count is zero and puts the exact
+ * numbers in the hover text.
  */
-export function ContextReadout({
+export function SessionStatsButton({
   usage,
   tokens,
-  oob,
+}: {
+  usage?: ContextUsage;
+  tokens?: SessionStats["tokens"];
+}) {
+  const parts: string[] = [];
+  if (tokens) {
+    parts.push(
+      `in: ${tokens.input.toLocaleString("en")}`,
+      `out: ${tokens.output.toLocaleString("en")}`,
+      `cache read: ${tokens.cacheRead.toLocaleString("en")}`,
+      `cache write: ${tokens.cacheWrite.toLocaleString("en")}`,
+    );
+  }
+  const context = usage === undefined ? "" : formatContextTooltip(usage);
+  if (context !== "") parts.push(context);
+  return (
+    <button
+      type="button"
+      id="stats-trigger"
+      class="shell-session-stats mobile-session-stats"
+      popovertarget="stats-panel"
+      title={parts.length === 0 ? "Session info" : parts.join("  |  ")}
+      aria-label="Session info"
+    >
+      {tokens !== undefined && tokens.input > 0 ? (
+        <span class="mobile-session-stat-io">
+          <TokenArrowIcon direction="in" />
+          {formatCompactCount(tokens.input)}
+        </span>
+      ) : null}
+      {tokens !== undefined && tokens.output > 0 ? (
+        <span class="mobile-session-stat-io">
+          <TokenArrowIcon direction="out" />
+          {formatCompactCount(tokens.output)}
+        </span>
+      ) : null}
+      {tokens !== undefined && tokens.cacheRead > 0 ? (
+        <span data-cache-read class="shell-cache-read">
+          <CacheReadIcon />
+          {formatCompactCount(tokens.cacheRead)}
+        </span>
+      ) : null}
+      <ContextReadout usage={usage} tokens={tokens} />
+    </button>
+  );
+}
+
+/** The context gauge within the stats button; red, amber or plain by threshold. */
+function ContextReadout({
+  usage,
+  tokens,
 }: {
   usage?: ContextUsage;
   /** The session's token totals, which the stats button shows beside it. */
   tokens?: SessionStats["tokens"];
-  oob?: boolean;
 }) {
   const text = usage ? formatContextUsage(usage) : "";
-  const swap = oob === true ? { "hx-swap-oob": "true" } : {};
   if (!usage || text === "") {
     // With nothing to measure, the readout names what the button opens,
     // unless the token totals beside it already say something. Silent, it
-    // stays in the page: the stream swaps it by id.
+    // stays in the page as part of the stats button.
     return tokens !== undefined && tokens.input > 0 ? (
-      <span id="context-readout" hidden {...swap} />
+      <span id="context-readout" hidden />
     ) : (
-      <span id="context-readout" class="shell-context-empty" {...swap}>
+      <span id="context-readout" class="shell-context-empty">
         Session info
       </span>
     );
@@ -55,7 +106,6 @@ export function ContextReadout({
       id="context-readout"
       class={`mobile-session-context is-${usage.level}`}
       data-context-readout
-      {...swap}
     >
       <ContextGaugeIcon />
       {text}
@@ -192,7 +242,7 @@ function QueuePanel({
 
 /**
  * Everything that changes while a session runs. `oob` renders it as a stream
- * update: the body as a `#status` partial, with the context readout and the
+ * update: the body as a `#status` partial, with the stats trigger and the
  * compact button out of band. `model` adds the toolbar's selector, which the
  * stream sends only when the model or the levels actually changed: it is a
  * whole subtree, and a turn re-renders ten times a second.
@@ -246,7 +296,9 @@ export function Status({
   return (
     <>
       <Partial target="#status">{body}</Partial>
-      <ContextReadout usage={view.usage} tokens={view.tokens} oob />
+      <Partial target="#stats-trigger" swap="outerMorph">
+        <SessionStatsButton usage={view.usage} tokens={view.tokens} />
+      </Partial>
       <CompactButton
         sessionId={summary.id}
         usage={view.usage}

@@ -73,6 +73,22 @@ export function liveUseCases({
       });
   });
 
+  async function requireBashOutput(id: string, path: string): Promise<void> {
+    if (!isBashOutputPath(deps.tmpdir, path)) {
+      throw new FileAccessError("Not a shell output file", 403);
+    }
+    const stored = await entriesOf(id);
+    const referenced = stored?.entries.some(
+      (entry) =>
+        entry.type === "message" &&
+        entry.message.role === "bashExecution" &&
+        entry.message.fullOutputPath === path,
+    );
+    if (!referenced) {
+      throw new FileAccessError("This session did not produce that file", 403);
+    }
+  }
+
   /** The content parts of one entry, whichever kind of message it holds. */
   async function entryContent(
     id: string,
@@ -265,23 +281,17 @@ export function liveUseCases({
 
     /** A truncated shell run's capture file, if this session produced it. */
     async bashOutput(id: string, path: string): Promise<string> {
-      if (!isBashOutputPath(deps.tmpdir, path)) {
-        throw new FileAccessError("Not a shell output file", 403);
-      }
-      const stored = await entriesOf(id);
-      const referenced = stored?.entries.some(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "bashExecution" &&
-          entry.message.fullOutputPath === path,
-      );
-      if (!referenced) {
-        throw new FileAccessError(
-          "This session did not produce that file",
-          403,
-        );
-      }
+      await requireBashOutput(id, path);
       return deps.files.readOutput(path);
+    },
+
+    /** Full capture bytes with the same checks as the capped inline view. */
+    async bashOutputDownload(
+      id: string,
+      path: string,
+    ): Promise<ReadableStream<Uint8Array>> {
+      await requireBashOutput(id, path);
+      return deps.files.streamOutput(path);
     },
 
     /** One tool call, for the "show all" behind a truncated result. */

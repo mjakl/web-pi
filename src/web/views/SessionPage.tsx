@@ -1,4 +1,3 @@
-import { formatCompactCount, formatContextTooltip } from "@core/context-usage";
 import type { ContextUsage } from "@core/context-usage";
 import type { ImageAttachment, SkillSelection } from "@core/ports";
 import { isSubagentSession } from "@core/sessions";
@@ -9,7 +8,6 @@ import { FilePanelBody } from "./Files.tsx";
 import { CustomPanel, ExtensionDialog } from "./Extensions.tsx";
 import { Shelf } from "./Shelf.tsx";
 import {
-  CacheReadIcon,
   CloseIcon,
   HamburgerIcon,
   HistoryIcon,
@@ -19,7 +17,6 @@ import {
   RefreshIcon,
   StopCompactionIcon,
   SystemPromptIcon,
-  TokenArrowIcon,
   WrenchIcon,
 } from "./icons.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -28,7 +25,7 @@ import { ProjectSelect } from "./Workspace.tsx";
 import {
   compactDisabled,
   CompactButton,
-  ContextReadout,
+  SessionStatsButton,
   Status,
 } from "./Status.tsx";
 import { DialogHost, MissingFolderNotice, TrustBadge } from "./Dialogs.tsx";
@@ -265,61 +262,6 @@ function TopBar({
         <TrustBadge cwd={cwd} status={trust} banner />
       )}
     </div>
-  );
-}
-
-/**
- * The stats cluster on the right of the bar: cumulative tokens, then the
- * context gauge. pi-web drops a group whose count is zero and puts the exact
- * numbers in the hover text.
- */
-function SessionStatsButton({
-  usage,
-  tokens,
-}: {
-  usage?: ContextUsage;
-  tokens?: SessionTokens;
-}) {
-  const parts: string[] = [];
-  if (tokens) {
-    parts.push(
-      `in: ${tokens.input.toLocaleString("en")}`,
-      `out: ${tokens.output.toLocaleString("en")}`,
-      `cache read: ${tokens.cacheRead.toLocaleString("en")}`,
-      `cache write: ${tokens.cacheWrite.toLocaleString("en")}`,
-    );
-  }
-  const context = usage === undefined ? "" : formatContextTooltip(usage);
-  if (context !== "") parts.push(context);
-  return (
-    <button
-      type="button"
-      id="stats-trigger"
-      class="shell-session-stats mobile-session-stats"
-      popovertarget="stats-panel"
-      title={parts.length === 0 ? "Session info" : parts.join("  |  ")}
-      aria-label="Session info"
-    >
-      {tokens !== undefined && tokens.input > 0 ? (
-        <span class="mobile-session-stat-io">
-          <TokenArrowIcon direction="in" />
-          {formatCompactCount(tokens.input)}
-        </span>
-      ) : null}
-      {tokens !== undefined && tokens.output > 0 ? (
-        <span class="mobile-session-stat-io">
-          <TokenArrowIcon direction="out" />
-          {formatCompactCount(tokens.output)}
-        </span>
-      ) : null}
-      {tokens !== undefined && tokens.cacheRead > 0 ? (
-        <span data-cache-read class="shell-cache-read">
-          <CacheReadIcon />
-          {formatCompactCount(tokens.cacheRead)}
-        </span>
-      ) : null}
-      <ContextReadout usage={usage} tokens={tokens} />
-    </button>
   );
 }
 

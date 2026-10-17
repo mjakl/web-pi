@@ -51,6 +51,43 @@ async function open(
 }
 
 describe("leading skill completion", () => {
+  it.each(["debounce", "request"])(
+    "keeps Escape dismissal through a pending %s and allows a new query",
+    async (phase) => {
+      const { menu, fetch } = await setup();
+      draft("/skill:fi");
+      await open(menu);
+      const pending = Promise.withResolvers<Response>();
+      fetch.mockImplementation(() => pending.promise);
+      draft("/skill:find");
+      menu.refresh();
+      if (phase === "request") await vi.advanceTimersByTimeAsync(80);
+      expect(menu.handleKey(keydown(area(), "Escape"), true)).toBe(true);
+      await vi.advanceTimersByTimeAsync(80);
+      expect(fetch).toHaveBeenCalledTimes(phase === "request" ? 2 : 1);
+      pending.resolve(
+        text(
+          '<button data-index="0" data-command="skill:find-skill">Skill</button>',
+        ),
+      );
+      await flush();
+      expect(byId("slash-menu").hidden).toBe(true);
+      if (phase === "request")
+        expect(fetch.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+      expect(menu.handleKey(keydown(area(), "Tab"), true)).toBe(false);
+      fetch.mockImplementation(() =>
+        Promise.resolve(
+          text(
+            '<button data-index="0" data-command="skill:find-skill">Skill</button>',
+          ),
+        ),
+      );
+      draft("/skill:find-s");
+      await open(menu);
+      expect(byId("slash-menu").hidden).toBe(false);
+    },
+  );
+
   it("queries from the caret, then replaces the whole skill token without duplicating its suffix or arguments", async () => {
     const { menu, fetch } = await setup();
     draft("/skill:find-older explain the issue", "/skill:fi".length);

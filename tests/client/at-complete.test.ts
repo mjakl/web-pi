@@ -84,6 +84,28 @@ describe("the local index", () => {
     expect(rows()).toEqual(["src/lib/util.ts"]);
   });
 
+  it("does not present a delayed index after dismissal, but keeps it for the next input", async () => {
+    const fetch = mockFetch(() => json(INDEX));
+    const at = await load();
+    typed("@src");
+    at.refresh();
+    await flush();
+    const pending = Promise.withResolvers<Response>();
+    fetch.mockImplementation(() => pending.promise);
+    vi.advanceTimersByTime(10_001);
+    at.refresh();
+    expect(at.handleKey(keydown(area(), "Escape"), true)).toBe(true);
+    pending.resolve(json(INDEX));
+    await flush();
+    expect(byId("at-menu").hidden).toBe(true);
+    typed("@ut");
+    at.refresh();
+    await flush();
+    expect(rows()).toEqual(["src/lib/util.ts"]);
+    expect(byId("at-menu").hidden).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("reloads the index once it is ten seconds old", async () => {
     const fetch = mockFetch(() => json(INDEX));
     const at = await load();
@@ -146,6 +168,45 @@ describe("the local index", () => {
 });
 
 describe("path queries", () => {
+  it.each(["debounce", "request"])(
+    "keeps Escape dismissal through a pending %s and recovers on new input",
+    async (phase) => {
+      const pending = Promise.withResolvers<Response>();
+      const fetch = mockFetch(() => json({}));
+      fetch.mockImplementation(() => pending.promise);
+      const at = await load();
+      typed("@./src/");
+      at.refresh();
+      if (phase === "request") await vi.advanceTimersByTimeAsync(150);
+      expect(byId("at-menu").hidden).toBe(false);
+      const escape = keydown(area(), "Escape");
+      expect(at.handleKey(escape, true)).toBe(true);
+      expect(escape.defaultPrevented).toBe(true);
+      expect(byId("at-menu").hidden).toBe(true);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(fetch).toHaveBeenCalledTimes(phase === "request" ? 1 : 0);
+      pending.resolve(
+        json({ matches: [{ path: "./src/old.ts", isDir: false }] }),
+      );
+      await flush();
+      expect(byId("at-menu").hidden).toBe(true);
+      if (phase === "request")
+        expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(at.handleKey(keydown(area(), "Tab"), true)).toBe(false);
+
+      fetch.mockImplementation(() =>
+        Promise.resolve(
+          json({ matches: [{ path: "./src/app.ts", isDir: false }] }),
+        ),
+      );
+      typed("@./src/a");
+      at.refresh();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(byId("at-menu").hidden).toBe(false);
+      expect(rows()).toEqual(["./src/app.ts"]);
+    },
+  );
+
   it("asks the server after a pause and drops the earlier request", async () => {
     const fetch = mockFetch((url) =>
       json({

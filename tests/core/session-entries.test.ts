@@ -10,7 +10,10 @@ import {
   STAR_TYPE,
   starTarget,
 } from "@core/session-entries";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import {
+  type SessionEntry,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
 describe("last assistant text", () => {
@@ -268,6 +271,97 @@ describe("the rules both session writers apply", () => {
 });
 
 describe("session statistics", () => {
+  it("includes standalone and optional nested-tool usage across SDK branches", () => {
+    const manager = SessionManager.inMemory("/fixture");
+    const root = manager.appendMessage({
+      role: "user",
+      content: "question",
+      timestamp: 1,
+    });
+    const answer = assistantEntry("unused", root, "answer", 110);
+    if (answer.type !== "message" || answer.message.role !== "assistant")
+      throw new Error("Expected assistant");
+    answer.message.content.push({
+      type: "toolCall",
+      id: "nested",
+      name: "codemode",
+      arguments: {},
+    });
+    answer.message.usage.cost.total = 0.1;
+    manager.appendMessage(answer.message);
+    manager.appendMessage({
+      role: "toolResult",
+      toolCallId: "nested",
+      toolName: "codemode",
+      content: [{ type: "text", text: "nested work" }],
+      isError: false,
+      timestamp: 2,
+      usage: {
+        input: 200,
+        output: 20,
+        cacheRead: 400,
+        cacheWrite: 40,
+        totalTokens: 660,
+        cost: {
+          input: 0.1,
+          output: 0.1,
+          cacheRead: 0.1,
+          cacheWrite: 0.1,
+          total: 0.4,
+        },
+      },
+    });
+    // Older tools do not report nested usage, and must still count as results.
+    manager.appendMessage({
+      role: "toolResult",
+      toolCallId: "old",
+      toolName: "read",
+      content: [],
+      isError: false,
+      timestamp: 3,
+    });
+    manager.appendUsage("cache_warm", "fixture", "model", {
+      input: 0,
+      output: 0,
+      cacheRead: 1000,
+      cacheWrite: 0,
+      totalTokens: 1000,
+      cost: { input: 0, output: 0, cacheRead: 0.2, cacheWrite: 0, total: 0.2 },
+    });
+    manager.branch(root);
+    manager.appendUsage("another-operation", "fixture", "model", {
+      input: 50,
+      output: 5,
+      cacheRead: 100,
+      cacheWrite: 10,
+      totalTokens: 165,
+      cost: {
+        input: 0.1,
+        output: 0.1,
+        cacheRead: 0.05,
+        cacheWrite: 0.05,
+        total: 0.3,
+      },
+    });
+    const stats = sessionStats(manager.getEntries());
+    expect(stats).toMatchObject({
+      userMessages: 1,
+      assistantMessages: 1,
+      toolCalls: 1,
+      toolResults: 2,
+      totalMessages: 4,
+      tokens: {
+        input: 350,
+        output: 35,
+        cacheRead: 1500,
+        cacheWrite: 50,
+        total: 1935,
+      },
+      cacheHitRate: 1500 / 1900,
+    });
+    expect(stats.cost).toBeCloseTo(1);
+  });
+
   it("counts every branch and skips the time a human spent typing", () => {
     const entries = [
       at(userEntry("u1", null, "hi"), "2026-01-01T00:00:00.000Z"),

@@ -96,6 +96,7 @@ export function createPiPackages(options: { agentDir: string }): Packages {
   return {
     async list(cwd) {
       const { manager, settings, trusted } = await managerFor(cwd);
+      checkSettingsErrors(settings);
       const diagnostics: PackageDiagnostic[] = [];
       let resolved: Partial<
         Record<(typeof KINDS)[number], ResolvedResource[]>

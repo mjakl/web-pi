@@ -10,7 +10,7 @@ import {
 } from "@web/views/Items";
 import { WrittenFiles } from "@web/views/transcript/assistant";
 import { describe, expect, it } from "vitest";
-import { parseHtml } from "#/web/helpers";
+import { parseHtml, required } from "#/web/helpers";
 import {
   answerItem,
   fixtureCalls,
@@ -468,6 +468,80 @@ describe("transcript items", () => {
     expect(button?.getAttribute("hx-swap")).toBe("outerHTML");
     expect(button?.getAttribute("aria-label")).toBe("Unstar answer");
   });
+
+  it.each(["thinking", "tool", "text before thinking"])(
+    "keeps a bookmarked reply's star off its %s process half",
+    (process) => {
+      const blocks: AssistantItem["blocks"] =
+        process === "tool"
+          ? [{ kind: "tool", call: fixtureCalls.editCall }]
+          : [
+              ...(process === "text before thinking"
+                ? [{ kind: "text" as const, text: "An earlier thought" }]
+                : []),
+              {
+                kind: "thinking",
+                text: "Reasoning",
+                index: 0,
+                deferred: false,
+              },
+            ];
+      const items = [
+        required(settledItems[0]),
+        { ...answerItem, blocks: [...blocks, ...answerItem.blocks] },
+      ];
+      for (const node of [
+        <Items items={items} actions={actions} />,
+        <TurnFragment items={items} actions={actions} status={null} />,
+      ]) {
+        const document = rendered(node);
+        const processRow = document.querySelector("#entry-a2-process");
+        expect(processRow).not.toBeNull();
+        expect(processRow?.querySelector(".answer-star-toggle")).toBeNull();
+        expect(
+          document
+            .querySelector("#entry-a2 .answer-star-toggle")
+            ?.getAttribute("aria-pressed"),
+        ).toBe("true");
+        expect(document.querySelectorAll(".answer-star-toggle")).toHaveLength(
+          1,
+        );
+      }
+    },
+  );
+
+  it.each(["intermediate", "mid-turn", "no separate reply"])(
+    "keeps an existing %s bookmark available to unstar",
+    (layout) => {
+      const bookmarked: AssistantItem = {
+        ...answerItem,
+        blocks: [
+          ...answerItem.blocks,
+          { kind: "thinking", text: "Reasoning", index: 0, deferred: false },
+        ],
+      };
+      const later = { ...answerItem, entryId: "a3" };
+      const items =
+        layout === "mid-turn"
+          ? [bookmarked, later]
+          : [
+              required(settledItems[0]),
+              bookmarked,
+              ...(layout === "intermediate" ? [later] : []),
+            ];
+      const document = rendered(<Items items={items} actions={actions} />);
+      const buttons = [
+        ...document.querySelectorAll(
+          '.answer-star-toggle[aria-pressed="true"]',
+        ),
+      ];
+      expect(buttons).toHaveLength(1);
+      expect(JSON.parse(buttons[0]?.getAttribute("hx-vals") ?? "{}")).toEqual({
+        entryId: "a2",
+        starred: false,
+      });
+    },
+  );
 
   it("keeps turn and disclosure keys stable when a saved turn gains an answer", () => {
     const boundary = settledItems[0];

@@ -6,9 +6,11 @@ import {
   type ScriptedStep,
   userEntry,
 } from "@adapters/fake/index";
+import type { HTMLButtonElement } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
 import { testApp } from "#/web/fixtures/test-app";
 import { parseHtml, required } from "#/web/helpers";
+import { htmxBrowser } from "#/web/htmx4-browser";
 
 /** The URL behind a collapsed tool card, as htmx would follow it. */
 function deferredUrl(page: string): string {
@@ -64,6 +66,69 @@ it("answers a star with its button and row, not a rebuilt session view", async (
   });
   expect(document.querySelector("#row-s1")).not.toBeNull();
   expect(view).not.toHaveBeenCalled();
+});
+
+it("stars and unstars only the reply through HTMX and saved reloads", async () => {
+  const { app, world, workspace } = testApp();
+  const reply = required(world.store.get("s1")).entries[1];
+  if (reply?.type !== "message" || reply.message.role !== "assistant")
+    throw new Error("Missing assistant fixture");
+  reply.message.content.unshift({ type: "thinking", thinking: "Reasoning" });
+  const open = async () =>
+    htmxBrowser(await (await app.request("/sessions/s1")).text(), (request) =>
+      new URL(request.url).pathname === "/events"
+        ? new Response("")
+        : app.request(request),
+    );
+  const assertStar = (
+    document: ReturnType<typeof parseHtml>,
+    starred: boolean,
+  ) => {
+    expect(
+      document.querySelector("#entry-a1-process .thinking-card"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("#entry-a1-process .answer-star-toggle"),
+    ).toBeNull();
+    const button = required(
+      document.querySelector<HTMLButtonElement>(
+        "#entry-a1 .answer-star-toggle",
+      ),
+    );
+    expect(button.getAttribute("aria-pressed")).toBe(String(starred));
+    expect(document.querySelectorAll(".answer-star-toggle")).toHaveLength(1);
+    return button;
+  };
+
+  const first = await open();
+  assertStar(first.document, false).click();
+  await expect
+    .poll(() =>
+      first.document
+        .querySelector("#entry-a1 .answer-star-toggle")
+        ?.getAttribute("aria-pressed"),
+    )
+    .toBe("true");
+  assertStar(first.document, true);
+  expect((await workspace.viewSession("s1"))?.starred).toEqual(new Set(["a1"]));
+  await first.close();
+
+  const reloaded = await open();
+  assertStar(reloaded.document, true).click();
+  await expect
+    .poll(() =>
+      reloaded.document
+        .querySelector("#entry-a1 .answer-star-toggle")
+        ?.getAttribute("aria-pressed"),
+    )
+    .toBe("false");
+  assertStar(reloaded.document, false);
+  expect((await workspace.viewSession("s1"))?.starred).toEqual(new Set());
+  await reloaded.close();
+  assertStar(
+    parseHtml(await (await app.request("/sessions/s1")).text()),
+    false,
+  );
 });
 
 it("forks a message into a new session with the text as its draft", async () => {

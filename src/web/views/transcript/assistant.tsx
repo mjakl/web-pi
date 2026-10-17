@@ -167,6 +167,7 @@ export function AssistantMessage({
   const star =
     editable === true &&
     actions !== undefined &&
+    starrable !== false &&
     (starrable === true || actions.starred.has(item.entryId));
   return (
     <HistoryActionFrame

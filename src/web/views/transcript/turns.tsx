@@ -24,6 +24,7 @@ export function Item({
 }: {
   item: TranscriptItem;
   actions?: ItemActions;
+  /** False hides even stored stars; undefined keeps existing bookmarks editable. */
   starrable?: boolean;
   written?: string[];
 }) {
@@ -35,7 +36,7 @@ export function Item({
         <AssistantMessage
           item={item}
           actions={actions}
-          starrable={starrable ?? false}
+          starrable={starrable}
           written={written}
         />
       );
@@ -92,7 +93,13 @@ function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
           </summary>
           <div class="process-body">
             {turn.process.map((item) => (
-              <Item item={item} actions={actions} />
+              <Item
+                item={item}
+                actions={actions}
+                starrable={
+                  item.entryId === turn.answer?.entryId ? false : undefined
+                }
+              />
             ))}
           </div>
         </details>
@@ -111,7 +118,7 @@ function TurnView({ turn, actions }: { turn: Turn; actions?: ItemActions }) {
         <Item
           item={item}
           actions={actions}
-          starrable={item.entryId === turn.loneAnswerId}
+          starrable={item.entryId === turn.loneAnswerId ? true : undefined}
         />
       ))}
     </section>

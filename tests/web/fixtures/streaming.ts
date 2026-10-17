@@ -13,7 +13,7 @@ import { nextEvent, required } from "#/web/helpers";
 import { htmxBrowser } from "#/web/htmx4-browser";
 
 /** Manually advanced snapshots, real workspace projections and HTTP routes. */
-export async function streamingFixture() {
+export async function streamingFixture(renderIntervalMs = 1) {
   const world = createFakeWorld();
   const workspace = createWorkspace(world);
   const id = await workspace.createSession("/fixture");
@@ -50,7 +50,7 @@ export async function streamingFixture() {
     workspace,
     defaultCwd: "/fixture",
     staticRoot: "static",
-    renderIntervalMs: 1,
+    renderIntervalMs,
   });
   const emit = (type: LiveEvent["type"] = "activity") => {
     for (const listener of listeners) listener({ type });

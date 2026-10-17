@@ -4,9 +4,9 @@
 
 import { assistantEntry, userEntry } from "@adapters/fake/index";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { HTMLDetailsElement } from "happy-dom";
+import type { HTMLDetailsElement, HTMLTemplateElement } from "happy-dom";
 import { expect, it } from "vitest";
-import { reconnected, required } from "#/web/helpers";
+import { parseHtml, reconnected, required } from "#/web/helpers";
 import { disconnectable } from "#/web/fixtures/disconnect";
 import {
   open,
@@ -60,7 +60,22 @@ it("keeps a live update the same size however many messages the run finished", a
     f.emit("activity");
     updates.push(await nextRender());
   }
-  const sizes = updates.map((frame) => new TextEncoder().encode(frame).length);
+  // Cumulative counts can gain digits in both the live and stop-recovery
+  // headers. Everything else must stay constant rather than resend history.
+  const sizes = updates.map((frame) => {
+    const document = parseHtml(frame);
+    const recovery = required(
+      document.querySelector<HTMLTemplateElement>(
+        "template[data-live-recovery]",
+      ),
+    );
+    for (const root of [document, recovery.content]) {
+      required(
+        root.querySelector('hx-partial[hx-target="#stats-trigger"]'),
+      ).remove();
+    }
+    return new TextEncoder().encode(document.body.innerHTML).length;
+  });
   expect(new Set(sizes).size).toBe(1);
   // Each update carries only the round that finished since the one before.
   updates.forEach((frame, round) => {

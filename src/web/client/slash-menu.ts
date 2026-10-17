@@ -48,15 +48,13 @@ export function setUpSlashMenu(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: AbortController | undefined;
 
-  signal?.addEventListener(
-    "abort",
-    () => {
-      clearTimeout(timer);
-      inFlight?.abort();
-      menu.close();
-    },
-    { once: true },
-  );
+  function close(): void {
+    clearTimeout(timer);
+    inFlight?.abort();
+    menu.close();
+  }
+
+  signal?.addEventListener("abort", close, { once: true });
 
   const load = (query: string): void => {
     if (signal?.aborted || endpoints === null) return;
@@ -107,11 +105,9 @@ export function setUpSlashMenu(
         load(query);
       }, DEBOUNCE_MS);
     },
-    close: () => {
-      menu.close();
-    },
+    close,
     handleKey(event, completeOnEnter) {
-      return handleMenuKey(menu, event, completeOnEnter);
+      return handleMenuKey(menu, event, completeOnEnter, close);
     },
   };
 }

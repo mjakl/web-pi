@@ -5,6 +5,7 @@
 
 import { relativeTime } from "@core/sessions";
 import type { Htmx } from "htmx.org";
+import { dialogOpen } from "./dialogs.ts";
 import { requestContext, swapTasks } from "./htmx.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { displayedSessionId } from "./navigation.ts";
@@ -514,20 +515,19 @@ function setUpRowMenus(): void {
   );
 }
 
-/**
- * pi-web puts a ⌘1…⌘0 badge where a row's menu trigger is while a modifier
- * is held, and jumps to that session on the matching digit. The modifier
- * decides the label, so it is written here rather than server-side.
- */
+/** Visible row positions and held modifiers belong to the browser. */
 function setUpShortcuts(): void {
   let modifier: "ctrl" | "meta" | null = null;
+  let sessionModifier = false;
+  let composing = false;
 
   const swap = (
     badge: HTMLElement,
     other: HTMLElement | null,
     text: string,
+    enabled: boolean,
   ) => {
-    const shown = modifier !== null && text !== "";
+    const shown = enabled && text !== "";
     badge.textContent = text;
     badge.hidden = !shown;
     if (other) other.hidden = shown;
@@ -543,6 +543,7 @@ function setUpShortcuts(): void {
         newSession,
         document.querySelector<HTMLElement>(".new-session-plus"),
         `${label}K`,
+        modifier !== null,
       );
     }
     const visible = visibleSessionRows();
@@ -556,33 +557,47 @@ function setUpShortcuts(): void {
       swap(
         badge,
         row.querySelector<HTMLElement>(".session-menu-trigger"),
-        index >= 0 && index < 10
-          ? `${label}${index === 9 ? "0" : String(index + 1)}`
-          : "",
+        index >= 0 && index < 9 ? `Ctrl+Shift+${String(index + 1)}` : "",
+        sessionModifier,
       );
     });
   };
 
   const update = (event: KeyboardEvent) => {
     const next = event.metaKey ? "meta" : event.ctrlKey ? "ctrl" : null;
-    if (next === modifier) return;
+    const nextSession =
+      event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey;
+    if (next === modifier && nextSession === sessionModifier) return;
     modifier = next;
+    sessionModifier = nextSession;
     paint();
   };
 
+  window.addEventListener("compositionstart", () => {
+    composing = true;
+  });
+  window.addEventListener("compositionend", () => {
+    composing = false;
+  });
   window.addEventListener("keydown", (event) => {
     update(event);
     if (
+      event.defaultPrevented ||
       event.repeat ||
-      event.altKey ||
-      event.shiftKey ||
-      (!event.ctrlKey && !event.metaKey) ||
-      !/^[0-9]$/.test(event.key) ||
-      isTextEntry(event.target)
+      composing ||
+      event.isComposing ||
+      // oxlint-disable-next-line typescript/no-deprecated -- Some IMEs report 229 without isComposing.
+      event.keyCode === 229 ||
+      !sessionModifier ||
+      !/^Digit[1-9]$/.test(event.code) ||
+      dialogOpen() ||
+      (isTextEntry(event.target) &&
+        event.target !== document.getElementById("composer-text"))
     ) {
       return;
     }
-    const index = event.key === "0" ? 9 : Number(event.key) - 1;
+    // Shift changes key to a symbol on many layouts; code names the physical row.
+    const index = Number(event.code.slice(-1)) - 1;
     const row = visibleSessionRows()[index];
     const link = row?.querySelector<HTMLAnchorElement>("a[href]");
     if (!link) return;
@@ -593,6 +608,7 @@ function setUpShortcuts(): void {
   window.addEventListener("blur", () => {
     if (modifier === null) return;
     modifier = null;
+    sessionModifier = false;
     paint();
   });
   // A row swapped in while the modifier is held arrives with its badge

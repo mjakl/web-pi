@@ -376,20 +376,25 @@ swaps the process environment to serve several directories.
 
 `PiLiveSession` runs initial extension binding, admitted resource reloads and
 final shutdown through one sequential lane, so extensions cannot start again
-after disposal; a reload emits `session_shutdown` before rebuilding. Stop closes
-admission and extension UI at once, cancels completion tracking and signals the
-shell and the turn to abort, then waits for that work, emits `session_shutdown`
-and disposes the SDK session. Concurrent stops share one promise, and a failed
-operation does not skip the cleanup. A session stopped during its initial
-binding is never registered, and its open rejects with
-`Session stopped during startup.` Extension work that ignores cancellation and
-does not await UI can still delay a stop. `AgentRuntime.open` locks a session
-before its first await, so two concurrent opens cannot start two writers on one
-file, and reopens a stopping session only after its stop finished; a stop that
-has not finished within 10 seconds (`stopsInTime` in `src/core/sessions.ts`)
-fails the open with `Cannot reopen a session that is still stopping.` Delete,
-rewind and Stop likewise wait for a stop already under way, with the same limit,
-before they touch the file; when it runs out they fail with
+after disposal; a reload emits `session_shutdown` before rebuilding. Compact and
+reload require an idle session, with reload checking inside that lane. Stop
+closes admission and extension UI at once, cancels completion tracking and
+signals the shell and the turn to abort. It also waits for pending SDK prompts:
+input hooks can still be waiting when the SDK reports idle. A normal run
+admitted by the SDK during shutdown is aborted without accepting the submission;
+a command already handled by an extension keeps its result. Only after that work
+finishes does Stop emit `session_shutdown` and dispose the SDK session.
+Concurrent stops share one promise, and a failed operation does not skip the
+cleanup. A session stopped during its initial binding is never registered, and
+its open rejects with `Session stopped during startup.` Extension work that
+ignores cancellation and does not await UI can still delay a stop.
+`AgentRuntime.open` locks a session before its first await, so two concurrent
+opens cannot start two writers on one file, and reopens a stopping session only
+after its stop finished; a stop that has not finished within 10 seconds
+(`stopsInTime` in `src/core/sessions.ts`) fails the open with
+`Cannot reopen a session that is still stopping.` Delete, rewind and Stop
+likewise wait for a stop already under way, with the same limit, before they
+touch the file; when it runs out they fail with
 `This session is still stopping. Try again once it has stopped.` The workspace
 runs deletes, rewinds and its runtime opens of the same session one at a time,
 in the order they arrive (`serialised` in `src/core/workspace/deps.ts`), so no

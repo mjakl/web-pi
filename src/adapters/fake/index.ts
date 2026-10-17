@@ -758,6 +758,11 @@ class FakeLiveSession implements LiveSession {
         new Error("Cannot compact a stopping or stopped session."),
       );
     }
+    if (this.running || this.bashRunning || this.compacting) {
+      return Promise.reject(
+        new Error("Cannot compact until the session is idle."),
+      );
+    }
     this.compacting = true;
     this.compaction = null;
     this.compactionError = null;
@@ -789,6 +794,11 @@ class FakeLiveSession implements LiveSession {
     if (this.stopTask) {
       return Promise.reject(
         new Error("Cannot reload a stopping or stopped session."),
+      );
+    }
+    if (this.running || this.bashRunning || this.compacting) {
+      return Promise.reject(
+        new Error("Cannot reload until the session is idle."),
       );
     }
     this.notices.push({ level: "info", message: "Resources reloaded." });

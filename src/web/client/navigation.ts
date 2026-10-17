@@ -37,6 +37,9 @@ function sessionTarget(ctx: HtmxRequestCtx): boolean {
 
 let intent = 0;
 
+/** Release active microphone work as soon as navigation is admitted. */
+export const NAVIGATION_INTENT_EVENT = "web-pi:navigation-intent";
+
 /** Plain-fetch effects use the same admission generation as HTMX requests. */
 export function navigationIntent(): number {
   return intent;
@@ -88,6 +91,7 @@ export function setUpNavigation(): void {
     event.preventDefault();
     closeMobileSidebar();
     intent += 1;
+    document.dispatchEvent(new Event(NAVIGATION_INTENT_EVENT));
     cancelSessionInputFocus();
     focusRedirect = undefined;
     const canceledHistory =
@@ -178,6 +182,7 @@ export function setUpNavigation(): void {
       };
       latest = ctx;
       intent += 1;
+      document.dispatchEvent(new Event(NAVIGATION_INTENT_EVENT));
       navigations.add(ctx);
     }
     admitted.set(ctx, intent);

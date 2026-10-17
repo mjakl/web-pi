@@ -13,6 +13,7 @@ import {
 } from "@core/path-access";
 import type {
   AgentRuntime,
+  AudioTranscriber,
   DirectoryBrowser,
   Files,
   FileStat,
@@ -40,6 +41,7 @@ import { type ProjectInfo, unavailableFolderMessage } from "@core/workspaces";
 // and the one containment policy. Private to the workspace package.
 
 export type WorkspaceDeps = {
+  transcription?: AudioTranscriber;
   sessions: SessionCatalog;
   runtime: AgentRuntime;
   models: ModelCatalog;

@@ -92,6 +92,40 @@ assume an older terminal Pi can read sessions subsequently changed by a newer
 bundled Pi. Keep backups and one writer per session; downgrading web-pi does not
 undo newer writes.
 
+## Voice dictation
+
+Set `OPENAI_API_KEY` in the **server process environment** and restart web-pi to
+use the composer's **Dictate** button. For a service, supply it through a
+private environment file or your service manager's secret mechanism, not a
+checked-in unit or browser setting. Pi provider credentials and ChatGPT
+subscriptions are not used for this feature; the key needs OpenAI API access and
+billing.
+
+Dictation uses OpenAI's fixed `/v1/audio/transcriptions` endpoint and
+[`gpt-transcribe`](https://developers.openai.com/api/docs/models/gpt-transcribe),
+the
+[recommended model for new file-transcription integrations](https://developers.openai.com/api/docs/guides/transcription).
+There is no model selector, spoken response, or realtime voice session. The
+browser needs microphone permission and HTTPS or localhost; plain HTTP on a LAN
+address cannot record. WebM/Opus and MP4/AAC are selected according to browser
+support. Test the target browser and your languages, accents, and technical
+vocabulary before relying on transcript accuracy.
+
+Only explicitly recorded audio is uploaded. web-pi buffers audio in memory for
+request handling, does not save recordings or log audio/transcripts, and leaves
+transcripts in the ordinary editable browser draft. OpenAI handles the uploaded
+audio under your API account's data controls; web-pi does not control provider
+retention. One upload/transcription runs at a time per server process, with a 20
+MiB file limit and a 60-second upstream timeout. The browser caps recordings at
+two minutes; the server checks container signatures and size, not decoded
+duration. Failures leave existing draft text unchanged. See the
+[interaction rules](behavior.md#composer).
+
+Like other endpoints, dictation relies on loopback/trusted-network access or an
+external authentication layer. Its custom request header rejects cross-origin
+simple form posts; this is not login or rate-limit protection for an exposed
+server. Do not expose web-pi publicly without access control.
+
 ## Completion-notification grace period
 
 Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the

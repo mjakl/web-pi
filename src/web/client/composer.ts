@@ -9,6 +9,7 @@ import {
 import { skillSelections } from "@core/skill-prompt";
 import { setUpAtCompletion } from "./at-complete.ts";
 import { dialogOpen } from "./dialogs.ts";
+import { setUpDictation } from "./dictation.ts";
 import { draftKey, setUpDrafts } from "./drafts.ts";
 import type { HtmxRequestCtx } from "htmx.org";
 import {
@@ -172,6 +173,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
     button.dataset["behavior"] = action === "followup" ? "followUp" : "steer";
     button.disabled = !running && !filled;
   };
+  const cancelDictation = setUpDictation(form, signal);
   const drafts = setUpDrafts(sessionId, cwd, textarea, signal);
   const skills = setUpSkills(form, syncAction, signal);
   syncAction();
@@ -409,6 +411,7 @@ function mountComposer(form: HTMLElement, signal: AbortSignal): void {
             step.cycle === null
               ? undefined
               : past[past.length - 1 - step.cycle];
+          cancelDictation();
           setComposerValue(area, entry?.text ?? "");
           skills.restore(entry?.skills ?? []);
           cycle = step.cycle;

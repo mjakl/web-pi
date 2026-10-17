@@ -5,6 +5,7 @@ import { InspectionOnlySession } from "@core/workspace";
 import { staticAssets } from "@web/assets";
 import { HtmlLayout } from "@web/HtmlLayout";
 import { composerRoutes } from "@web/routes/composer";
+import { dictationRoutes } from "@web/routes/dictation";
 import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
@@ -186,6 +187,7 @@ export function createWebApp(deps: WebDeps) {
   sidebarRoutes(app, context);
   transcriptRoutes(app, context);
   composerRoutes(app, context);
+  dictationRoutes(app, context);
   filesRoutes(app, context);
 
   return app;

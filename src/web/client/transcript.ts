@@ -124,6 +124,29 @@ export function setUpTranscript(): void {
   setUpSavedSession();
 }
 
+/** Settled messages survive status swaps, including pages loaded while busy. */
+function syncHistoryActions(view: HTMLElement): void {
+  const state = document.getElementById("session-state");
+  const busy =
+    state?.hasAttribute("data-running") === true ||
+    state?.hasAttribute("data-bash-running") === true ||
+    state?.hasAttribute("data-compacting") === true;
+  for (const button of view.querySelectorAll<HTMLButtonElement>(
+    "[data-history-action]",
+  )) {
+    button.disabled = busy;
+    if (button.dataset["historyAction"] === "rewind") {
+      button.hidden = busy;
+    } else {
+      const title = button.dataset[busy ? "busyTitle" : "idleTitle"];
+      if (title !== undefined) {
+        button.title = title;
+        button.parentElement?.setAttribute("title", title);
+      }
+    }
+  }
+}
+
 function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   const jump = document.getElementById("jump-to-latest");
   let follow = true;
@@ -233,6 +256,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
     "htmx:after:settle",
     (event) => {
       if (signal.aborted || !view.isConnected) return;
+      syncHistoryActions(view);
       const target = event.target;
       // Only the log and the running turn move the reader to the tail. A tool
       // card fetching its own body must leave the scroll position alone.
@@ -280,6 +304,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       { once: true },
     );
   }
+  syncHistoryActions(view);
   sync();
   highlightIn(view);
 }

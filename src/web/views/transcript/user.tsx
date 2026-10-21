@@ -115,21 +115,22 @@ export function UserMessage({
         </div>
         {editable && actions ? (
           <div class="message-actions user-message-history">
-            {actions.busy === true ? null : (
-              <button
-                type="button"
-                class="message-rewind"
-                title="Rewind — remove this message and later history, then edit it again"
-                hx-post={`/sessions/${actions.sessionId}/rewind`}
-                hx-vals={JSON.stringify({ entryId: item.entryId })}
-                hx-confirm="Remove this message and all later history?"
-                hx-target="body"
-                hx-swap="innerHTML"
-              >
-                <RewindIcon />
-                Rewind
-              </button>
-            )}
+            <button
+              type="button"
+              class="message-rewind"
+              data-history-action="rewind"
+              hidden={actions.busy === true}
+              disabled={actions.busy === true}
+              title="Rewind — remove this message and later history, then edit it again"
+              hx-post={`/sessions/${actions.sessionId}/rewind`}
+              hx-vals={JSON.stringify({ entryId: item.entryId })}
+              hx-confirm="Remove this message and all later history?"
+              hx-target="body"
+              hx-swap="innerHTML"
+            >
+              <RewindIcon />
+              Rewind
+            </button>
           </div>
         ) : null}
         <Time value={item.timestamp} />

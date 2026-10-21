@@ -410,7 +410,11 @@ it("keeps the history row while a turn runs, with branching disabled", async () 
     "Wait for the current operation to finish before branching",
   );
   expect(running).toContain("New session");
-  expect(running).not.toContain('class="message-rewind"');
+  const rewind = required(
+    parseHtml(running).querySelector<HTMLButtonElement>(".message-rewind"),
+  );
+  expect(rewind.hidden).toBe(true);
+  expect(rewind.disabled).toBe(true);
   await live.abort();
   const settled = await (await app.request("/sessions/s1")).text();
   expect(settled).not.toMatch(/aria-label="New branch"[^>]*disabled/);

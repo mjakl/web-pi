@@ -288,10 +288,10 @@ export function HistoryActionButtons({
     "hx-target": "body",
     "hx-swap": "innerHTML",
   };
-  const branchTitle =
-    actions.busy === true
-      ? "Wait for the current operation to finish before branching"
-      : "New branch — continue from this point within the current session";
+  const idleTitle =
+    "New branch — continue from this point within the current session";
+  const busyTitle = "Wait for the current operation to finish before branching";
+  const branchTitle = actions.busy === true ? busyTitle : idleTitle;
   return (
     <>
       <span title={branchTitle}>
@@ -299,6 +299,9 @@ export function HistoryActionButtons({
           type="button"
           class="history-action"
           aria-label="New branch"
+          data-history-action="branch"
+          data-idle-title={idleTitle}
+          data-busy-title={busyTitle}
           title={branchTitle}
           hx-post={post("navigate")}
           {...swap}

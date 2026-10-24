@@ -1243,6 +1243,15 @@ export function createFakeWorld(
       },
     },
     models: {
+      async refresh(cwd, signal, sessionId) {
+        return {
+          view: await this.settings(cwd, sessionId),
+          scope: sessionId && live.has(sessionId) ? "session" : "folder",
+          offline: false,
+          aborted: signal.aborted,
+          errors: [],
+        };
+      },
       settings: () =>
         Promise.resolve({
           available: options.models ?? [FAKE_MODEL],

@@ -10,6 +10,13 @@ export type ModelSettingsView = {
   unavailable: string[];
   warnings: string[];
 };
+export type ModelRefreshResult = {
+  view: ModelSettingsView;
+  scope: "session" | "folder";
+  offline: boolean;
+  aborted: boolean;
+  errors: string[];
+};
 export type ModelSettingsEdit = {
   /** Null is the deliberate Use all models action, not an empty selection. */
   selected: ModelIdentity[] | null;

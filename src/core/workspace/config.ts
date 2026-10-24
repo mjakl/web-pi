@@ -83,6 +83,11 @@ export function configUseCases({
   return {
     validateFolder,
     folderAvailable,
+    refreshModelCatalogs: (
+      cwd: string,
+      signal: AbortSignal,
+      sessionId?: string,
+    ) => deps.models.refresh(cwd, signal, sessionId),
     modelSettings: (cwd: string, sessionId?: string) =>
       deps.models.settings(cwd, sessionId),
     saveModelSettings: (

@@ -413,6 +413,12 @@ export type ModelListing = {
 /** An owned session identity uses only its registry; inactive identities use a
  * folder preparation without acquiring a transcript writer. */
 export type ModelCatalog = {
+  /** Refresh only this owner in place; never change the conversation or preferences. */
+  refresh(
+    cwd: string,
+    signal: AbortSignal,
+    sessionId?: string,
+  ): Promise<import("@core/model-settings").ModelRefreshResult>;
   settings(
     cwd: string,
     sessionId?: string,

@@ -251,31 +251,62 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     const sessionId = field(form, "sessionId") || undefined;
     let message = "Selection saved.";
     let failed = false;
+    let refreshed;
+    const refreshing = form.get("refresh") === "1";
     try {
-      const selection: unknown =
-        form.get("defaults") === "1"
-          ? null
-          : form.getAll("model").map((value) => {
-              if (typeof value !== "string")
-                throw new Error("Expected a model identity");
-              return JSON.parse(value) as unknown;
-            });
-      await deps.workspace.saveModelSettings(
-        cwd,
-        selection,
-        JSON.parse(field(form, "patterns")) as unknown,
-        sessionId,
-      );
+      if (refreshing) {
+        refreshed = await deps.workspace.refreshModelCatalogs(
+          cwd,
+          c.req.raw.signal,
+          sessionId,
+        );
+        const scope =
+          refreshed.scope === "session" ? "this session" : "this folder";
+        const problems = [
+          ...(refreshed.aborted
+            ? [
+                "Refresh was interrupted or timed out; some catalogs may be unchanged.",
+              ]
+            : []),
+          ...refreshed.errors,
+        ];
+        failed = problems.length > 0;
+        message = failed
+          ? `Catalog refresh incomplete for ${scope}. ${problems.join(" ")}`
+          : refreshed.offline
+            ? `Local catalogs reloaded for ${scope}. Network refresh skipped (PI_OFFLINE).`
+            : `Catalogs refreshed for ${scope}.`;
+      } else {
+        const selection: unknown =
+          form.get("defaults") === "1"
+            ? null
+            : form.getAll("model").map((value) => {
+                if (typeof value !== "string")
+                  throw new Error("Expected a model identity");
+                return JSON.parse(value) as unknown;
+              });
+        await deps.workspace.saveModelSettings(
+          cwd,
+          selection,
+          JSON.parse(field(form, "patterns")) as unknown,
+          sessionId,
+        );
+      }
       hxTrigger(c, { "models-changed": {} });
     } catch (error) {
       failed = true;
-      message = `Could not save models: ${errorText(error)}`;
+      // A refresh can publish some catalogs before a later step throws.
+      if (refreshing) hxTrigger(c, { "models-changed": {} });
+      message = `Could not ${refreshing ? "refresh catalogs" : "save models"}: ${errorText(error)}`;
     }
     try {
       return await c.html(
         <ModelSettings
           cwd={cwd}
-          view={await deps.workspace.modelSettings(cwd, sessionId)}
+          view={
+            refreshed?.view ??
+            (await deps.workspace.modelSettings(cwd, sessionId))
+          }
           sessionId={sessionId}
           message={message}
           failed={failed}

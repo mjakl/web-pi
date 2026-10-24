@@ -20,7 +20,7 @@ export function ModelSettings({
     <form
       class="settings-general settings-models"
       hx-post="/settings/models"
-      hx-disabled-elt="find button"
+      hx-disable="findAll button, findAll input"
     >
       <input type="hidden" name="cwd" value={cwd} />
       {sessionId ? (
@@ -38,6 +38,11 @@ export function ModelSettings({
       <p class="settings-general-description">
         Choose models for the chooser and Pi’s terminal cycling list. Saved in
         Pi’s global settings; running conversations keep their current model.
+      </p>
+      <p class="settings-general-description">
+        Refresh catalogs for this session, or this folder before a session
+        starts. Save selection changes before refreshing. Other live sessions
+        are unchanged.
       </p>
       {view.projectPatterns !== null ? (
         <div class="config-trust-notice" role="status">
@@ -130,8 +135,8 @@ export function ModelSettings({
           <div>
             <strong>No models available</strong>
             <p>
-              Configure a provider in Pi’s terminal or models.json, then reload
-              Settings. Your saved model configuration is unchanged.
+              Configure a provider in Pi’s terminal or models.json, then refresh
+              catalogs. Your saved model configuration is unchanged.
             </p>
           </div>
         </div>
@@ -152,6 +157,9 @@ export function ModelSettings({
           disabled={!hasModels}
         >
           Use all models
+        </ConfigButton>
+        <ConfigButton type="submit" name="refresh" value="1" data-model-refresh>
+          Refresh catalogs
         </ConfigButton>
       </div>
       <p

@@ -5,6 +5,7 @@
 
 import { baseName } from "@core/file-types";
 import { setUpRegion } from "./lifecycle.ts";
+import { requestContext } from "./htmx.ts";
 import { abortTurn, somethingOpen } from "./composer.ts";
 import { dialogOpen, setUpDialogs } from "./dialogs.ts";
 import { setUpExtensions } from "./extensions.ts";
@@ -245,6 +246,28 @@ function setUpPluginExamples(): void {
 }
 
 function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
+  const status = form.querySelector<HTMLElement>("[data-model-status]");
+  const refresh = form.querySelector<HTMLButtonElement>("[data-model-refresh]");
+  let refreshing = false;
+  form.addEventListener(
+    "htmx:before:request",
+    (event) => {
+      const body = requestContext(event).request.body;
+      refreshing =
+        (body instanceof FormData || body instanceof URLSearchParams) &&
+        body.get("refresh") === "1";
+      if (refreshing && status) status.textContent = "Refreshing catalogs…";
+    },
+    { signal },
+  );
+  form.addEventListener(
+    "htmx:error",
+    () => {
+      if (refreshing && status)
+        status.textContent = "Could not refresh catalogs. Try again.";
+    },
+    { signal },
+  );
   form.addEventListener(
     "change",
     (event) => {
@@ -263,6 +286,14 @@ function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
       }
       const save = form.querySelector<HTMLButtonElement>("[data-model-save]");
       if (save) save.disabled = false;
+      const dirty = [
+        ...form.querySelectorAll<HTMLInputElement>('input[name="model"]'),
+      ].some((input) => input.checked !== input.defaultChecked);
+      if (refresh) refresh.disabled = dirty;
+      if (status && selected)
+        status.textContent = dirty
+          ? "Save your selection before refreshing catalogs."
+          : "";
     },
     { signal },
   );

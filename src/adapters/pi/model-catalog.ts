@@ -9,7 +9,7 @@ import {
   initialThinking,
   type StartupChoice,
 } from "@core/models";
-import { sameModel } from "@core/model-settings";
+import { sameModel, type ModelSettingsView } from "@core/model-settings";
 import type {
   ModelCatalog,
   ModelListing,
@@ -132,15 +132,46 @@ export function createPiModelCatalog(options: {
       throw new Error("Choose a folder before loading Models.");
     const services = owned ?? (await preparations.prepare(cwd)).services;
     const settings = await loadModelSettings(services.cwd, options.agentDir);
-    return { services, runtime: services.modelRuntime, settings };
+    return {
+      services,
+      runtime: services.modelRuntime,
+      settings,
+      owned: !!owned,
+    };
+  }
+  async function settingsView(
+    state: Awaited<ReturnType<typeof stateFor>>,
+  ): Promise<ModelSettingsView> {
+    const { services, runtime, settings } = state;
+    const full = await resolveModelListing(runtime, settings, true);
+    const view = await readModelSettings(runtime, settings, full.models);
+    view.warnings.push(...serviceDiagnostics(services));
+    return view;
   }
   return {
+    async refresh(cwd, signal, sessionId) {
+      const state = await stateFor(cwd, sessionId);
+      const offline = process.env["PI_OFFLINE"] !== undefined;
+      const result = await state.runtime.refresh({
+        allowNetwork: !offline,
+        force: true,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+      });
+      const errors = [...result.errors].map(
+        ([provider, error]) => `${provider}: ${error.message}`,
+      );
+      const runtimeError = state.runtime.getError();
+      if (runtimeError) errors.push(runtimeError);
+      return {
+        view: await settingsView(state),
+        scope: state.owned ? "session" : "folder",
+        offline,
+        aborted: result.aborted,
+        errors,
+      };
+    },
     async settings(cwd, sessionId) {
-      const { services, runtime, settings } = await stateFor(cwd, sessionId);
-      const full = await resolveModelListing(runtime, settings, true);
-      const view = await readModelSettings(runtime, settings, full.models);
-      view.warnings.push(...serviceDiagnostics(services));
-      return view;
+      return settingsView(await stateFor(cwd, sessionId));
     },
     async saveSettings(cwd, edit, sessionId) {
       const { runtime, settings } = await stateFor(cwd, sessionId);

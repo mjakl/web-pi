@@ -446,6 +446,149 @@ it("wires Models to global Pi persistence through the production composition", a
   expect(chooser).not.toContain("first shared &lt;model&gt;");
 });
 
+it.each([
+  {
+    aborted: false,
+    errors: [],
+    offline: false,
+    text: "Catalogs refreshed for this session.",
+    failed: false,
+  },
+  {
+    aborted: false,
+    errors: [],
+    offline: true,
+    text: "Network refresh skipped (PI_OFFLINE).",
+    failed: false,
+  },
+  {
+    aborted: true,
+    errors: [],
+    offline: false,
+    text: "interrupted or timed out",
+    failed: true,
+  },
+  {
+    aborted: false,
+    errors: ["first: Catalog unavailable"],
+    offline: false,
+    text: "first: Catalog unavailable",
+    failed: true,
+  },
+])(
+  "reports refresh completion honestly: $text",
+  async ({ aborted, errors, offline, text, failed }) => {
+    const { world, workspace, app } = await fixture(["first/shared"]);
+    const view = await workspace.modelSettings(temp.project);
+    const refresh = vi.spyOn(world.models, "refresh").mockResolvedValue({
+      view,
+      scope: "session",
+      aborted,
+      errors,
+      offline,
+    });
+    const save = vi.spyOn(world.models, "saveSettings");
+    const response = await app.request("/settings/models", {
+      method: "POST",
+      body: new URLSearchParams({
+        cwd: temp.project,
+        sessionId: "owner",
+        refresh: "1",
+      }),
+    });
+    const html = await response.text();
+    expect(html).toContain(text);
+    if (failed) {
+      expect(html).toContain('role="alert"');
+      expect(html).not.toContain("Catalogs refreshed for");
+    }
+    expect(refresh).toHaveBeenCalledWith(
+      temp.project,
+      expect.any(AbortSignal),
+      "owner",
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(JSON.parse(response.headers.get("HX-Trigger") ?? "null")).toEqual({
+      "models-changed": {},
+    });
+  },
+);
+
+it("refreshes the list and mounted chooser through HTMX, protects unsaved selection and locks pending edits", async () => {
+  const { app, world, workspace } = await fixture();
+  const before = existsSync(file())
+    ? await readFile(file(), "utf8")
+    : undefined;
+  const gate = Promise.withResolvers<undefined>();
+  const newer = { provider: "first", id: "new-model" };
+  const refresh = vi
+    .spyOn(world.models, "refresh")
+    .mockImplementation(async (cwd, _signal, sessionId) => {
+      await gate.promise;
+      await catalog([first, second, extra, newer]);
+      return {
+        view: await world.models.settings(cwd, sessionId),
+        scope: "folder",
+        aborted: false,
+        errors: [],
+        offline: false,
+      };
+    });
+  const browser = await htmxBrowser(
+    await (await app.request("/settings?section=models")).text(),
+    (request) => app.request(request),
+  );
+  const button = () =>
+    browser.document.querySelector<HTMLButtonElement>("[data-model-refresh]");
+  const checkbox = browser.document.querySelector<HTMLInputElement>(
+    '.settings-models input[name="model"]',
+  );
+  if (!checkbox) throw new Error("Missing model checkbox");
+  checkbox.checked = false;
+  checkbox.dispatchEvent(new browser.window.Event("change", { bubbles: true }));
+  expect(button()?.disabled).toBe(true);
+  expect(
+    browser.document.querySelector("[data-model-status]")?.textContent,
+  ).toContain("Save your selection");
+  button()?.click();
+  expect(refresh).not.toHaveBeenCalled();
+  checkbox.checked = true;
+  checkbox.dispatchEvent(new browser.window.Event("change", { bubbles: true }));
+  expect(button()?.disabled).toBe(false);
+  button()?.click();
+  await expect.poll(() => refresh.mock.calls.length).toBe(1);
+  expect(
+    browser.document.querySelector("[data-model-status]")?.textContent,
+  ).toBe("Refreshing catalogs…");
+  for (const control of browser.document.querySelectorAll<
+    HTMLInputElement | HTMLButtonElement
+  >(".settings-models input, .settings-models button"))
+    expect(control.disabled).toBe(true);
+  gate.resolve(undefined);
+  await expect
+    .poll(
+      () => browser.document.querySelector("[data-model-status]")?.textContent,
+    )
+    .toBe("Catalogs refreshed for this folder.");
+  expect(
+    browser.document.querySelector(
+      '.settings-models [data-model-search*="new-model"]',
+    ),
+  ).not.toBeNull();
+  await expect
+    .poll(() =>
+      [...browser.document.querySelectorAll("[data-model-name]")].map((node) =>
+        node.getAttribute("data-model-name"),
+      ),
+    )
+    .toContain("first new-model <model>");
+  expect(button()?.disabled).toBe(false);
+  expect(existsSync(file()) ? await readFile(file(), "utf8") : undefined).toBe(
+    before,
+  );
+  expect((await workspace.modelSettings(temp.project)).patterns).toBeNull();
+});
+
 it("refreshes the mounted chooser after a real HTMX global save and preserves the active model", async () => {
   const { app, world, workspace } = await fixture(["first/shared"]);
   const id = await workspace.createSession(temp.project);

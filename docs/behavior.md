@@ -137,6 +137,15 @@ an empty list. Patterns that match nothing stay listed as unavailable and
 survive edits. Trusted project overrides are shown but never written, and a save
 never switches a running or stored conversation to another model.
 
+**Refresh catalogs** updates the current live session's model list and picker,
+or the folder's prepared services when no live session is bound. It does not
+refresh other live sessions or change the selected model, conversation, or saved
+model patterns. Save checkbox edits first; refresh is disabled while they are
+unsaved. Ordinary providers use Pi's published catalogs; custom providers use
+only their existing refresh hooks. With `PI_OFFLINE` set, refresh reloads local
+data without fetching catalogs. Interrupted refreshes and provider failures are
+reported as incomplete, even when some catalogs were updated.
+
 General holds shared appearance, dumb-zone threshold, completion sound and
 system-prompt addition, with defaults **auto**, **100000 tokens**, **on** and
 the built-in note on how the interface renders Markdown. Auto follows the

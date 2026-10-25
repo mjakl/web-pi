@@ -935,6 +935,7 @@ export type FakeWorld = {
   watcher: Watcher;
   push: PushNotifier & { sent: PushMessage[] };
   webSettings: WebSettingsStore;
+  activity: import("@core/session-activity").SessionActivityStore;
   tmpdir: string;
   store: Map<string, FakeStoredSession>;
 };
@@ -990,6 +991,7 @@ export function createFakeWorld(
   const plugins = FAKE_PACKAGES.map((entry) => ({ ...entry }));
   let subscriptions: PushSubscription[] = [];
   let settings = { ...DEFAULT_WEB_SETTINGS };
+  let unread: import("@core/session-activity").UnreadActivity = {};
   let modelPatterns: string[] | null = null;
   const sent: PushMessage[] = [];
   let pushDisposed = false;
@@ -1425,6 +1427,12 @@ export function createFakeWorld(
     },
     git: createGit(),
     watcher: createWatcher(),
+    activity: {
+      load: () => ({ ...unread }),
+      save: (state) => {
+        unread = { ...state };
+      },
+    },
     webSettings: {
       get: () => ({ ...settings }),
       update: (patch) =>

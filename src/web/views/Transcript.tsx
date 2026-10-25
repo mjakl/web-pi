@@ -7,7 +7,7 @@ import {
   LoadEarlier,
   TurnFragment,
 } from "./Items.tsx";
-import { Status, turnBusy } from "./Status.tsx";
+import { SessionActivity, Status, turnBusy } from "./Status.tsx";
 import { ShelfBody } from "./Shelf.tsx";
 import { CustomPanelBody, ExtensionDialogBody } from "./Extensions.tsx";
 import { Partial } from "./Partial.tsx";
@@ -88,6 +88,7 @@ export function Transcript({ view }: { view: SessionView }) {
   const actions = itemActions(view);
   return (
     <div class="chat-body">
+      <SessionActivity view={view} />
       <div id="log" class="chat-scroll">
         <div class="chat-scroll-content">
           <div class="chat-transcript">

@@ -209,11 +209,22 @@ UI when a stop was missed. Inspection-only sessions never hand off.
 `finished` and `stopped` it re-renders the list's first page through
 `hx-partial`; a render that has not started yet covers every event queued before
 it, so a burst of events costs one scan of the store. Named `finished` and
-`completed` events carry `{"id": …}`: the browser marks a finished session
-unread in `localStorage`, including rows it has not loaded, and plays the
-completion tone for another session's `completed`, since the session on screen
-already rang through its own `done`. The list and its stream owner live in
-`#session-nav` and survive conversation and folder navigation.
+`completed` events carry `{"id": …}`. The browser plays the completion tone for
+another session's `completed`, since the session on screen already rang through
+its own `done`. The list and its stream owner live in `#session-nav` and survive
+conversation and folder navigation.
+
+The workspace tracks unread activity once per runtime event, independently of
+connected browsers. Each eligible `finished` replaces that session's pending
+version; `started` dismisses the previous version. Settlement during full Stop
+still updates the transcript and list but does not create unread activity.
+`unread` events carry the complete pending map on connection and every change,
+including acknowledgments. A transcript captures its activity version before
+reading or asynchronous enrichment; after rendering, the client posts that
+version to `POST /sessions/:id/read`. Only an exact match clears the pending
+version, so an old delivery cannot acknowledge newer work. The browser never
+acknowledges from the global unread snapshot alone. Persistence and upgrade
+limits are described in [Deployment](deployment.md#unread-activity-persistence).
 
 The browser also refreshes the list every 30 seconds while visible, when the
 stream connects or reconnects, and when the page becomes visible or focused,

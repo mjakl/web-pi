@@ -1,4 +1,7 @@
 import { createWebSettingsStore } from "@adapters/fs/web-settings";
+import { createSessionActivityStore } from "@adapters/fs/session-activity";
+import { createFakeWorld } from "@adapters/fake";
+import { createWorkspace } from "@core/workspace";
 import { createPiProjectResolver } from "@adapters/pi/projects";
 import { createWebPushNotifier } from "@adapters/pi/web-push";
 import {
@@ -38,6 +41,48 @@ function fixture() {
 afterEach(() => {
   for (const path of directories.splice(0))
     rmSync(path, { recursive: true, force: true });
+});
+
+describe("unread activity persistence", () => {
+  it("restores unread completions and read acknowledgments across server restarts", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "web-pi-unread-"));
+    directories.push(agentDir);
+    const activity = createSessionActivityStore(agentDir);
+    expect(activity.load()).toEqual({});
+    activity.save({ s1: "observed-completion" });
+    const restarted = createWorkspace({
+      ...createFakeWorld(),
+      activity: createSessionActivityStore(agentDir),
+    });
+    expect(restarted.unreadActivity()).toEqual({ s1: "observed-completion" });
+    restarted.acknowledgeActivity("s1", "observed-completion");
+    expect(createSessionActivityStore(agentDir).load()).toEqual({});
+    expect(statSync(join(agentDir, "web-pi", "unread.json")).mode & 0o777).toBe(
+      0o600,
+    );
+    expect(statSync(join(agentDir, "web-pi")).mode & 0o777).toBe(0o700);
+  });
+
+  it.each([
+    "[]",
+    '{"s1":null}',
+    '{"s1":""}',
+    '{"../outside":"version"}',
+    "broken JSON",
+  ])(
+    "refuses malformed persisted activity without resetting it: %s",
+    (text) => {
+      const agentDir = mkdtempSync(join(tmpdir(), "web-pi-unread-"));
+      directories.push(agentDir);
+      mkdirSync(join(agentDir, "web-pi"));
+      const path = join(agentDir, "web-pi", "unread.json");
+      writeFileSync(path, text);
+      expect(() => createSessionActivityStore(agentDir).load()).toThrow(
+        "Invalid web state",
+      );
+      expect(readFileSync(path, "utf8")).toBe(text);
+    },
+  );
 });
 
 describe("web state cutover", () => {

@@ -48,6 +48,14 @@ Below that it warns once the context reaches General's token threshold; no
 percentage alone warns. After a compaction, until a new answer reports usage,
 the readout shows an estimate marked with `~`.
 
+The sidebar's cyan halo means unread activity, independently of its running,
+active, or stopped icon. Reading the session clears that activity across
+browsers, including browsers that reconnect later. New activity can light it
+again. Starting another turn dismisses the previous marker; stopping a session
+does not by itself dismiss unseen work or create a new marker from shutdown
+settlement. See [Deployment](deployment.md#unread-activity-persistence) for
+upgrade and restart limits.
+
 ## Composer
 
 - Slash completion combines built-ins, extension commands, prompt templates, and

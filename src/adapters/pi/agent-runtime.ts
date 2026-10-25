@@ -961,7 +961,11 @@ export function createPiAgentRuntime(options: {
       if (busy && !wasBusy) announce({ type: "started", sessionId: id });
       wasBusy = busy;
       if (event.type === "turn_done") {
-        announce({ type: "finished", sessionId: id });
+        announce({
+          type: "finished",
+          sessionId: id,
+          stopping: wrapper.stopping,
+        });
       }
       if (event.type === "completed") {
         announce({ type: "completed", sessionId: id });

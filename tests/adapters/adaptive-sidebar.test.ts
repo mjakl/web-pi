@@ -194,6 +194,8 @@ it("uses adaptive discovery for lifecycle SSE updates and does not stream unchan
     expect(received).not.toContain("Check sub-sessions");
   };
   try {
+    const initial = await reader.read();
+    expect(decoder.decode(initial.value)).toBe("event: unread\ndata: {}\n\n");
     resetReads();
     await workspace.activate(target.id);
     await frame();

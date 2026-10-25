@@ -156,9 +156,16 @@ describe("a turn", () => {
       await new Promise(() => {});
     });
     const events = record(session);
+    const announced: RuntimeEvent[] = [];
+    h.runtime.subscribeAll((event) => announced.push(event));
     await session.prompt("hi");
     await until(session, (s) => s.partial !== undefined);
     await session.abort();
+    expect(announced).toContainEqual({
+      type: "finished",
+      sessionId: session.id,
+      stopping: false,
+    });
     expect(session.snapshot().partial).toBeUndefined();
     expect(session.snapshot().status.running).toBe(false);
     expect(events).toContain("turn_done");
@@ -167,6 +174,32 @@ describe("a turn", () => {
     expect(lastAssistant(session).stopReason).toBe("aborted");
     // The file exists, so this was no draft: the session stays open.
     expect(h.runtime.get(session.id)).toBeDefined();
+  });
+
+  it("distinguishes full Stop settlement from an ordinary abort without losing transcript delivery", async () => {
+    h = await createHarness();
+    const session = await h.open();
+    const announced: RuntimeEvent[] = [];
+    h.runtime.subscribeAll((event) => announced.push(event));
+    h.script(async (turn) => {
+      turn.text("partially read");
+      await new Promise(() => {});
+    });
+    const events = record(session);
+    await session.prompt("hi");
+    await until(session, (snapshot) => snapshot.partial !== undefined);
+    await session.stop();
+    expect(events).toContain("turn_done");
+    expect(events).not.toContain("completed");
+    expect(announced).toContainEqual({
+      type: "finished",
+      sessionId: session.id,
+      stopping: true,
+    });
+    expect(announced.at(-1)).toEqual({
+      type: "stopped",
+      sessionId: session.id,
+    });
   });
 
   it("runs a shell command as its own turn, without a completion", async () => {

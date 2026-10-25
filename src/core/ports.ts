@@ -371,6 +371,8 @@ export type LiveSession = {
 export type RuntimeEvent = {
   type: "opened" | "started" | "finished" | "completed" | "stopped";
   sessionId: string;
+  /** Settlement during full session shutdown, not an ordinary turn abort. */
+  stopping?: boolean;
 };
 
 export type AgentRuntime = {

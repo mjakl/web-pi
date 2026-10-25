@@ -1,7 +1,5 @@
-// The sidebar's browser half: the state pi-web keeps in React and web-pi
-// cannot render from the server — which sessions finished while the reader
-// was elsewhere, where a row's fixed-position menu lands, whether a modifier
-// is held, and which session trees are open.
+// The sidebar's browser half: shared unread activity, row menu placement,
+// modifier shortcuts, and browser-local session tree preferences.
 
 import { relativeTime } from "@core/sessions";
 import type { Htmx } from "htmx.org";
@@ -11,31 +9,8 @@ import { setUpRegion } from "./lifecycle.ts";
 import { displayedSessionId } from "./navigation.ts";
 import { setUpFolderMemory } from "./preferences.ts";
 import { isTextEntry } from "./viewport.ts";
-
-// Keep the existing stored map readable; project values no longer affect dots.
-const UNREAD_KEY = "web-pi:unread";
-
-function unreadIds(): Map<string, string> {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(UNREAD_KEY) ?? "{}");
-    // Phase 3a stored a plain array of ids; those keep working, unattributed.
-    if (Array.isArray(raw)) {
-      return new Map((raw as string[]).map((id) => [id, ""]));
-    }
-    if (typeof raw !== "object" || raw === null) return new Map();
-    return new Map(Object.entries(raw as Record<string, string>));
-  } catch {
-    return new Map();
-  }
-}
-
-function storeUnread(ids: Map<string, string>): void {
-  try {
-    localStorage.setItem(UNREAD_KEY, JSON.stringify(Object.fromEntries(ids)));
-  } catch {
-    // Without storage the dots last for this page only.
-  }
-}
+import { showToast } from "./toasts.ts";
+import type { UnreadActivity } from "@core/session-activity";
 
 /**
  * The session a sidebar stream `finished` or `completed` event names, or
@@ -63,49 +38,89 @@ function paintSelection(): void {
 }
 
 /** The unread halo uses --info and adds “New activity” to the status title. */
-function paintUnread(): void {
+function paintUnread(ids: UnreadActivity): void {
   paintSelection();
-  const ids = unreadIds();
-  let changed = false;
   for (const row of document.querySelectorAll<HTMLElement>(
     ".session-row[data-session-id]",
   )) {
     const id = row.dataset["sessionId"] ?? "";
     const indicator = row.querySelector<HTMLElement>(".session-indicator");
     if (!indicator) continue;
-    // Restarting dismisses the previous completion, including stored marks on loaded rows.
-    if (indicator.classList.contains("is-running") && ids.delete(id))
-      changed = true;
-    const unread = ids.has(id);
+    const unread = Object.hasOwn(ids, id);
     indicator.classList.toggle("session-indicator-unread", unread);
     const status = indicator.dataset["status"] ?? "";
     const label = unread ? `${status} · New activity` : status;
     indicator.title = label;
     indicator.setAttribute("aria-label", label);
   }
-  if (changed) storeUnread(ids);
 }
 
 function setUpUnread(): void {
+  let unread: UnreadActivity = {};
+  const submitted = new Map<string, string>();
+  try {
+    // Legacy IDs have no observed version and cannot be safely imported.
+    localStorage.removeItem("web-pi:unread");
+  } catch {
+    // Unread activity no longer depends on browser storage.
+  }
+  const acknowledge = () => {
+    const receipt = document.querySelector<HTMLElement>("#session-activity");
+    const id = receipt?.dataset["activitySession"];
+    const version = receipt?.dataset["activityVersion"];
+    if (
+      !id ||
+      !version ||
+      id !== displayedSessionId() ||
+      submitted.get(id) === version
+    )
+      return;
+    submitted.set(id, version);
+    void fetch(`/sessions/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+      body: new URLSearchParams({ version }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Activity acknowledgment failed");
+      })
+      .catch(() => {
+        showToast(
+          "Cannot save read activity. Resolve server storage or connection errors and reload to try again.",
+          "error",
+        );
+      });
+  };
   setUpRegion("main", () => {
-    const ids = unreadIds();
-    if (ids.delete(displayedSessionId())) storeUnread(ids);
-    paintUnread();
+    acknowledge();
+    paintUnread(unread);
   });
-  // The global stream announces every finished session, including unloaded rows.
-  document.addEventListener("finished", (event) => {
-    const id = finishedId(event);
-    if (id === undefined || id === displayedSessionId()) return;
-    const pending = unreadIds();
-    pending.set(id, "");
-    storeUnread(pending);
-    paintUnread();
+  // Every connection begins with a full authoritative snapshot, including
+  // sessions whose rows have not loaded. Never infer reads from this alone.
+  document.addEventListener("unread", (event) => {
+    try {
+      const value: unknown = JSON.parse(
+        (event as CustomEvent<{ data: string }>).detail.data,
+      );
+      if (
+        !value ||
+        typeof value !== "object" ||
+        Array.isArray(value) ||
+        Object.values(value).some(
+          (version) => typeof version !== "string" || !version,
+        )
+      )
+        return;
+      unread = value as UnreadActivity;
+      paintUnread(unread);
+    } catch {
+      // Ignore malformed transport data, as for the lifecycle markers.
+    }
   });
-  // Rows arrive lazily and out of band; a streaming turn swaps ten times a
-  // second and must not drag the whole sidebar through this.
   document.addEventListener("htmx:after:settle", (event) => {
     const target = event.target;
-    if (target instanceof Element && target.closest("#sidebar")) paintUnread();
+    if (!(target instanceof Element)) return;
+    if (target.closest("#sidebar")) paintUnread(unread);
+    if (target.closest("main")) acknowledge();
   });
 }
 

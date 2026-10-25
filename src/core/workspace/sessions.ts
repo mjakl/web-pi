@@ -1,4 +1,5 @@
 import { conversationRail, hasBranches } from "@core/conversation-rail";
+import { sessionActivity } from "@core/session-activity";
 import { contextUsage, type ContextUsage } from "@core/context-usage";
 import { isThinkingLevel } from "@core/models";
 import { sameModel } from "@core/model-settings";
@@ -64,6 +65,13 @@ export function sessionUseCases({
   cwdOf,
   serialised,
 }: Shared) {
+  const activity = sessionActivity(deps.activity);
+  deps.runtime.subscribeAll((event) => {
+    if (event.type === "finished" && !event.stopping)
+      activity.changed(event.sessionId, true);
+    else if (event.type === "started") activity.changed(event.sessionId, false);
+  });
+
   function liveView(
     snapshot: LiveSnapshot,
     summary: SessionSummary,
@@ -260,6 +268,19 @@ export function sessionUseCases({
   async function viewSession(
     id: string,
     options: ViewOptions = {},
+  ): Promise<SessionView | undefined> {
+    // Capture before reading or enriching: a later completion is not part of
+    // this delivery and must not be acknowledged by it.
+    const version = activity.version(id);
+    const view = await readSession(id, options);
+    if (view && !view.otherBranch && version !== undefined)
+      view.activityVersion = version;
+    return view;
+  }
+
+  async function readSession(
+    id: string,
+    options: ViewOptions,
   ): Promise<SessionView | undefined> {
     // A running session owns its file, so even another branch of it is read
     // from the runtime: the file on disk may be a flush behind.
@@ -579,6 +600,7 @@ export function sessionUseCases({
       return serialised(id, async () => {
         await stop(id);
         await deps.sessions.remove(id);
+        activity.changed(id, false);
         // It may have been the only session that made its folder readable.
         refreshRoots();
       });
@@ -621,6 +643,10 @@ export function sessionUseCases({
       await requireWritableSession(id);
       return deps.sessions.exportHtml(id);
     },
+
+    unreadActivity: activity.snapshot,
+    acknowledgeActivity: activity.acknowledge,
+    subscribeActivity: activity.subscribe,
 
     /** Every session's lifecycle, for the sidebar's one shared stream. */
     subscribeSessions(listener: (event: RuntimeEvent) => void): () => void {

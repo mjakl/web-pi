@@ -12,6 +12,7 @@ import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createPiSkills } from "@adapters/pi/skills";
 import { createWebPushNotifier } from "@adapters/pi/web-push";
 import { createWebSettingsStore } from "@adapters/fs/web-settings";
+import { createSessionActivityStore } from "@adapters/fs/session-activity";
 import type { AgentRuntime, PushNotifier } from "@core/ports";
 import { createWorkspace, type Workspace } from "@core/workspace";
 import { tmpdir } from "node:os";
@@ -74,6 +75,7 @@ export function createDeps(config: Config): {
       watcher: createWatcher(),
       push,
       webSettings,
+      activity: createSessionActivityStore(config.agentDir),
       tmpdir: tmpdir(),
     }),
   };

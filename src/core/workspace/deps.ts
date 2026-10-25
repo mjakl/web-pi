@@ -56,6 +56,7 @@ export type WorkspaceDeps = {
   watcher: Watcher;
   push: PushNotifier;
   webSettings: import("@core/web-settings").WebSettingsStore;
+  activity: import("@core/session-activity").SessionActivityStore;
   /** os.tmpdir(); shell captures may live nowhere else. */
   tmpdir: string;
 };

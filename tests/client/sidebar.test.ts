@@ -17,7 +17,7 @@ import {
 } from "./helpers.ts";
 
 // The sidebar's browser half against the rows views/Sidebar.tsx renders:
-// unread dots in localStorage, the project filter, the modifier badges and
+// shared unread halos, the project filter, the modifier badges and
 // digit shortcuts, and where a row's menu lands.
 
 function load() {
@@ -71,10 +71,8 @@ function indicator(id: string): HTMLElement {
   return query(`#row-${id} .session-indicator`);
 }
 
-function finished(id: string, project: string): void {
-  htmxEvent(byId("sidebar-stream"), "finished", {
-    data: JSON.stringify({ id, project }),
-  });
+function unread(state: Record<string, string>): void {
+  htmxEvent(byId("sidebar-stream"), "unread", { data: JSON.stringify(state) });
 }
 
 describe("session card locations", () => {
@@ -220,7 +218,7 @@ describe("sidebar replacement", () => {
     page({ current: "s1" });
     const { setUpSidebar } = await load();
     setUpSidebar();
-    finished("s2", "/repo/one");
+    unread({ s2: "one" });
     const replacement = document.createElement("body");
     replacement.innerHTML = document.body.innerHTML.replace(
       'data-session-id="s1"',
@@ -229,10 +227,11 @@ describe("sidebar replacement", () => {
     document.body.replaceWith(replacement);
     htmxEvent(document.body, "htmx:after:process");
     htmxEvent(document.body, "htmx:after:process");
+    unread({});
     expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
       false,
     );
-    finished("s1", "/repo/one");
+    unread({ s1: "two" });
     expect(indicator("s1").classList.contains("session-indicator-unread")).toBe(
       true,
     );
@@ -266,151 +265,82 @@ describe("sidebar replacement", () => {
 });
 
 describe("unread sessions", () => {
-  it("marks a session that finished elsewhere and stores it", async () => {
+  it("projects authoritative snapshots, including later rows and remote acknowledgments", async () => {
     page({ current: "s1" });
     const { setUpSidebar } = await load();
     setUpSidebar();
-    finished("s2", "/repo/one");
+    unread({ s2: "one", elsewhere: "two" });
     expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
       true,
     );
     expect(indicator("s2").title).toBe("Session stopped · New activity");
-    expect(indicator("s1").classList.contains("session-indicator-unread")).toBe(
-      false,
-    );
-    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual({
-      s2: "",
-    });
-  });
-
-  it("dismisses the previous completion on restart and marks the next completion", async () => {
-    page({ current: "s1", rows: ["s1", "s2", "s3"] });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    finished("s2", "/repo/one");
-    finished("s3", "/repo/one");
-
-    byId("row-s2").outerHTML = row("s2", { running: true, live: true });
-    htmxEvent(byId("row-s2"), "htmx:after:settle");
-    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
-      false,
-    );
-    expect(indicator("s2").classList.contains("is-running")).toBe(true);
-    expect(indicator("s2").title).toBe("Agent running…");
-    expect(indicator("s2").getAttribute("aria-label")).toBe("Agent running…");
-    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual({
-      s3: "",
-    });
-    expect(indicator("s3").classList.contains("session-indicator-unread")).toBe(
-      true,
-    );
-
-    byId("row-s2").outerHTML = row("s2", { live: true });
-    htmxEvent(byId("row-s2"), "htmx:after:settle");
-    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
-      false,
-    );
-    finished("s2", "/repo/one");
-    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
-      true,
-    );
-    expect(indicator("s2").classList.contains("is-active")).toBe(true);
-    expect(indicator("s2").title).toBe("Session active · New activity");
-    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual({
-      s3: "",
-      s2: "",
-    });
-  });
-
-  it.each(["initial", "later", "restored"])(
-    "clears stored unread state for a running row on %s load",
-    async (arrival) => {
-      localStorage.setItem("web-pi:unread", JSON.stringify(["s2", "s3"]));
-      page({ current: "s1", rows: ["s1", "s3"] });
-      if (arrival === "initial")
-        byId("session-list").insertAdjacentHTML(
-          "beforeend",
-          row("s2", { running: true }),
-        );
-      const { setUpSidebar } = await load();
-      setUpSidebar();
-      if (arrival === "later") {
-        byId("session-list").insertAdjacentHTML(
-          "beforeend",
-          row("s2", { running: true }),
-        );
-        htmxEvent(byId("row-s2"), "htmx:after:settle");
-      } else if (arrival === "restored") {
-        const replacement = document.createElement("body");
-        replacement.innerHTML = document.body.innerHTML;
-        replacement
-          .querySelector("#session-list")
-          ?.insertAdjacentHTML("beforeend", row("s2", { running: true }));
-        document.body.replaceWith(replacement);
-        htmxEvent(document.body, "htmx:after:process");
-      }
-      expect(
-        indicator("s2").classList.contains("session-indicator-unread"),
-      ).toBe(false);
-      expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "{}")).toEqual(
-        { s3: "" },
-      );
-      expect(
-        indicator("s3").classList.contains("session-indicator-unread"),
-      ).toBe(true);
-    },
-  );
-
-  it("never marks the session on screen", async () => {
-    page({ current: "s1" });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    finished("s1", "/repo/one");
-    expect(localStorage.getItem("web-pi:unread")).toBeNull();
-  });
-
-  it("clears the mark when the session is opened", async () => {
-    localStorage.setItem("web-pi:unread", JSON.stringify({ s1: "/repo/one" }));
-    page({ current: "s1" });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    expect(JSON.parse(localStorage.getItem("web-pi:unread") ?? "")).toEqual({});
-    expect(indicator("s1").classList.contains("session-indicator-unread")).toBe(
-      false,
-    );
-    expect(indicator("s1").classList.contains("is-stopped")).toBe(true);
-  });
-
-  it("reads the old array shape and paints rows that arrive later", async () => {
-    localStorage.setItem("web-pi:unread", JSON.stringify(["s2"]));
-    page({ current: "" });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
-      true,
-    );
-    byId("session-list").insertAdjacentHTML("beforeend", row("s3"));
-    localStorage.setItem("web-pi:unread", JSON.stringify({ s2: "", s3: "" }));
-    htmxEvent(byId("row-s3"), "htmx:after:settle");
-    expect(indicator("s3").classList.contains("session-indicator-unread")).toBe(
-      true,
-    );
-  });
-
-  it("marks a completion from an unloaded directory when its row arrives", async () => {
-    page({ current: "s1" });
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    finished("elsewhere", "/repo/two");
-    byId("session-list").insertAdjacentHTML(
-      "beforeend",
-      row("elsewhere", { cwd: "/repo/two" }),
-    );
+    byId("session-list").insertAdjacentHTML("beforeend", row("elsewhere"));
     htmxEvent(byId("row-elsewhere"), "htmx:after:settle");
     expect(
       indicator("elsewhere").classList.contains("session-indicator-unread"),
     ).toBe(true);
-    expect(query("#row-elsewhere .session-row-folder").title).toBe("/repo/two");
+    unread({ elsewhere: "two" });
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      false,
+    );
+    unread({ s2: "new completion" });
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      true,
+    );
+  });
+
+  it.each([JSON.stringify(["s2"]), JSON.stringify({ s2: "/repo" })])(
+    "discards legacy unread IDs without importing them: %s",
+    async (legacy) => {
+      localStorage.setItem("web-pi:unread", legacy);
+      page();
+      const { setUpSidebar } = await load();
+      setUpSidebar();
+      expect(
+        indicator("s2").classList.contains("session-indicator-unread"),
+      ).toBe(false);
+      expect(localStorage.getItem("web-pi:unread")).toBeNull();
+    },
+  );
+
+  it("acknowledges only the version delivered with the displayed transcript", async () => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    page({ current: "s1" });
+    query("main").innerHTML =
+      '<span id="session-activity" data-activity-session="s1" data-activity-version="observed"></span>';
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toBe("/sessions/s1/read");
+    expect(
+      (
+        fetch.mock.calls[0]?.[1]?.body as URLSearchParams | undefined
+      )?.toString(),
+    ).toBe("version=observed");
+    unread({ s1: "not-yet-delivered" });
+    htmxEvent(query("main"), "htmx:after:settle");
+    expect(fetch).toHaveBeenCalledOnce();
+    byId("session-activity").dataset["activityVersion"] = "not-yet-delivered";
+    htmxEvent(byId("session-activity"), "htmx:after:settle");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        fetch.mock.calls[1]?.[1]?.body as URLSearchParams | undefined
+      )?.toString(),
+    ).toBe("version=not-yet-delivered");
+  });
+
+  it("keeps working without local storage", async () => {
+    blockStorage();
+    page();
+    const { setUpSidebar } = await load();
+    setUpSidebar();
+    unread({ s2: "one" });
+    expect(indicator("s2").classList.contains("session-indicator-unread")).toBe(
+      true,
+    );
   });
 });
 

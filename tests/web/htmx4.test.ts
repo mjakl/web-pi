@@ -324,7 +324,8 @@ describe("shipped HTMX 4 with the real browser client", () => {
     stream.send('<hx-partial hx-target="#turn"></hx-partial>');
     stream.send("s1", "settled");
     stream.send("s1", "done");
-    stream.send(JSON.stringify({ id: "s2", project: "/repo" }), "finished");
+    stream.send(JSON.stringify({ id: "s2" }), "finished");
+    stream.send(JSON.stringify({ s2: "completion-version" }), "unread");
     await eventually(() => {
       expect(done).toBe("s1");
     });

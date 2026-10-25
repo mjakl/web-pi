@@ -246,12 +246,19 @@ async function sidebarStream() {
       received += decoder.decode(chunk.value, { stream: true });
     }
   };
+  await until(() => frames().length === 1);
+  expect(frames()).toEqual(["unread {}"]);
+  received = "";
   return { workspace, subscribe, frames, until };
 }
 
 it("sends finished for every turn and completed only for a completed run", async () => {
   const { workspace, frames, until } = await sidebarStream();
-  const named = () => frames().filter((frame) => frame !== "list");
+  const named = () =>
+    frames().filter(
+      (frame) =>
+        frame.startsWith("finished ") || frame.startsWith("completed "),
+    );
   await workspace.send("s1", "hello");
   await until(() => named().length === 2);
   await workspace.runBash("s1", "ls", false);

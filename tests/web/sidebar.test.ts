@@ -205,14 +205,14 @@ it("lists a session Pi has not written to disk yet", async () => {
 
   let received = "";
   const decoder = new TextDecoder();
-  while (!received.includes("\n\n")) {
+  while (!received.includes('id="row-new-1"')) {
     const chunk = await reader.read();
     if (chunk.done) break;
     received += decoder.decode(chunk.value);
   }
   await reader.cancel();
   // Creation pushes a complete list, including the unflushed runtime row.
-  const list = received.slice(0, received.indexOf("\n\n"));
+  const list = received;
   expect(list).toContain(
     '<hx-partial hx-target="#session-list" hx-swap="innerHTML">',
   );

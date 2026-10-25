@@ -67,6 +67,23 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/sessions/:id/row", (c) => row(c, c.req.param("id")));
 
+  app.post("/sessions/:id/read", async (c) => {
+    const id = c.req.param("id");
+    const form = await c.req.formData();
+    const version = field(form, "version");
+    if (!isSessionId(id) || !version)
+      return c.text("Invalid activity acknowledgment", 400);
+    try {
+      deps.workspace.acknowledgeActivity(id, version);
+      return c.body(null, 204);
+    } catch {
+      return c.text(
+        "Cannot save activity acknowledgment. Resolve server storage errors and reload to try again.",
+        500,
+      );
+    }
+  });
+
   for (const [path, act] of [
     ["stop", (id: string) => deps.workspace.stop(id)],
     ["activate", (id: string) => deps.workspace.activate(id)],
@@ -207,6 +224,14 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
           );
         }
       };
+      const sendUnread = (
+        unread: import("@core/session-activity").UnreadActivity,
+      ) => {
+        const data = JSON.stringify(unread);
+        enqueue(() => stream.writeSSE({ event: "unread", data }));
+      };
+      const unsubscribeActivity = deps.workspace.subscribeActivity(sendUnread);
+      sendUnread(deps.workspace.unreadActivity());
       const unsubscribe = deps.workspace.subscribeSessions(send);
       let heartbeat: ReturnType<typeof setInterval> | undefined;
       await new Promise<void>((resolve) => {
@@ -225,6 +250,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       });
       if (heartbeat) clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeActivity();
     }),
   );
 }

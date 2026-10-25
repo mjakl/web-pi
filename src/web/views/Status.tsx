@@ -240,6 +240,18 @@ function QueuePanel({
   );
 }
 
+/** A receipt for the transcript delivered with this version, not the sidebar. */
+export function SessionActivity({ view }: { view: SessionView }) {
+  return (
+    <span
+      id="session-activity"
+      hidden
+      data-activity-session={view.summary.id}
+      data-activity-version={view.activityVersion}
+    />
+  );
+}
+
 /**
  * Everything that changes while a session runs. `oob` renders it as a stream
  * update: the body as a `#status` partial, with the stats trigger and the
@@ -296,6 +308,9 @@ export function Status({
   return (
     <>
       <Partial target="#status">{body}</Partial>
+      <Partial target="#session-activity" swap="outerHTML">
+        <SessionActivity view={view} />
+      </Partial>
       <Partial target="#stats-trigger" swap="outerMorph">
         <SessionStatsButton usage={view.usage} tokens={view.tokens} />
       </Partial>

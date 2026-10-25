@@ -199,11 +199,35 @@ otherwise usually `~/.pi/agent`. Current web-pi owns these standalone files:
   fail startup rather than resetting the allowance.
 - `<agentDir>/web-pi/worktree-projects.json`: remembered folder/project
   mappings.
+- `<agentDir>/web-pi/unread.json`: pending unread session IDs and opaque
+  completion versions, shared by all browsers of this server.
 
 Writes use private **0600** files and atomic replacement. The folder is created
 with mode **0700**. Shared Pi sessions, `settings.json`, trust, auth, models,
 skills and packages are not relocated or reset. Session-embedded web metadata,
 such as stars, stays in Pi's session files.
+
+### Unread activity persistence
+
+Reading a session acknowledges its displayed activity across browsers. Pending
+versions and successful acknowledgments survive ordinary server restarts; a
+reconnecting browser receives the current map, not a replay of old markers. This
+assumes one web-pi process owns the agent directory. Work completed while that
+process is stopped, or solely by another Pi process, is not reconstructed as
+unread activity.
+
+On upgrade, reload open browsers. Old `web-pi:unread` localStorage IDs are
+discarded rather than imported: they cannot distinguish old reads from new
+completions. Existing history starts without unread marks, and subsequent web-pi
+activity uses the shared state. Removing `unread.json` while the server is
+stopped deliberately resets pending marks.
+
+An unreadable or malformed file prevents startup rather than silently resetting
+it. Failed runtime writes are logged and keep the current state in memory,
+without a restart-durability guarantee. A failed acknowledgment write returns an
+error and leaves the mark pending; the browser asks the reader to resolve
+storage or connection errors and reload to try again. As with other web state, a
+failed directory flush may follow a completed atomic replacement.
 
 ### Push allowance persistence and failures
 

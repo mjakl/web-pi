@@ -435,15 +435,18 @@ describe("composer dictation", () => {
     expect(area().value).toBe("Rewound");
   });
 
-  it("stops and transcribes at the duration limit without submitting", async () => {
+  it("stops and transcribes at ten minutes without submitting", async () => {
     const submits = await page();
     const pending = Promise.withResolvers<Response>();
     fetchMock.mockReturnValueOnce(pending.promise);
     await record();
-    vi.advanceTimersByTime(DICTATION_MAX_RECORDING_MS - 1);
+    expect(status()).toMatch(/10 minute limit/i);
+    vi.advanceTimersByTime(600_000 - 1);
+    expect(recorder().state).toBe("recording");
+    expect(trackStop).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(status()).toMatch(/limit reached.*transcribing/i);
+    expect(status()).toMatch(/10 minute limit reached.*transcribing/i);
     expect(trackStop).toHaveBeenCalledOnce();
     await flush();
     expect(fetchMock).toHaveBeenCalledOnce();

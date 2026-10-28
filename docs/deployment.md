@@ -116,8 +116,8 @@ request handling, does not save recordings or log audio/transcripts, and leaves
 transcripts in the ordinary editable browser draft. OpenAI handles the uploaded
 audio under your API account's data controls; web-pi does not control provider
 retention. One upload/transcription runs at a time per server process, with a 20
-MiB file limit and a 60-second upstream timeout. The browser caps recordings at
-two minutes; the server checks container signatures and size, not decoded
+MiB file limit and a 180-second upstream timeout. The browser caps recordings at
+ten minutes; the server checks container signatures and size, not decoded
 duration. Failures leave existing draft text unchanged. See the
 [interaction rules](behavior.md#composer).
 

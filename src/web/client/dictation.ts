@@ -140,7 +140,7 @@ export function setUpDictation(
   function stop(operation: Operation, limit = false): void {
     if (!current(operation)) return;
     operation.phase = "transcribing";
-    display(limit ? "2 minute limit reached. Transcribing…" : "Transcribing…");
+    display(limit ? "10 minute limit reached. Transcribing…" : "Transcribing…");
     try {
       operation.recorder?.stop();
       stopTracks(operation);
@@ -248,7 +248,7 @@ export function setUpDictation(
       recorder.start(1000);
       operation.phase = "recording";
       display(
-        "Recording… Click again to stop and transcribe (2 minute limit).",
+        "Recording… Click again to stop and transcribe (10 minute limit).",
       );
       operation.timer = setTimeout(() => {
         stop(operation, true);

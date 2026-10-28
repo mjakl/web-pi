@@ -150,7 +150,11 @@ describe("OpenAI recorded transcription", () => {
             : "Dictation timed out. Try a shorter recording.",
       });
       if (reason === "cancel") controller.abort();
-      else await vi.advanceTimersByTimeAsync(60_000);
+      else {
+        await vi.advanceTimersByTimeAsync(180_000 - 1);
+        expect(upstreamSignal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+      }
       await result;
       expect(upstreamSignal?.aborted).toBe(true);
       expect(vi.getTimerCount()).toBe(0);

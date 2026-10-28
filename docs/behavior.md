@@ -74,7 +74,7 @@ upgrade and restart limits.
   Repeated recordings add text; dictation never sends an instruction. Edits made
   while transcription is pending are preserved. Leaving the composer,
   submitting, or restoring another draft cancels pending dictation; hiding the
-  page cancels an active recording. Each recording is limited to **2 minutes /
+  page cancels an active recording. Each recording is limited to **10 minutes /
   20 MiB**. Requires HTTPS or localhost, browser WebM/MP4 recording support, and
   [server configuration](deployment.md#voice-dictation).
 - A successful submit clears only the originating draft revision and submitted

@@ -2,7 +2,7 @@ import { DictationError } from "@core/dictation";
 import type { AudioTranscriber } from "@core/ports";
 
 const TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
-const TRANSCRIPTION_TIMEOUT_MS = 60_000;
+const TRANSCRIPTION_TIMEOUT_MS = 180_000;
 
 export function createOpenAITranscriber(apiKey: string): AudioTranscriber {
   return {

@@ -461,14 +461,6 @@ describe("compaction", () => {
     const compacting = session.compact();
     const during = await until(session, (s) => s.status.compacting);
     expect(during.status.compaction).toBeNull();
-    // A prompt cannot start meanwhile: the refusal is a notice, and the turn
-    // that never began still settles so the composer is released.
-    const events = record(session);
-    await expect(session.prompt("meanwhile")).rejects.toThrow("compaction");
-    expect(session.snapshot().status.notices[0]?.message).toContain(
-      "compaction",
-    );
-    expect(events).toContain("turn_done");
     hold.open();
     await compacting;
     const after = session.snapshot();

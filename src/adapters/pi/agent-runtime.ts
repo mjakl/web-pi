@@ -55,6 +55,12 @@ import { checkSettingsErrors } from "./settings-errors.ts";
 const PARTIAL_ARGUMENT_CHARS = 4096;
 
 type Partial = Extract<AgentMessage, { role: "assistant" }>;
+type DeferredPrompt = {
+  message: QueuedMessage;
+  hasSkills: boolean;
+  cancelled: boolean;
+  recalled?: boolean;
+};
 
 /**
  * Pi writes a new session's file once it holds a user or assistant message,
@@ -93,6 +99,14 @@ class PiLiveSession implements LiveSession {
   private stopTask: Promise<void> | undefined;
   private lifecycleTask: Promise<void> = Promise.resolve();
   private readonly pendingPrompts = new Set<Promise<void>>();
+  private readonly admittingPrompts = new Set<Promise<void>>();
+  private manualCompaction: Promise<void> | undefined;
+  private compactionCancelled = false;
+  private deferred: DeferredPrompt[] = [];
+  private dispatchTask: Promise<void> | undefined;
+  private dispatching: DeferredPrompt | undefined;
+  private dispatchCancelled = false;
+  private deferredNotified = false;
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, ExtensionWidget>();
   private readonly tools = new Map<string, RunningTool>();
@@ -257,6 +271,8 @@ class PiLiveSession implements LiveSession {
         this.emit({ type: "activity" });
         break;
       case "compaction_start":
+        if (this.manualCompaction && this.compactionCancelled)
+          this.inner.abortCompaction();
         this.compacting = true;
         this.compactionError = null;
         this.emit({ type: "activity" });
@@ -412,7 +428,7 @@ class PiLiveSession implements LiveSession {
       : (context?.tokens ?? null);
     return {
       running: this.inner.isStreaming,
-      compacting: this.compacting,
+      compacting: this.compacting || this.manualCompaction !== undefined,
       bashRunning: this.bash !== undefined || this.inner.isBashRunning,
       model: option,
       thinkingLevel: this.inner.thinkingLevel,
@@ -424,7 +440,7 @@ class PiLiveSession implements LiveSession {
         })),
       contextTokens,
       contextTokensEstimated,
-      queue: this.queue,
+      queue: this.queuedMessages(),
       compaction: this.compaction,
       compactionError: this.compactionError,
       tools: [...this.tools.values()],
@@ -469,6 +485,9 @@ class PiLiveSession implements LiveSession {
         ),
       );
     }
+    if (this.dispatchTask && this.dispatchCancelled) {
+      return this.dispatchTask.then(() => this.prompt(text, input));
+    }
     const hasSkills = (input.skills?.length ?? 0) > 0;
     let promptText = text;
     if (hasSkills) {
@@ -484,6 +503,36 @@ class PiLiveSession implements LiveSession {
         );
       }
     }
+    const message: QueuedMessage = {
+      text: promptText,
+      behavior: input.behavior ?? "steer",
+      ...(input.images ? { images: [...input.images] } : {}),
+    };
+    if (this.manualCompaction || this.dispatchTask || this.deferred.length) {
+      this.deferred.push({ message, hasSkills, cancelled: false });
+      this.emit({ type: "activity" });
+      if (!this.manualCompaction && !this.dispatchTask) this.dispatchDeferred();
+      return Promise.resolve();
+    }
+    return this.submitPrompt(message, hasSkills);
+  }
+
+  private queuedMessages(): QueuedMessage[] {
+    const messages = [
+      ...this.queue,
+      ...this.deferred.map((item) => item.message),
+    ];
+    return [
+      ...messages.filter((message) => message.behavior === "steer"),
+      ...messages.filter((message) => message.behavior === "followUp"),
+    ];
+  }
+
+  private submitPrompt(
+    message: QueuedMessage,
+    hasSkills: boolean,
+    deferred?: DeferredPrompt,
+  ): Promise<void> {
     if (!this.inner.isStreaming) {
       this.turnStart = this.inner.sessionManager.getBranch().length;
       this.compaction = null;
@@ -495,6 +544,7 @@ class PiLiveSession implements LiveSession {
       // entering the SDK, since an extension can itself request shutdown.
       const finished = Promise.withResolvers<undefined>();
       this.pendingPrompts.add(finished.promise);
+      this.admittingPrompts.add(finished.promise);
       const fail = (error: unknown) => {
         this.notices.push({
           level: "error",
@@ -505,12 +555,12 @@ class PiLiveSession implements LiveSession {
       };
       let cancellation: Promise<void> | undefined;
       void this.inner
-        .prompt(promptText, {
+        .prompt(message.text, {
           ...(hasSkills ? { expandPromptTemplates: false } : {}),
-          streamingBehavior: input.behavior ?? "steer",
-          ...(input.images && input.images.length > 0
+          streamingBehavior: message.behavior,
+          ...(message.images && message.images.length > 0
             ? {
-                images: input.images.map((image) => ({
+                images: message.images.map((image) => ({
                   type: "image" as const,
                   data: image.data,
                   mimeType: image.mimeType,
@@ -520,20 +570,50 @@ class PiLiveSession implements LiveSession {
           // Pi calls this only for an accepted prompt: started, queued or
           // handled by an extension.
           preflightResult: (disposition) => {
+            this.admittingPrompts.delete(finished.promise);
             // A handled command has already completed (including a command
             // that requested shutdown). A resumed run is cancelled while we
             // still own its persistence; this callback is not a throwing hook.
-            if (this.stopping && disposition !== "handled") {
+            if (
+              (this.stopping || deferred?.cancelled) &&
+              disposition !== "handled"
+            ) {
+              // Recall already cleared the SDK queue. A delayed input hook
+              // can still enqueue or start afterward, so cancel that admission.
+              if (disposition === "queued") {
+                if (deferred?.recalled) this.inner.clearQueue();
+                else if (deferred) {
+                  // Stop preserves the SDK queue. This message joined it after
+                  // Stop, so transfer ownership without clearing older work.
+                  this.deferred = this.deferred.filter(
+                    (item) => item !== deferred,
+                  );
+                  this.emit({ type: "activity" });
+                }
+              }
               cancellation = this.inner.abort().catch(fail);
               reject(
-                new Error("Prompt cancelled because the session is stopping."),
+                new Error(
+                  this.stopping
+                    ? "Prompt cancelled because the session is stopping."
+                    : "Prompt cancelled before deferred dispatch completed.",
+                ),
               );
-            } else resolve();
+            } else {
+              if (deferred) {
+                this.deferred = this.deferred.filter(
+                  (item) => item !== deferred,
+                );
+                this.emit({ type: "activity" });
+              }
+              resolve();
+            }
           },
         })
         .then(resolve, fail)
         .then(() => cancellation)
         .finally(() => {
+          this.admittingPrompts.delete(finished.promise);
           this.pendingPrompts.delete(finished.promise);
           finished.resolve(undefined);
         });
@@ -548,9 +628,18 @@ class PiLiveSession implements LiveSession {
    * Pi refused, and whose page still offers Stop and Escape.
    */
   async abort(): Promise<void> {
+    this.pauseDeferred();
+    this.compactionCancelled = true;
     const draft = !this.hasTranscript();
     await this.inner.abort();
-    if (draft && !this.busy && !this.hasTranscript()) await this.stop();
+    if (
+      draft &&
+      !this.busy &&
+      !this.hasTranscript() &&
+      this.queuedMessages().length === 0 &&
+      !this.dispatchTask
+    )
+      await this.stop();
   }
 
   async setModel(provider: string, modelId: string): Promise<void> {
@@ -635,15 +724,85 @@ class PiLiveSession implements LiveSession {
     if (this.stopping) {
       throw new Error("Cannot compact a stopping or stopped session.");
     }
-    if (this.busy || this.inner.isCompacting) {
+    if (
+      this.busy ||
+      this.inner.isCompacting ||
+      this.manualCompaction ||
+      this.dispatchTask ||
+      this.admittingPrompts.size > 0
+    ) {
       throw new Error("Cannot compact until the session is idle.");
     }
     this.compaction = null;
     this.compactionError = null;
-    await this.inner.compact(instructions);
+    this.compactionCancelled = false;
+    this.deferredNotified = false;
+    // Reserve before the SDK's initial abort/wait and retain ownership through
+    // failure hooks, which can outlive its compaction_end event.
+    this.manualCompaction = Promise.resolve()
+      .then(() => this.inner.compact(instructions))
+      .then(() => {});
+    this.emit({ type: "activity" });
+    let succeeded = false;
+    try {
+      await this.manualCompaction;
+      succeeded = !this.compactionCancelled;
+    } finally {
+      this.manualCompaction = undefined;
+      this.emit({ type: "activity" });
+      if (succeeded && !this.stopping) this.dispatchDeferred();
+      else this.pauseDeferred();
+    }
+  }
+
+  private pauseDeferred(): void {
+    this.dispatchCancelled = true;
+    if (this.dispatching) this.dispatching.cancelled = true;
+    if (this.deferred.length && !this.deferredNotified) {
+      this.deferredNotified = true;
+      this.notices.push({
+        level: "warning",
+        message:
+          "Queued messages were not sent. Recall the queue to edit or resend them.",
+      });
+      this.emit({ type: "activity" });
+    }
+  }
+
+  private dispatchDeferred(): void {
+    if (!this.deferred.length) return;
+    this.deferredNotified = false;
+    this.dispatchCancelled = false;
+    this.dispatchTask = (async () => {
+      while (
+        !this.stopping &&
+        !this.dispatchCancelled &&
+        this.deferred.length
+      ) {
+        const item =
+          this.deferred.find((value) => value.message.behavior === "steer") ??
+          this.deferred[0];
+        if (!item) break;
+        item.cancelled = false;
+        this.dispatching = item;
+        try {
+          await this.submitPrompt(item.message, item.hasSkills, item);
+        } catch {
+          this.pauseDeferred();
+          break;
+        } finally {
+          this.dispatching = undefined;
+        }
+      }
+    })().finally(() => {
+      this.dispatchTask = undefined;
+      if (!this.stopping && !this.dispatchCancelled && this.deferred.length)
+        this.dispatchDeferred();
+    });
   }
 
   abortCompaction(): void {
+    this.compactionCancelled = true;
     this.inner.abortCompaction();
     this.emit({ type: "activity" });
   }
@@ -660,7 +819,12 @@ class PiLiveSession implements LiveSession {
 
   private async reloadResources(): Promise<void> {
     // Check in the lifecycle lane: work may have started since reload() queued.
-    if (this.busy || this.inner.isCompacting) {
+    if (
+      this.busy ||
+      this.inner.isCompacting ||
+      this.manualCompaction ||
+      this.dispatchTask
+    ) {
       throw new Error("Cannot reload until the session is idle.");
     }
     this.invalidatePreparation();
@@ -690,6 +854,13 @@ class PiLiveSession implements LiveSession {
   }
 
   clearQueue(): QueuedMessage[] {
+    const deferred = this.deferred.map((item) => item.message);
+    if (this.dispatching) {
+      this.dispatching.cancelled = true;
+      this.dispatching.recalled = true;
+    }
+    this.dispatchCancelled = true;
+    this.deferred = [];
     const mirrored = this.queue;
     // Copied first: the SDK's clearQueue emits `queue_update` synchronously,
     // and that handler forgets the attachments of every message not queued.
@@ -717,7 +888,11 @@ class PiLiveSession implements LiveSession {
       ...restore("steer", dropped.steering),
       ...restore("followUp", dropped.followUp),
     ];
-    return mergeQueue(fromSdk, mirrored);
+    const messages = [...mergeQueue(fromSdk, mirrored), ...deferred];
+    return [
+      ...messages.filter((message) => message.behavior === "steer"),
+      ...messages.filter((message) => message.behavior === "followUp"),
+    ];
   }
 
   /** Resolves on admission, like prompt(); this session owns the whole shell run. */
@@ -729,7 +904,13 @@ class PiLiveSession implements LiveSession {
         ),
       );
     }
-    if (this.busy || this.compacting || this.pendingPrompts.size > 0) {
+    if (
+      this.busy ||
+      this.compacting ||
+      this.manualCompaction ||
+      this.dispatchTask ||
+      this.pendingPrompts.size > 0
+    ) {
       return Promise.reject(
         new Error(
           "Cannot run a shell command while the session is busy. Stop the current run first.",
@@ -800,6 +981,8 @@ class PiLiveSession implements LiveSession {
     // Latch admission before UI cleanup or abort can call back into this owner.
     this.stopTask = this.enqueueLifecycle(() => this.stopSession(work));
     this.run.cancel();
+    this.compactionCancelled = true;
+    this.pauseDeferred();
     this.ui.dispose();
     this.inner.abortBash();
     // Keep the owner even if one abort fails: every pending input operation
@@ -807,6 +990,8 @@ class PiLiveSession implements LiveSession {
     const work = Promise.allSettled([
       this.inner.abort(),
       this.bashTask,
+      this.manualCompaction?.catch(() => {}),
+      this.dispatchTask,
       ...this.pendingPrompts,
     ]).then((results) => {
       const failed = results.find((result) => result.status === "rejected");

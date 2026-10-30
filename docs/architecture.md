@@ -416,6 +416,16 @@ runtime loads a file that is about to be rewritten or writes one that was
 removed; an open queued behind a delete fails as for an unknown session. Server
 shutdown stops every live session the same way.
 
+Manual compaction reserves admission before entering the SDK and refuses to
+start while prompt input hooks are pending. Submissions during that reservation
+stay in an adapter-owned queue, included in the normal queue display and recall.
+Only after the compaction promise settles successfully does the adapter send
+them through normal prompts, one admission at a time, steering before follow-up.
+SDK preflight acceptance transfers ownership; earlier failures leave the message
+recallable. Cancellation pauses dispatch and tells the reader to recall unsent
+messages. A new submission also resumes the paused queue. Automatic compaction
+continues to use the SDK queue.
+
 `runBash()` resolves when the session admits the command, before it finishes, so
 a new session can show its URL and Stop control at once; later failures arrive
 as notices. Pi writes a new session's file once it holds a user or assistant

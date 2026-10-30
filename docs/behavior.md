@@ -83,7 +83,11 @@ upgrade and restart limits.
   recall puts the queued text before the draft, separated by a blank line, adds
   its skills to the selection and its images to the attachments up to the limit;
   a queue that was already sent leaves the composer as it is. Input history is
-  scoped to the composer.
+  scoped to the composer. Messages sent during manual compaction appear in the
+  same queue and are sent automatically after successful compaction, steering
+  messages first. Cancelling compaction, pressing Stop, or a failure before
+  dispatch leaves unsent messages in the queue with a notice to recall and
+  resend them. Sending a new message also resumes the queued work.
 - `/copy` copies the latest completed answer on the active branch: its text
   blocks joined as written, skipping an empty aborted message. A streaming
   answer does not count, and an answer with no text has nothing to copy. If the

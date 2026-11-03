@@ -26,7 +26,7 @@ import {
 // pi-web's ChatInput (components/ChatInput.tsx): one 820px
 // column holding the banners, the queue panel, the 24px-radius surface and its
 // toolbar. The server renders the composer and every menu it opens; the client
-// bundle owns only the keyboard, the local file index, and the image previews,
+// bundle owns only the keyboard, the local file index, and attachment previews,
 // which cannot come from a round trip.
 
 const SOURCE_LABEL: Record<SlashSource, string> = {
@@ -619,8 +619,7 @@ export function Composer({
       <input
         id="image-input"
         type="file"
-        name="images[]"
-        accept="image/*"
+        name="attachments[]"
         multiple
         hidden
       />
@@ -661,8 +660,8 @@ export function Composer({
                 type="button"
                 id="attach-image"
                 class="composer-attach"
-                title="Attach image"
-                aria-label="Attach image"
+                title="Attach files"
+                aria-label="Attach files"
               >
                 <AttachImageIcon />
               </button>

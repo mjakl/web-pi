@@ -8,7 +8,7 @@ import {
   exactBuiltin,
   extractAtQuery,
   fileSearch,
-  imageLimitError,
+  attachmentLimitError,
   inputHistory,
   isFilePathQuery,
   parseBuiltin,
@@ -264,16 +264,16 @@ describe("shell commands and attachments", () => {
     expect(bashCommand("no bang")).toBeNull();
   });
 
-  it("rejects too many, too large, or non-image attachments", () => {
-    const ok = { mimeType: "image/png", bytes: 10 };
-    expect(imageLimitError([ok])).toBeUndefined();
-    expect(imageLimitError(Array(11).fill(ok))).toContain("10 images");
-    expect(imageLimitError([{ mimeType: "text/plain", bytes: 1 }])).toContain(
-      "Only images",
+  it("limits all attachments to ten files of ten MiB each", () => {
+    const full = { bytes: 10 * 1024 * 1024 };
+    expect(attachmentLimitError(Array(10).fill(full))).toBeUndefined();
+    expect(attachmentLimitError(Array(11).fill(full))).toContain(
+      "10 attachments",
     );
-    expect(
-      imageLimitError([{ mimeType: "image/png", bytes: 11 * 1024 * 1024 }]),
-    ).toContain("10 MB");
+    expect(attachmentLimitError([{ bytes: full.bytes + 1 }])).toContain(
+      "10 MiB",
+    );
+    expect(attachmentLimitError([{ bytes: 0 }])).toBeUndefined();
   });
 });
 

@@ -330,12 +330,12 @@ cannot change them.
 
 A draft belongs to a session, or to `new:<cwd>` until the server names the new
 session. `client/drafts.ts` saves its text and selected skills to `localStorage`
-300 ms after a change, on `pagehide` and when its composer unmounts; images stay
-in the page's memory. A submission clears only what it sent (the text's version,
-the skills it carried, the images' generation), so edits made while it was
-pending survive, and nothing is resent automatically. Fork and rewind put the
-restored request in the composer with a marker that wins over the stored draft,
-even when the request's text is empty.
+300 ms after a change, on `pagehide` and when its composer unmounts; attachments
+stay in the page's memory. A submission clears only what it sent (the text's
+version, the skills it carried, the attachments' generation), so edits made
+while it was pending survive, and nothing is resent automatically. Fork and
+rewind put the restored request in the composer with a marker that wins over the
+stored draft, even when the request's text is empty.
 
 The composer's rules live in `src/core/composer.ts`, which the client bundle
 imports: slash ranking, `@` queries and fzf ranking, insert text, history
@@ -343,6 +343,14 @@ cycling and attachment limits run in the browser where a round trip would be
 felt and are unit-tested on the server. The `@` menu and shared settings use
 JSON endpoints, since a keystroke cannot wait for a rendered fragment;
 everything else the composer opens is server-rendered HTML.
+
+Non-image attachments cross the workspace's `UploadStore` port, not the
+read-only `Files` port. `workspace.send` saves the complete batch before
+prompting and appends absolute paths to ordinary prompt text; only images reach
+Pi's native image payload. No new session schema or general file-management
+endpoint is needed. The filesystem adapter owns safe names, private storage and
+no-overwrite writes; [Deployment](deployment.md#uploaded-files) owns retention
+and recovery guidance.
 
 ## The Pi runtime
 

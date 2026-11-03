@@ -622,7 +622,7 @@ function setUpModelMenu(): void {
   });
 }
 
-/** pi-web's drop overlay: the whole chat window takes an image. */
+/** pi-web's drop overlay: the whole chat window takes attachments. */
 function setUpDropZone(
   images: { add(files: readonly File[]): void },
   signal: AbortSignal,

@@ -125,7 +125,7 @@ it("refuses more than ten attachments", async () => {
     method: "POST",
     body: form,
   });
-  expect(res.headers.get("hx-trigger")).toContain("10 images");
+  expect(res.headers.get("hx-trigger")).toContain("10 attachments");
 });
 
 it("queues a follow-up while a turn runs, then recalls it", async () => {

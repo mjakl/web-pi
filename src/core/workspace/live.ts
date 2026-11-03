@@ -1,9 +1,10 @@
-import type { SlashCommand } from "@core/composer";
+import { attachmentLimitError, type SlashCommand } from "@core/composer";
 import type { DialogAnswer } from "@core/extension-ui";
 import type { StartupChoice } from "@core/models";
 import { FileAccessError, isBashOutputPath } from "@core/path-access";
 import type {
   ImageAttachment,
+  FileUpload,
   LiveEvent,
   PromptInput,
   PushSubscription,
@@ -125,10 +126,42 @@ export function liveUseCases({
       return live.id;
     },
 
-    async send(id: string, text: string, input?: PromptInput): Promise<void> {
+    async send(
+      id: string,
+      text: string,
+      input?: PromptInput & { files?: FileUpload[] },
+    ): Promise<void> {
       await requireFolder(id);
       const live = await openRuntime(id);
-      await live.prompt(text, input);
+      const { files = [], ...promptInput } = input ?? {};
+      const problem = attachmentLimitError([
+        ...(promptInput.images ?? []).map((image) => ({
+          bytes:
+            Math.floor((image.data.length * 3) / 4) -
+            (image.data.endsWith("==") ? 2 : image.data.endsWith("=") ? 1 : 0),
+        })),
+        ...files.map((file) => ({ bytes: file.data.byteLength })),
+      ]);
+      if (problem) throw new Error(problem);
+      let promptText = text;
+      if (files.length > 0) {
+        const paths = await deps.uploads.save(files);
+        // These references persist in ordinary Pi messages and queued prompts.
+        // A rejected/ambiguous prompt may already have exposed them: retain them.
+        const references = `Attached files saved on the server (contents not included):\n${paths
+          .map((path) => {
+            const ticks = "`".repeat(
+              Math.max(
+                1,
+                ...(path.match(/`+/g) ?? []).map((run) => run.length + 1),
+              ),
+            );
+            return `${ticks}${path}${ticks}`;
+          })
+          .join("\n")}`;
+        promptText = text ? `${text}\n\n${references}` : references;
+      }
+      await live.prompt(promptText, promptInput);
     },
 
     /** Stops the turn, or the shell command when that is what runs. */

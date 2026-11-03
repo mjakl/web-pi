@@ -66,9 +66,16 @@ upgrade and restart limits.
   `src/web/routes/composer.tsx`). The browser filters the first **5,000** paths
   itself and asks the server, which searches the whole listing (up to
   **200,000** Git paths or **50,000** walked files), when a folder has more.
-- Attach up to **10 images, 10 MiB each**. Image drafts survive in-app
-  navigation in memory, not a reload. Text drafts persist per session or
-  new-session folder.
+- Attach up to **10 files, 10 MiB each**, including mixed image/file and
+  file-only messages. The complete multipart request is limited to **101 MiB**.
+  Images keep native inline image behavior and may be downscaled in the browser.
+  Other files are saved unchanged on the server; the message gives the agent
+  absolute filesystem paths, not their contents. Uploading does not execute or
+  extract files or guarantee the agent can understand every format. Attachment
+  drafts survive in-app navigation in memory, not a reload; remove them before
+  sending with their removal buttons. Text drafts persist per session or
+  new-session folder. See [upload retention](deployment.md#uploaded-files)
+  before removing server files.
 - **Dictate** records microphone audio after a click and permission grant. Click
   **Stop** to transcribe with OpenAI, then review and edit the appended text.
   Repeated recordings add text; dictation never sends an instruction. Edits made
@@ -270,6 +277,6 @@ Listing a gap here does not authorize work on it.
   minutes** idle or immediately on an explicit stop; there is no general
   live-session cap.
 
-Some limits are deliberate: image attachments do not survive a reload, the
+Some limits are deliberate: unsent attachments do not survive a reload, the
 interface is in English only, and extension APIs that need a terminal are
 stubbed, as [Architecture](architecture.md#extensions) describes.

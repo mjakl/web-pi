@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   area,
   byId,
+  field,
   flush,
   htmxEvent,
   keydown,
@@ -16,10 +17,11 @@ import {
 function markup(
   draft?: string,
   images: { data: string; mimeType: string }[] = [],
+  sessionId = "s1",
 ): string {
   return render(
     Composer({
-      sessionId: "s1",
+      sessionId,
       cwd: "/repo",
       ...(draft === undefined ? {} : { draft }),
       images,
@@ -36,7 +38,68 @@ function replaceComposer(html: string): HTMLElement {
   return owner;
 }
 
+function pick(...files: File[]): void {
+  const input = field("#image-input");
+  const transfer = new DataTransfer();
+  for (const file of files) transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change"));
+}
+
+function attachedNames(): string[] {
+  return [...(field("#image-input").files ?? [])].map((file) => file.name);
+}
+
 describe("composer owner lifecycle", () => {
+  it("retains mixed attachments after a rejected submission", async () => {
+    mount(markup());
+    const { setUpComposer } = await import("@web/client/composer");
+    setUpComposer();
+    pick(
+      new File(["image"], "photo.png", { type: "image/png" }),
+      new File(["notes"], "notes.txt", { type: "text/plain" }),
+    );
+    await flush();
+    type(area(), "Read these");
+    const ctx = { response: new Response("rejected", { status: 400 }) };
+    htmxEvent(byId("composer"), "htmx:before:request", { ctx });
+    htmxEvent(byId("composer"), "htmx:before:response", { ctx });
+    expect(attachedNames()).toEqual(["photo.png", "notes.txt"]);
+    expect(area().value).toBe("Read these");
+    expect(
+      document
+        .querySelector(".composer-action-primary")
+        ?.hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("keeps attachments per session and clears only accepted files after navigation", async () => {
+    mount(markup());
+    const { setUpComposer } = await import("@web/client/composer");
+    setUpComposer();
+    pick(
+      new File(["image"], "photo.png", { type: "image/png" }),
+      new File(["notes"], "notes.txt", { type: "text/plain" }),
+    );
+    await flush();
+    const ctx = {
+      response: new Response("accepted", {
+        headers: { "X-Web-Pi-Submission": "accepted" },
+      }),
+    };
+    htmxEvent(byId("composer"), "htmx:before:request", { ctx });
+    pick(new File(["later"], "later.csv", { type: "text/csv" }));
+    await flush();
+    replaceComposer(markup(undefined, [], "s2"));
+    expect(attachedNames()).toEqual([]);
+    pick(new File(["other"], "other.txt"));
+    await flush();
+    htmxEvent(document.body, "htmx:before:response", { ctx });
+    expect(attachedNames()).toEqual(["other.txt"]);
+    replaceComposer(markup());
+    expect(attachedNames()).toEqual(["later.csv"]);
+  });
+
   it("mounts replacement owners once and removes old keyboard handlers", async () => {
     mount(markup());
     const { setUpComposer } = await import("@web/client/composer");

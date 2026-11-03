@@ -101,6 +101,32 @@ function running(on: boolean): void {
 }
 
 describe("sending", () => {
+  it("sends a file-only draft through the unrestricted attachment field", async () => {
+    const { submits } = page();
+    const { setUpComposer } = await load();
+    setUpComposer();
+    const input = field("#image-input");
+    expect(input.name).toBe("attachments[]");
+    expect(input.hasAttribute("accept")).toBe(false);
+    expect(byId("attach-image").getAttribute("aria-label")).toBe(
+      "Attach files",
+    );
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File(["notes"], "notes.txt", { type: "text/plain" }),
+    );
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change"));
+    await flush();
+    expect(area().value).toBe("");
+    expect(primary().disabled).toBe(false);
+    keydown(area(), "Enter");
+    expect(submits).toHaveLength(1);
+    expect(behavior()).toBe("steer");
+    click(query('[aria-label="Remove notes.txt"]'));
+    expect(primary().disabled).toBe(true);
+  });
+
   it("sends on Enter, keeps Shift+Enter as a newline", async () => {
     const { submits } = page();
     const { setUpComposer } = await load();
@@ -623,10 +649,12 @@ describe("the model menu", () => {
 });
 
 describe("the drop zone", () => {
-  function drag(name: string, files = true): Event {
+  function drag(name: string, files = true, file?: File): Event {
     const transfer = new DataTransfer();
     if (files)
-      transfer.items.add(new File(["x"], "a.png", { type: "image/png" }));
+      transfer.items.add(
+        file ?? new File(["x"], "a.png", { type: "image/png" }),
+      );
     // A browser lists "Files" among the types; happy-dom lists the MIME types.
     Object.defineProperty(transfer, "types", { value: files ? ["Files"] : [] });
     // happy-dom's DragEvent is a bare Event, so the transfer rides on top.
@@ -658,6 +686,27 @@ describe("the drop zone", () => {
     await flush();
     expect(byId("image-previews").querySelectorAll("img")).toHaveLength(1);
     expect(byId("composer").hasAttribute("data-has-images")).toBe(true);
+  });
+
+  it("takes dropped non-image files and enables send without text", async () => {
+    const { submits } = page();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<div class="chat-window"><div class="chat-drop-zone" hidden></div></div>',
+    );
+    const { setUpComposer } = await load();
+    setUpComposer();
+    const file = new File(["opaque bytes"], "notes.pdf", {
+      type: "application/pdf",
+    });
+    expect(drag("drop", true, file).defaultPrevented).toBe(true);
+    await flush();
+    expect(field("#image-input").files?.[0]).toBe(file);
+    expect(byId("image-previews").textContent).toContain("notes.pdf");
+    expect(byId("image-previews").querySelector("img")).toBeNull();
+    expect(primary().disabled).toBe(false);
+    keydown(area(), "Enter");
+    expect(submits).toHaveLength(1);
   });
 
   it("ignores a drag that carries no files", async () => {

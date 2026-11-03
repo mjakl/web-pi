@@ -360,21 +360,20 @@ export function mergeQueue<T extends { text: string; behavior: string }>(
   return [...fromSdk, ...mirrored.filter((message) => !seen.has(key(message)))];
 }
 
-export const MAX_IMAGES = 10;
-export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+// Leave room for multipart headers and the editor's text above the file budget.
+export const MAX_ATTACHMENT_REQUEST_BYTES =
+  MAX_ATTACHMENTS * MAX_ATTACHMENT_BYTES + 1024 * 1024;
 
-/** Why an attachment set cannot be sent, or undefined when it can. */
-export function imageLimitError(
-  images: readonly { mimeType: string; bytes: number }[],
+export function attachmentLimitError(
+  attachments: readonly { bytes: number }[],
 ): string | undefined {
-  if (images.length > MAX_IMAGES) {
-    return `At most ${String(MAX_IMAGES)} images per message.`;
+  if (attachments.length > MAX_ATTACHMENTS) {
+    return `At most ${String(MAX_ATTACHMENTS)} attachments per message.`;
   }
-  if (images.some((image) => !image.mimeType.startsWith("image/"))) {
-    return "Only images can be attached.";
-  }
-  if (images.some((image) => image.bytes > MAX_IMAGE_BYTES)) {
-    return "Each image must be 10 MB or smaller.";
+  if (attachments.some((file) => file.bytes > MAX_ATTACHMENT_BYTES)) {
+    return "Each attachment must be 10 MiB or smaller.";
   }
   return undefined;
 }

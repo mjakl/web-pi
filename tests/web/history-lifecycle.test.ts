@@ -192,7 +192,7 @@ it.each([
     );
     const body = await sent.formData();
     expect(body.get("text")).toBe(text);
-    const files = body.getAll("images[]");
+    const files = body.getAll("attachments[]");
     expect(files).toHaveLength(1);
     const file = files[0];
     if (!(file instanceof File)) throw new Error("Expected image file");

@@ -931,6 +931,7 @@ export type FakeWorld = {
   packages: Packages;
   resources: ProjectResources;
   files: Files;
+  uploads: import("@core/ports").UploadStore;
   git: Git;
   watcher: Watcher;
   push: PushNotifier & { sent: PushMessage[] };
@@ -1424,6 +1425,17 @@ export function createFakeWorld(
       realpath: (path) => realFiles.realpath(path),
       readText: (path) => realFiles.readText(path),
       stream: (path, range) => realFiles.stream(path, range),
+    },
+    uploads: {
+      save: (files) => {
+        const batch = randomUUID();
+        return Promise.resolve(
+          files.map(
+            (file, index) =>
+              `/fake/web-pi/uploads/${batch}/${String(index + 1)}-${file.name.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`,
+          ),
+        );
+      },
     },
     git: createGit(),
     watcher: createWatcher(),

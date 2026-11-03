@@ -2,7 +2,12 @@
 // commands, the queue, the model, and the session's own event stream. The
 // composer area owns this module.
 
-import { bashCommand, parseBuiltin, skillsConflict } from "@core/composer";
+import {
+  bashCommand,
+  MAX_ATTACHMENT_REQUEST_BYTES,
+  parseBuiltin,
+  skillsConflict,
+} from "@core/composer";
 import { isThinkingLevel } from "@core/models";
 import { FileAccessError } from "@core/path-access";
 import {
@@ -37,7 +42,8 @@ import {
   Transcript,
   itemActions,
 } from "@web/views/Transcript";
-import { type Context } from "hono";
+import { type Context, type MiddlewareHandler } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,
@@ -72,8 +78,31 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
     "events",
   ]);
 
-  app.post("/sessions", (c) => submit(c));
-  app.post("/sessions/:id/prompt", (c) => submit(c, c.req.param("id")));
+  const limit = bodyLimit({
+    maxSize: MAX_ATTACHMENT_REQUEST_BYTES,
+    onError: (c) => reject(c, "The message upload exceeds 101 MiB."),
+  });
+  const boundedUpload: MiddlewareHandler = async (c, next) => {
+    if (Number(c.req.header("Content-Length")) > MAX_ATTACHMENT_REQUEST_BYTES) {
+      return reject(c, "The message upload exceeds 101 MiB.");
+    }
+    // Also count streamed bytes: Content-Length alone is not a trustworthy bound.
+    const headers = new Headers(c.req.raw.headers);
+    headers.delete("Content-Length");
+    c.req.raw = new Request(c.req.raw, { headers });
+    try {
+      return await limit(c, next);
+    } catch {
+      return reject(
+        c,
+        "Cannot read the message upload. Choose the files again.",
+      );
+    }
+  };
+  app.post("/sessions", boundedUpload, (c) => submit(c));
+  app.post("/sessions/:id/prompt", boundedUpload, (c) =>
+    submit(c, c.req.param("id")),
+  );
 
   function reject(c: Context, message: string): Response {
     toastHeader(c, message);
@@ -82,28 +111,37 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
 
   /** Classify before creating a session; both forms then use the same dispatch. */
   async function submit(c: Context, existingId?: string): Promise<Response> {
-    const form = await c.req.formData();
+    let form: FormData;
+    try {
+      form = await c.req.raw.formData();
+    } catch {
+      return reject(
+        c,
+        "Cannot read the message upload. Choose the files again.",
+      );
+    }
     const submission = await readSubmission(form);
     if ("error" in submission) return reject(c, submission.error);
-    const { text, images, skills, behavior } = submission;
+    const { text, images, files, skills, behavior } = submission;
+    const hasAttachments = images.length + files.length > 0;
     const cwd = field(form, "cwd");
     if (existingId === undefined && !cwd) {
       return reject(c, "Choose a working folder first.");
     }
-    if (!text.trim() && images.length === 0 && skills.length === 0)
+    if (!text.trim() && !hasAttachments && skills.length === 0)
       return reject(c, "Type a request first.");
     const conflict = skills.length > 0 ? skillsConflict(text) : undefined;
     if (conflict) return reject(c, conflict);
     // An explicit local-only command must never become a model prompt, even
     // when attachments would otherwise cancel shell mode.
-    if (text.startsWith("!!") && images.length > 0) {
+    if (text.startsWith("!!") && hasAttachments) {
       return reject(c, "Remove attachments to run a local-only shell command.");
     }
-    const shell = images.length === 0 ? bashCommand(text) : null;
-    if (images.length === 0 && text.startsWith("!") && !shell) {
+    const shell = !hasAttachments ? bashCommand(text) : null;
+    if (!hasAttachments && text.startsWith("!") && !shell) {
       return reject(c, "Type a shell command after ! or !!.");
     }
-    const builtin = images.length === 0 ? parseBuiltin(text) : undefined;
+    const builtin = !hasAttachments ? parseBuiltin(text) : undefined;
     const name = builtin?.name;
     const argument = builtin?.argument ?? "";
     if (name === "name" && !argument)
@@ -136,6 +174,7 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       } else {
         await deps.workspace.send(id, text, {
           images,
+          ...(files.length ? { files } : {}),
           behavior,
           ...(skills.length ? { skills } : {}),
         });

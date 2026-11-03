@@ -140,9 +140,12 @@ describe("opening", () => {
     const defaultAddition =
       "The interface renders Markdown with tables, task lists, links, and fenced code blocks. LaTeX/math typesetting is not supported; use plain text or code for math.";
     expect(original.systemPrompt()).toContain(defaultAddition);
-    expect(original.systemPrompt()).toContain(
-      "You are an expert coding assistant",
-    );
+    // Pi owns the wording; settings changes must preserve its whole preamble.
+    const piPreamble = original
+      .systemPrompt()
+      .split("Keep the user's appended instruction.")[0]
+      ?.trim();
+    expect(piPreamble).toBeTruthy();
     expect(original.systemPrompt()).toContain(
       "Keep the user's appended instruction.",
     );
@@ -154,9 +157,7 @@ describe("opening", () => {
     const custom = await h.open();
     expect(custom.systemPrompt()).toContain("Custom web instruction.");
     expect(custom.systemPrompt()).not.toContain(defaultAddition);
-    expect(custom.systemPrompt()).toContain(
-      "You are an expert coding assistant",
-    );
+    expect(custom.systemPrompt()).toContain(piPreamble);
     expect(custom.systemPrompt()).toContain(
       "Keep the user's appended instruction.",
     );
@@ -176,9 +177,7 @@ describe("opening", () => {
     const reopened = await h.open({ sessionId: custom.id });
     expect(reopened.systemPrompt()).not.toContain("Custom web instruction.");
     expect(reopened.systemPrompt()).not.toContain(defaultAddition);
-    expect(reopened.systemPrompt()).toContain(
-      "You are an expert coding assistant",
-    );
+    expect(reopened.systemPrompt()).toContain(piPreamble);
     expect(reopened.systemPrompt()).toContain(
       "Keep the user's appended instruction.",
     );

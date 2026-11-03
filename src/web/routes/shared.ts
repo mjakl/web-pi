@@ -3,11 +3,11 @@
 // beside this one; createWebApp in src/web/app.tsx builds the context and
 // composes them.
 
-import { imageLimitError } from "@core/composer";
+import { attachmentLimitError } from "@core/composer";
 import { SESSION_COOKIE } from "@core/cookies";
 import { baseName } from "@core/file-types";
 import { FileAccessError } from "@core/path-access";
-import type { ImageAttachment, SkillSelection } from "@core/ports";
+import type { FileUpload, ImageAttachment, SkillSelection } from "@core/ports";
 import { skillSelections } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
 import type { SessionView, SidebarView, Workspace } from "@core/workspace";
@@ -185,6 +185,7 @@ export function toastHeader(
 export type Submission = {
   text: string;
   images: ImageAttachment[];
+  files: FileUpload[];
   skills: SkillSelection[];
   behavior: "steer" | "followUp";
 };
@@ -200,19 +201,32 @@ export async function readSubmission(
       error: "Invalid skill selection. Reload the Skills menu and try again.",
     };
   }
-  const files = form
-    .getAll("images[]")
-    .filter((value): value is File => value instanceof File && value.size > 0);
-  const limit = imageLimitError(
-    files.map((file) => ({ mimeType: file.type, bytes: file.size })),
+  // Keep forms in already-open browsers working across an upgrade.
+  const values = [...form.getAll("attachments[]"), ...form.getAll("images[]")];
+  // Some form serializers represent an unselected file input as an empty string.
+  if (values.some((value) => !(value instanceof File) && value !== "")) {
+    return { error: "Invalid attachment. Choose the file again." };
+  }
+  const uploads = values.filter(
+    (value): value is File => value instanceof File && value.name !== "",
+  );
+  const limit = attachmentLimitError(
+    uploads.map((file) => ({ bytes: file.size })),
   );
   if (limit) return { error: limit };
-  const images = await Promise.all(
-    files.map(async (file) => ({
-      data: Buffer.from(await file.arrayBuffer()).toString("base64"),
-      mimeType: file.type,
-    })),
-  );
+  const images: ImageAttachment[] = [];
+  const files: FileUpload[] = [];
+  for (const file of uploads) {
+    const data = new Uint8Array(await file.arrayBuffer());
+    if (file.type.startsWith("image/")) {
+      images.push({
+        data: Buffer.from(data).toString("base64"),
+        mimeType: file.type,
+      });
+    } else {
+      files.push({ name: file.name, data });
+    }
+  }
   return {
     // Multipart uses CRLF; textareas expose LF. Keep the original editor text.
     text:
@@ -220,6 +234,7 @@ export async function readSubmission(
         ? rawField(form, "text").replaceAll("\r\n", "\n")
         : field(form, "text"),
     images,
+    files,
     skills,
     behavior: field(form, "behavior") === "followUp" ? "followUp" : "steer",
   };

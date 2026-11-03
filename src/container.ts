@@ -1,6 +1,7 @@
 import { createDemoWorld } from "@adapters/fake/demo";
 import { createDirectoryBrowser } from "@adapters/fs/browse";
 import { createFileTree } from "@adapters/fs/file-tree";
+import { createUploadStore } from "@adapters/fs/uploads";
 import { createWatcher } from "@adapters/fs/watch";
 import { createGit } from "@adapters/git/git";
 import { createOpenAITranscriber } from "@adapters/openai/transcription";
@@ -71,6 +72,7 @@ export function createDeps(config: Config): {
       packages: createPiPackages({ agentDir: config.agentDir }),
       resources: runtime.resources,
       files: createFileTree(),
+      uploads: createUploadStore(config.agentDir),
       git: createGit(),
       watcher: createWatcher(),
       push,

@@ -81,36 +81,57 @@ describe("accepted attachment drafts", () => {
   });
 });
 
-describe("adding images", () => {
-  it("keeps only images, paints a chip each, and fills the form's file input", async () => {
+describe("adding attachments", () => {
+  it("keeps mixed attachments, previews images, and removes a file by its accessible name", async () => {
     const { images, changed } = await load();
     images.add([
       image("a.png"),
-      new File(["x"], "notes.txt", { type: "text/plain" }),
+      new File(["x"], "<notes>.txt", { type: "text/plain" }),
     ]);
     await flush();
-    expect(images.count()).toBe(1);
+    expect(images.count()).toBe(2);
     expect(chips()).toHaveLength(1);
-    expect(input().files?.length).toBe(1);
+    expect(input().files?.length).toBe(2);
+    expect(byId("image-previews").textContent).toContain("<notes>.txt");
+    expect(byId("image-previews").querySelector("a")).toBeNull();
+    click(query('[aria-label="Remove <notes>.txt"]'));
+    expect(images.count()).toBe(1);
+    expect(input().files?.[0]?.name).toBe("a.png");
     expect(byId("image-previews").hidden).toBe(false);
     expect(byId("composer").hasAttribute("data-has-images")).toBe(true);
     expect(changed).toHaveBeenCalled();
-    expect(byId("toasts").textContent).toBe("Only images can be attached.");
+    expect(byId("toasts").textContent).toBe("");
   });
 
-  it("refuses more than ten and says so", async () => {
+  it("shares the ten-attachment cap between images and other files", async () => {
     const { images } = await load();
     images.add(
-      Array.from({ length: 11 }, (_, index) => image(`${String(index)}.png`)),
+      Array.from({ length: 11 }, (_, index) =>
+        index % 2 === 0
+          ? image(`${String(index)}.png`)
+          : new File(["notes"], `${String(index)}.txt`),
+      ),
     );
     await flush();
     expect(images.count()).toBe(10);
     expect(byId("toasts").textContent).toContain(
-      "At most 10 images per message.",
+      "At most 10 attachments per message.",
     );
     images.add([image("more.png")]);
     await flush();
     expect(images.count()).toBe(10);
+  });
+
+  it("refuses an opaque file over ten megabytes without attempting compression", async () => {
+    const { images } = await load();
+    const bitmap = vi.fn();
+    vi.stubGlobal("createImageBitmap", bitmap);
+    const huge = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "huge.zip");
+    images.add([huge]);
+    await flush();
+    expect(images.count()).toBe(0);
+    expect(byId("toasts").textContent).toContain("10 MiB or smaller");
+    expect(bitmap).not.toHaveBeenCalled();
   });
 
   it("refuses an image over ten megabytes", async () => {
@@ -120,7 +141,7 @@ describe("adding images", () => {
     images.add([huge]);
     await flush();
     expect(images.count()).toBe(0);
-    expect(byId("toasts").textContent).toContain("10 MB or smaller");
+    expect(byId("toasts").textContent).toContain("10 MiB or smaller");
   });
 
   it("removes a chip by identity even while a later add is still downscaling", async () => {
@@ -185,18 +206,60 @@ describe("where images come from", () => {
     expect(images.count()).toBe(1);
   });
 
-  it("opens the picker from the attach button and takes its pick", async () => {
+  it("takes pasted non-image files without consuming plain-text-only pastes", async () => {
+    const { images } = await load();
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.assign(paste, {
+      clipboardData: {
+        items: [
+          { type: "text/plain", getAsFile: () => null },
+          { type: "text/plain", getAsFile: () => file },
+        ],
+      },
+    });
+    document.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(true);
+    await flush();
+    expect(images.count()).toBe(1);
+    expect(input().files?.[0]).toBe(file);
+    expect(byId("image-previews").textContent).toContain("notes.txt");
+  });
+
+  it("keeps attached files in the form when another picker selection is rejected", async () => {
+    const { images } = await load();
+    const existing = new File(["notes"], "notes.txt");
+    images.add([existing]);
+    await flush();
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.zip"),
+    );
+    input().files = transfer.files;
+    input().dispatchEvent(new Event("change"));
+    await flush();
+    expect(images.count()).toBe(1);
+    expect([...(input().files ?? [])]).toEqual([existing]);
+  });
+
+  it("opens the picker from the attach button and takes mixed files", async () => {
     const { images } = await load();
     const open = vi.spyOn(input(), "click").mockImplementation(() => {});
     click(byId("attach-image"));
     expect(open).toHaveBeenCalledOnce();
     const transfer = new DataTransfer();
     transfer.items.add(image("picked.png"));
+    transfer.items.add(
+      new File(["notes"], "picked.txt", { type: "text/plain" }),
+    );
     input().files = transfer.files;
     input().dispatchEvent(new Event("change"));
     await flush();
-    expect(images.count()).toBe(1);
-    expect(input().files?.[0]?.name).toBe("picked.png");
+    expect(images.count()).toBe(2);
+    expect([...(input().files ?? [])].map((file) => file.name)).toEqual([
+      "picked.png",
+      "picked.txt",
+    ]);
   });
 
   it("restores images a queue recall handed back as base64", async () => {
@@ -215,7 +278,11 @@ describe("where images come from", () => {
   it("adds recalled images after the attached ones, up to ten, and says what was left", async () => {
     const { images } = await load();
     images.add(
-      Array.from({ length: 8 }, (_, index) => image(`${String(index)}.png`)),
+      Array.from({ length: 8 }, (_, index) =>
+        index % 2 === 0
+          ? image(`${String(index)}.png`)
+          : new File(["notes"], `${String(index)}.txt`),
+      ),
     );
     await flush();
     byId("recalled-images").innerHTML =
@@ -225,7 +292,7 @@ describe("where images come from", () => {
     expect(input().files?.[0]?.name).toBe("0.png");
     expect(input().files?.[9]?.name).toBe("recalled.png");
     expect(byId("toasts").textContent).toBe(
-      "At most 10 images per message: 1 recalled image was not attached.",
+      "At most 10 attachments per message: 1 recalled image was not attached.",
     );
   });
 });
@@ -276,6 +343,26 @@ describe("image owner cleanup", () => {
 });
 
 describe("downscaling", () => {
+  it("preserves opaque bytes, MIME type, and name even for large non-images", async () => {
+    const { images } = await load();
+    const bytes = new Uint8Array(1024 * 1024 + 1);
+    bytes.set([0, 255, 128, 13, 10]);
+    const file = new File([bytes], "archive.bin", {
+      type: "application/octet-stream",
+    });
+    const bitmap = vi.fn();
+    vi.stubGlobal("createImageBitmap", bitmap);
+    images.add([file]);
+    await flush();
+    const attached = input().files?.[0];
+    expect(attached).toBe(file);
+    if (!attached) throw new Error("missing attachment");
+    expect(new Uint8Array(await attached.arrayBuffer())).toEqual(bytes);
+    expect(attached?.type).toBe("application/octet-stream");
+    expect(attached?.name).toBe("archive.bin");
+    expect(bitmap).not.toHaveBeenCalled();
+  });
+
   it("leaves small files and GIFs alone", async () => {
     const bitmap = vi.fn();
     vi.stubGlobal("createImageBitmap", bitmap);

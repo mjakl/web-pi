@@ -31,6 +31,7 @@ import type {
   SessionRead,
   Skills,
   Watcher,
+  UploadStore,
 } from "@core/ports";
 import { isSubagentSession, type SessionSummary } from "@core/sessions";
 import { InspectionOnlySession } from "./views.ts";
@@ -52,6 +53,7 @@ export type WorkspaceDeps = {
   packages: Packages;
   resources: ProjectResources;
   files: Files;
+  uploads: UploadStore;
   git: Git;
   watcher: Watcher;
   push: PushNotifier;

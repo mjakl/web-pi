@@ -93,6 +93,7 @@ function Blocks({
                 source={block.text}
                 actions={actions}
                 variant="markdown-assistant-message"
+                citeable
               />
             );
           case "thinking":

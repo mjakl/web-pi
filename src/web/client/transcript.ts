@@ -5,6 +5,7 @@ import { setUpMarkdownLinks } from "./markdown-links.ts";
 import { setUpRegion } from "./lifecycle.ts";
 import { setUpRail } from "./rail.ts";
 import { setUpSavedSession } from "./saved-session.ts";
+import { setUpCite } from "./cite.ts";
 
 // Everything the transcript needs from the browser: staying at the tail while
 // a turn streams, keeping the reading position when an older page is
@@ -97,6 +98,7 @@ export function setUpTranscript(): void {
   setUpRail();
   setUpImagePreview();
   setUpCopy();
+  setUpCite();
   setUpMarkdownLinks();
   // Native cleanup removes triggers, but does not abort ordinary requests.
   // A rewritten transcript must not keep fetching or accept a late old page.

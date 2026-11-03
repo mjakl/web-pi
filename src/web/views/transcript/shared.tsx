@@ -151,15 +151,20 @@ export function Markdown({
   source,
   actions,
   variant,
+  citeable,
 }: {
   source: string;
   actions?: ItemActions;
   variant?: MarkdownVariant;
+  citeable?: boolean;
 }) {
   const front = parseFrontmatter(source);
   const card = front.complete && front.fields.length > 0;
   return (
-    <div class={variant ? `markdown-body ${variant}` : "markdown-body"}>
+    <div
+      class={variant ? `markdown-body ${variant}` : "markdown-body"}
+      data-cite-answer={citeable ? "" : undefined}
+    >
       {card ? <FrontmatterCard fields={front.fields} /> : null}
       {raw(
         renderMarkdown(card ? front.body : source, {

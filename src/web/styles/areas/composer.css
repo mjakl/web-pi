@@ -661,6 +661,15 @@ button.extension-widget-trigger:focus-visible {
   border: 1px solid var(--border);
   display: block;
 }
+.composer-image-remove,
+.composer-file-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  color: var(--text-muted);
+}
 .composer-image-remove {
   position: absolute;
   top: -4px;
@@ -670,12 +679,37 @@ button.extension-widget-trigger:focus-visible {
   border-radius: 50%;
   background: var(--bg-panel);
   border: 1px solid var(--border);
+}
+.composer-file-attachment {
   display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
+  align-self: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
+  padding-left: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
   color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.composer-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-file-remove {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+.composer-file-remove:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .composer-queue {
   margin-bottom: var(--space-4);

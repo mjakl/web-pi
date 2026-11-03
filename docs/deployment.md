@@ -126,6 +126,40 @@ external authentication layer. Its custom request header rejects cross-origin
 simple form posts; this is not login or rate-limit protection for an exposed
 server. Do not expose web-pi publicly without access control.
 
+## Uploaded files
+
+Non-image composer attachments are stored under
+`<agentDir>/web-pi/uploads/upload-<unique-id>/`. Each submission gets a private
+**0700** directory; files use **0600** permissions, exclusive creation, numbered
+filenames and a safe, length-limited form of the original filename. Duplicate
+names and simultaneous submissions do not overwrite earlier files. File bytes
+are unchanged. Images instead remain inline in Pi session messages.
+
+A message includes the uploaded files' absolute server paths. Keep the uploads
+with the agent directory so those paths remain usable after restart, session
+resume, fork or clone. Moving to another machine or directory requires
+preserving those paths; a session export alone does not contain non-image
+attachment bytes. The server does not execute, extract, convert or publicly
+serve these uploads. Existing transcript-reference file authorization still
+applies.
+
+Retention is **indefinite**, with no cleanup daemon or automatic deletion on
+session deletion or rewind. A completed upload is also retained when subsequent
+prompt dispatch fails or its acceptance is uncertain: an agent or saved message
+may already reference it. Retrying can create another copy. A failed batch write
+is not dispatched and its new directory is removed where possible; a crash or
+cleanup failure can leave an incomplete batch. Storage errors reject submission
+and leave the browser draft available. Monitor disk usage and back up uploads
+alongside sessions. Remove files manually only after confirming that no retained
+session, fork, clone or agent work needs them. Resetting the whole `web-pi/`
+folder also deletes uploads and breaks their recorded paths.
+
+The composer accepts at most **10 attachments of 10 MiB each**, images included,
+and bounds the whole multipart request at **101 MiB**. It buffers uploads in
+memory and has no total disk quota. These limits are not authentication or
+public-service abuse protection; keep the existing trusted-network or external
+authentication boundary described below.
+
 ## Completion-notification grace period
 
 Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the
@@ -289,9 +323,11 @@ remains available. Reporting remains best effort while clients reconnect.
 
 After a successful cutover, stop the web-pi server and delete only
 `<agentDir>/web-pi/`. Starting again restores shared defaults and creates a new
-push identity on first use. Pi data is untouched; removed-worktree grouping may
-be lost until rediscovered. Do not restore legacy files beside Pi's settings,
-because a legacy source is an explicit pending cutover, not a reset marker.
+push identity on first use. This also deletes all
+[uploaded files](#uploaded-files); back them up first if retained sessions still
+need them. Pi session files are untouched; removed-worktree grouping may be lost
+until rediscovered. Do not restore legacy files beside Pi's settings, because a
+legacy source is an explicit pending cutover, not a reset marker.
 
 Browser permissions and subscriptions survive a server-folder deletion. General
 checks actual server enrollment, not permission alone. If the server identity

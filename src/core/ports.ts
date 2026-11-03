@@ -33,6 +33,14 @@ export type AudioTranscriber = {
   transcribe(file: File, signal: AbortSignal): Promise<string>;
 };
 
+/** Opaque uploaded bytes; never a provider-native document payload. */
+export type FileUpload = { name: string; data: Uint8Array };
+
+/** Saves a complete batch privately and returns absolute paths in input order. */
+export type UploadStore = {
+  save(files: readonly FileUpload[]): Promise<string[]>;
+};
+
 /** A thinking level plus the label the model gives it. */
 export type ThinkingChoice = { level: ThinkingLevel; label: string };
 

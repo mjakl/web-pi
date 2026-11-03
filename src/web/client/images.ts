@@ -1,4 +1,4 @@
-import { imageLimitError, MAX_IMAGES } from "@core/composer";
+import { attachmentLimitError, MAX_ATTACHMENTS } from "@core/composer";
 import { draftChanged, onDraftChange, openDraft } from "./drafts.ts";
 import { showToast } from "./toasts.ts";
 import {
@@ -7,15 +7,19 @@ import {
 } from "@web/views/icons";
 
 // Attachments live in one hidden file input, so the form posts them without
-// any help from htmx. Anything over a megabyte is downscaled first: a phone
-// photo is 4 MB of pixels the model cannot use.
+// any help from htmx. Images over a megabyte are downscaled first: a phone
+// photo is 4 MB of pixels the model cannot use. Other files stay byte-for-byte.
 
 const COMPRESS_ABOVE_BYTES = 1024 * 1024;
 const MAX_SIDE = 1024;
 const JPEG_QUALITY = 0.85;
 
 async function downscale(file: File): Promise<File> {
-  if (file.size <= COMPRESS_ABOVE_BYTES || file.type === "image/gif") {
+  if (
+    !file.type.startsWith("image/") ||
+    file.size <= COMPRESS_ABOVE_BYTES ||
+    file.type === "image/gif"
+  ) {
     return file;
   }
   try {
@@ -56,7 +60,7 @@ export type Attachments = {
   submitted(): () => void;
 };
 
-/** The draft's images: in this page's memory, so navigation keeps them. */
+/** The draft's attachments: in this page's memory, so navigation keeps them. */
 export function setUpImages(
   changed: () => void,
   owner: ParentNode = document,
@@ -87,11 +91,16 @@ export function setUpImages(
     { once: true },
   );
 
-  function paint(): void {
-    if (signal?.aborted || !input || !previews) return;
+  function syncInput(): void {
+    if (!input) return;
     const transfer = new DataTransfer();
     for (const file of attached) transfer.items.add(file);
     input.files = transfer.files;
+  }
+
+  function paint(): void {
+    if (signal?.aborted || !input || !previews) return;
+    syncInput();
     for (const url of previews.querySelectorAll("img")) {
       URL.revokeObjectURL(url.src);
     }
@@ -99,18 +108,35 @@ export function setUpImages(
     previews.hidden = attached.length === 0;
     for (const file of attached) {
       const wrapper = document.createElement("div");
-      wrapper.className = "composer-image-preview";
-      const image = document.createElement("img");
-      image.src = URL.createObjectURL(file);
-      image.alt = "";
-      image.className = "composer-image-thumbnail";
+      const isImage = file.type.startsWith("image/");
+      wrapper.className = isImage
+        ? "composer-image-preview"
+        : "composer-file-attachment";
+      if (isImage) {
+        const image = document.createElement("img");
+        image.src = URL.createObjectURL(file);
+        image.alt = "";
+        image.className = "composer-image-thumbnail";
+        wrapper.append(image);
+      } else {
+        const name = document.createElement("span");
+        name.className = "composer-attachment-name";
+        name.textContent = file.name;
+        name.title = file.name;
+        wrapper.append(name);
+      }
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.className = "composer-image-remove";
+      remove.className = isImage
+        ? "composer-image-remove"
+        : "composer-file-remove";
       // icons.tsx #49 as markup: the strip is built in the browser, because
       // the files never reach the server before they are sent.
       remove.innerHTML = ATTACHMENT_REMOVE_ICON;
-      remove.setAttribute("aria-label", "Remove image");
+      remove.setAttribute(
+        "aria-label",
+        isImage ? "Remove image" : `Remove ${file.name}`,
+      );
       // By identity, never by the index this closure was built with: a
       // downscale finishing in the meantime renumbers the list.
       remove.addEventListener(
@@ -123,7 +149,7 @@ export function setUpImages(
         },
         { signal },
       );
-      wrapper.append(image, remove);
+      wrapper.append(remove);
       previews.append(wrapper);
     }
     input
@@ -136,14 +162,13 @@ export function setUpImages(
   function add(files: readonly File[]): void {
     if (signal?.aborted) return;
     const generation = draft.generation;
-    const room = MAX_IMAGES - attached.length - draft.pending;
-    const images = files.filter((file) => file.type.startsWith("image/"));
-    const accepted = images.slice(0, Math.max(room, 0));
-    if (images.length < files.length) {
-      showToast("Only images can be attached.", "warning");
-    }
-    if (accepted.length < images.length) {
-      showToast(`At most ${String(MAX_IMAGES)} images per message.`, "warning");
+    const room = MAX_ATTACHMENTS - attached.length - draft.pending;
+    const accepted = files.slice(0, Math.max(room, 0));
+    if (accepted.length < files.length) {
+      showToast(
+        `At most ${String(MAX_ATTACHMENTS)} attachments per message.`,
+        "warning",
+      );
     }
     if (accepted.length === 0) return;
     draft.pending += accepted.length;
@@ -151,11 +176,8 @@ export function setUpImages(
     void Promise.all(accepted.map(downscale)).then((processed) => {
       if (generation !== draft.generation) return;
       draft.pending -= accepted.length;
-      const problem = imageLimitError(
-        [...attached, ...processed].map((file) => ({
-          mimeType: file.type,
-          bytes: file.size,
-        })),
+      const problem = attachmentLimitError(
+        [...attached, ...processed].map((file) => ({ bytes: file.size })),
       );
       if (problem) {
         showToast(problem, "warning");
@@ -170,8 +192,10 @@ export function setUpImages(
     "change",
     () => {
       const picked = [...(input.files ?? [])];
-      // The input is also where the form reads from; take the pick and rebuild.
+      // Keep the submitted files in sync even if this pick is rejected or
+      // still being compressed.
       input.value = "";
+      syncInput();
       add(picked);
     },
     { signal },
@@ -186,14 +210,12 @@ export function setUpImages(
   document.addEventListener(
     "paste",
     (event) => {
-      const items = [...(event.clipboardData?.items ?? [])].filter((item) =>
-        item.type.startsWith("image/"),
-      );
-      if (items.length === 0) return;
+      const files = [...(event.clipboardData?.items ?? [])]
+        .map((item) => item.getAsFile())
+        .filter((file) => file !== null);
+      if (files.length === 0) return;
       event.preventDefault();
-      add(
-        items.map((item) => item.getAsFile()).filter((file) => file !== null),
-      );
+      add(files);
     },
     { signal },
   );
@@ -225,11 +247,11 @@ export function setUpImages(
     }
     target.replaceChildren();
     // They join what is attached already, up to the same limit.
-    const room = Math.max(MAX_IMAGES - attached.length - draft.pending, 0);
+    const room = Math.max(MAX_ATTACHMENTS - attached.length - draft.pending, 0);
     const left = recalled.length - room;
     if (left > 0) {
       showToast(
-        `At most ${String(MAX_IMAGES)} images per message: ${String(left)} recalled image${left === 1 ? " was" : "s were"} not attached.`,
+        `At most ${String(MAX_ATTACHMENTS)} attachments per message: ${String(left)} recalled image${left === 1 ? " was" : "s were"} not attached.`,
         "warning",
       );
     }

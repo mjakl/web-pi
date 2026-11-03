@@ -147,9 +147,9 @@ export function setUpNavigation(): void {
       body instanceof FormData &&
       typeof text === "string" &&
       /^\/clone(?:\s|$)/.test(text.trim()) &&
-      !body
-        .getAll("images[]")
-        .some((file) => file instanceof File && file.size > 0);
+      ![...body.getAll("attachments[]"), ...body.getAll("images[]")].some(
+        (file) => file instanceof File && file.name !== "",
+      );
     const createsSession =
       url.pathname === "/sessions" ||
       /^\/sessions\/[^/]+\/(fork|clone)$/.test(url.pathname) ||

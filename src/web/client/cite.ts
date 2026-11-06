@@ -3,39 +3,40 @@ import { setUpRegion } from "./lifecycle.ts";
 
 const ANSWER = ".assistant-blocks > [data-cite-answer]";
 const CONTROL =
-  "button, input, select, textarea, summary, [hidden], .linenumber";
+  ".markdown-code-header, button:not(.markdown-file-ref), input, select, textarea, summary, [hidden], .linenumber";
 
 function element(node: Node): Element | null {
   return node instanceof Element ? node : node.parentElement;
 }
 
-/** Both endpoints and every selected text node must belong to one answer. */
-function answerFor(range: Range, log: HTMLElement): Element | null {
-  const start = element(range.startContainer);
-  const end = element(range.endContainer);
-  const reply = start?.closest(".assistant-message");
-  if (
-    !reply ||
-    !log.contains(reply) ||
-    reply !== end?.closest(".assistant-message")
-  )
-    return null;
-  if (
-    !start?.closest(ANSWER) ||
-    !end?.closest(ANSWER) ||
-    start.closest(CONTROL) ||
-    end.closest(CONTROL)
-  )
-    return null;
-  const walker = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT);
+/** Validate selected content, not the containers a browser uses as endpoints. */
+function answerRange(range: Range, log: HTMLElement): Range | null {
+  const root = element(range.commonAncestorContainer);
+  if (!root) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let reply: Element | null = null;
+  let content: Range | null = null;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!range.intersectsNode(node) || !node.textContent?.trim()) continue;
+    if (!range.intersectsNode(node)) continue;
+    const text = node.textContent ?? "";
+    const start = node === range.startContainer ? range.startOffset : 0;
+    const end = node === range.endContainer ? range.endOffset : text.length;
+    if (!text.slice(start, end).trim()) continue;
     const parent = node.parentElement;
-    // Line-number gutters are presentation, not part of browser-selected text.
-    if (parent?.closest(".linenumber")) continue;
-    if (!parent?.closest(ANSWER) || parent.closest(CONTROL)) return null;
+    const owner = parent?.closest(ANSWER)?.closest(".assistant-message");
+    if (!owner || !log.contains(owner) || (reply && owner !== reply))
+      return null;
+    reply = owner;
+    // These controls are also unselectable in CSS, so native Selection text
+    // retains rendered line breaks without including incidental UI labels.
+    if (parent?.closest(CONTROL)) continue;
+    if (!content) {
+      content = document.createRange();
+      content.setStart(node, start);
+    }
+    content.setEnd(node, end);
   }
-  return reply;
+  return content;
 }
 
 export function setUpCite(): void {
@@ -43,7 +44,10 @@ export function setUpCite(): void {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "transcript-cite";
-    button.textContent = "Cite";
+    const mark = document.createElement("span");
+    mark.textContent = "“";
+    mark.setAttribute("aria-hidden", "true");
+    button.append(mark, " Cite");
     button.title = "Append selection to your draft";
     button.hidden = true;
     document.body.append(button);
@@ -73,7 +77,7 @@ export function setUpCite(): void {
         area.closest("#composer") === pending.composer &&
         (pending.composer as HTMLElement).dataset["sessionId"] ===
           pending.session &&
-        answerFor(pending.range, log) &&
+        answerRange(pending.range, log) &&
         pending.range.toString() === pending.source
       );
     };
@@ -122,9 +126,9 @@ export function setUpCite(): void {
           !composer
         )
           return;
-        const range = selection.getRangeAt(0).cloneRange();
+        const range = answerRange(selection.getRangeAt(0), log);
         const text = selection.toString().trim();
-        if (!text || !answerFor(range, log)) return;
+        if (!text || !range) return;
         pending = {
           range,
           text,
@@ -178,7 +182,8 @@ export function setUpCite(): void {
     document.addEventListener(
       "pointerdown",
       (event) => {
-        if (event.target !== button) clear();
+        if (!(event.target instanceof Node) || !button.contains(event.target))
+          clear();
       },
       { signal },
     );

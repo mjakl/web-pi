@@ -200,6 +200,12 @@ const light = session(
   "Show the release checks and commands for shipping a tested change.",
   "## A release in three steps\n\n| Step | Result |\n| --- | --- |\n| Prepare | A short checklist |\n| Review | A tested change |\n| Ship | A tagged release |\n\n```sh\njust ci\ngit tag v1.4.0\ngit push origin v1.4.0\n```\n\nKeep the checklist beside the change so the release decision is easy to revisit.",
 );
+const cite = session(
+  "cite",
+  "Cite selection boundaries",
+  "Explain the helper with a list and a code example.",
+  "## Selection boundaries\n\nStart with **bold** and `inline`.\n\n- First item\n- Second item\n\nAfter the list, open [the helper](src/release.ts).\n\n```ts\nconst first = 1;\nconst second = 2;\n```\n\nFollowing paragraph.",
+);
 const scale = session(
   "scale",
   "Style scale checks",
@@ -273,6 +279,7 @@ const sessions = [
   navigation,
   tools,
   light,
+  cite,
   scale,
   releaseNotes,
   legacy,

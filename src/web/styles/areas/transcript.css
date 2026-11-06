@@ -3,17 +3,17 @@
   z-index: var(--layer-popover);
   height: 28px;
   padding: 0 var(--space-4);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
   border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--accent);
   box-shadow: var(--menu-shadow);
   font-size: var(--text-sm);
   cursor: pointer;
 }
 .transcript-cite:hover {
-  background: var(--bg-subtle);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 .transcript-cite:focus-visible {
   outline: 2px solid var(--accent);
@@ -1897,6 +1897,20 @@ button.tool-output-link {
   color: var(--text-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+/* Keep native selection text (and Cite quotes) free of answer UI labels. */
+.assistant-blocks
+  > [data-cite-answer]
+  :is(
+    .markdown-code-header,
+    button:not(.markdown-file-ref),
+    input,
+    select,
+    textarea,
+    summary
+  ) {
+  user-select: none;
 }
 
 /* ── Code blocks ────────────────────────────────────────────────────────

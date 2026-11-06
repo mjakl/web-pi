@@ -87,7 +87,8 @@ describe("selection-based Cite", () => {
     area().setSelectionRange(0, 6);
     select(paragraph());
     expect(cite().hidden).toBe(false);
-    expect(cite().textContent).toBe("Cite");
+    expect(cite().textContent).toBe("“ Cite");
+    expect(cite().querySelector('[aria-hidden="true"]')?.textContent).toBe("“");
     expect(area().value).toBe("Unsent draft");
     cite().click();
     expect(area().value).toBe(
@@ -149,12 +150,13 @@ describe("selection-based Cite", () => {
   it("retains the captured selection when activating by pointer or keyboard", async () => {
     await page();
     select(paragraph());
-    cite().dispatchEvent(
+    const mark = required(cite().querySelector<HTMLElement>("[aria-hidden]"));
+    mark.dispatchEvent(
       new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
     );
     required(getSelection()).removeAllRanges();
     document.dispatchEvent(new Event("selectionchange"));
-    cite().click();
+    mark.click();
     expect(area().value).toBe("Regarding\n> First selected line\n\n");
     select(paragraph("a2"));
     keydown(document, "Tab");
@@ -168,7 +170,58 @@ describe("selection-based Cite", () => {
     expect(cite().hidden).toBe(true);
   });
 
-  it("rejects thinking, controls, unrelated DOM and selections crossing replies", async () => {
+  it("accepts heading, list and paragraph selections at containing-element boundaries", async () => {
+    await page();
+    byId("log").insertAdjacentHTML(
+      "beforeend",
+      reply("boundaries", [
+        {
+          kind: "text",
+          text: "## Heading\n\n- First **bold** item\n- Second item\n\nFollowing paragraph",
+        },
+      ]),
+    );
+    const answer = query("#entry-boundaries [data-cite-answer]");
+    const blocks = required(answer.parentElement);
+    select(blocks, blocks, 0, blocks.childNodes.length);
+    expect(cite().hidden).toBe(false);
+    cite().click();
+    expect(area().value).toContain("Heading");
+    expect(area().value).toContain("First bold item");
+    expect(area().value).toContain("Following paragraph");
+
+    select(
+      required(answer.querySelector("li")?.firstChild),
+      blocks,
+      0,
+      blocks.childNodes.length,
+    );
+    expect(cite().hidden).toBe(false);
+  });
+
+  it("keeps file-reference labels and accepts selections crossing incidental controls", async () => {
+    await page();
+    byId("log").insertAdjacentHTML(
+      "beforeend",
+      reply("controls", [
+        {
+          kind: "text",
+          text: "Before [the helper](/repo/helper.ts).\n\n```ts\nconst first = 1;\nconst second = 2;\n```\n\nAfter",
+        },
+      ]),
+    );
+    const answer = query("#entry-controls [data-cite-answer]");
+    select(required(answer.querySelector(".markdown-file-ref")?.firstChild));
+    expect(cite().hidden).toBe(false);
+    cite().click();
+    expect(area().value).toBe("Regarding\n> the helper\n\n");
+    select(answer, answer, 0, answer.childNodes.length);
+    expect(cite().hidden).toBe(false);
+    select(required(answer.querySelector("[data-copy-code]")?.firstChild));
+    expect(cite().hidden).toBe(true);
+  });
+
+  it("rejects thinking, unrelated DOM and selections crossing replies", async () => {
     await page();
     byId("log").insertAdjacentHTML(
       "beforeend",
@@ -189,6 +242,7 @@ describe("selection-based Cite", () => {
             preview: "tool output",
           },
         },
+        { kind: "text", text: "Final answer" },
       ]),
     );
     select(required(query(".thinking-body p").firstChild));
@@ -200,13 +254,21 @@ describe("selection-based Cite", () => {
     select(required(query(".tool-input").firstChild));
     expect(cite().hidden).toBe(true);
     const answer = query("#entry-mixed [data-cite-answer]");
-    answer.innerHTML =
-      '<p>Before</p><button type="button">Action</button><p>After</p>';
+    const final = query("#entry-mixed [data-cite-answer]:last-child p");
     select(
-      required(required(answer.querySelector("p")).firstChild),
-      required(required(answer.querySelector("p:last-child")).firstChild),
+      required(answer.querySelector("p")?.firstChild),
+      required(final.firstChild),
     );
     expect(cite().hidden).toBe(true);
+    select(
+      required(query(".thinking-body p").firstChild),
+      required(answer.querySelector("p")?.firstChild),
+    );
+    expect(cite().hidden).toBe(true);
+    // Merely touching the neighboring thinking/tool nodes is not selecting them.
+    const blocks = required(answer.parentElement);
+    select(blocks, blocks, 1, 2);
+    expect(cite().hidden).toBe(false);
   });
 
   it.each(["readOnly", "disabled", "absent"])(

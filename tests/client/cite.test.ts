@@ -87,7 +87,8 @@ describe("selection-based Cite", () => {
     area().setSelectionRange(0, 6);
     select(paragraph());
     expect(cite().hidden).toBe(false);
-    expect(cite().textContent).toBe("Cite");
+    expect(cite().textContent).toBe("“ Cite");
+    expect(cite().querySelector('[aria-hidden="true"]')?.textContent).toBe("“");
     expect(area().value).toBe("Unsent draft");
     cite().click();
     expect(area().value).toBe(
@@ -149,12 +150,13 @@ describe("selection-based Cite", () => {
   it("retains the captured selection when activating by pointer or keyboard", async () => {
     await page();
     select(paragraph());
-    cite().dispatchEvent(
+    const mark = required(cite().querySelector<HTMLElement>("[aria-hidden]"));
+    mark.dispatchEvent(
       new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
     );
     required(getSelection()).removeAllRanges();
     document.dispatchEvent(new Event("selectionchange"));
-    cite().click();
+    mark.click();
     expect(area().value).toBe("Regarding\n> First selected line\n\n");
     select(paragraph("a2"));
     keydown(document, "Tab");

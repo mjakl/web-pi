@@ -44,7 +44,10 @@ export function setUpCite(): void {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "transcript-cite";
-    button.textContent = "Cite";
+    const mark = document.createElement("span");
+    mark.textContent = "“";
+    mark.setAttribute("aria-hidden", "true");
+    button.append(mark, " Cite");
     button.title = "Append selection to your draft";
     button.hidden = true;
     document.body.append(button);
@@ -179,7 +182,8 @@ export function setUpCite(): void {
     document.addEventListener(
       "pointerdown",
       (event) => {
-        if (event.target !== button) clear();
+        if (!(event.target instanceof Node) || !button.contains(event.target))
+          clear();
       },
       { signal },
     );

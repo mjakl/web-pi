@@ -22,6 +22,46 @@ function select(code: string) {
   })()`);
 }
 
+function appearance(theme: string, width: number) {
+  const prefix = `${theme}-${String(width)}`;
+  const styles = () =>
+    evaluate(`(() => {
+      const button = document.querySelector('.transcript-cite');
+      const style = getComputedStyle(button);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      context.fillStyle = style.backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+      const [red, , blue, alpha] = context.getImageData(0, 0, 1, 1).data;
+      if (alpha !== 255 || style.opacity !== '1') throw new Error('Cite surface is translucent');
+      if (blue <= red) throw new Error('Cite surface is not blue-tinted');
+      if (button.offsetHeight !== 28) throw new Error('Cite is no longer compact');
+      return { background: style.backgroundColor, color: style.color, border: style.borderColor, width: button.offsetWidth };
+    })()`);
+  browser("mouse", "move", "0", "0");
+  const normal = styles();
+  browser("screenshot", resolve(output, `${prefix}.png`));
+  browser("hover", ".transcript-cite");
+  const hover = styles();
+  reachable(".transcript-cite");
+  browser("screenshot", resolve(output, `${prefix}-hover.png`));
+  browser("mouse", "move", "0", "0");
+  browser("press", "Tab");
+  evaluate(`(() => {
+    const button = document.querySelector('.transcript-cite');
+    const style = getComputedStyle(button);
+    if (!button.matches(':focus-visible') || style.outlineStyle === 'none' || parseFloat(style.outlineWidth) < 2) throw new Error('Cite focus ring is missing');
+    const mark = button.querySelector('[aria-hidden="true"]');
+    if (mark?.textContent !== '“' || !mark.getBoundingClientRect().width) throw new Error('Decorative quote is missing');
+    return true;
+  })()`);
+  reachable(".transcript-cite");
+  browser("screenshot", resolve(output, `${prefix}-focus.png`));
+  process.stdout.write(
+    `PASS ${prefix}: opaque blue surfaces, compact size, visible quote and keyboard focus ${normal} ${hover}\n`,
+  );
+}
+
 function quote(text: string, keyboard = false) {
   reachable(".transcript-cite");
   if (keyboard) {
@@ -32,7 +72,8 @@ function quote(text: string, keyboard = false) {
     })()`);
     browser("press", "Enter");
   } else {
-    browser("click", ".transcript-cite");
+    // A child target must not be mistaken for an outside click.
+    browser("click", ".transcript-cite [aria-hidden]");
   }
   const expected = `Draft\n\nRegarding\n${text
     .split("\n")
@@ -108,7 +149,7 @@ try {
       // The parent endpoints contain the answer but are not inside its marker.
       select("range.selectNodeContents(answer.parentElement);");
       reachable(".transcript-cite");
-      browser("screenshot", resolve(output, `${theme}-${String(width)}.png`));
+      appearance(theme, width);
       quote(
         "Selection boundaries\nStart with bold and inline.\n\nFirst item\nSecond item\nAfter the list, open the helper.\n\nconst first = 1;\nconst second = 2;\nFollowing paragraph.",
       );

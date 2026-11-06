@@ -1899,6 +1899,20 @@ button.tool-output-link {
   white-space: nowrap;
 }
 
+/* Keep native selection text (and Cite quotes) free of answer UI labels. */
+.assistant-blocks
+  > [data-cite-answer]
+  :is(
+    .markdown-code-header,
+    button:not(.markdown-file-ref),
+    input,
+    select,
+    textarea,
+    summary
+  ) {
+  user-select: none;
+}
+
 /* ── Code blocks ────────────────────────────────────────────────────────
    react-syntax-highlighter writes the gutter's metrics inline; only its
    colour is in pi-web's stylesheet. */

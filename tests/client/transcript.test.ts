@@ -1,5 +1,5 @@
 import { answerItem } from "#/web/fixtures/transcript-items";
-import { Item } from "@web/views/Items";
+import { Item, Items } from "@web/views/Items";
 import { describe, expect, it, vi } from "vitest";
 import {
   byId,
@@ -92,6 +92,179 @@ describe("following the tail", () => {
     device({ prefersReducedMotion: "reduce" });
     click(byId("jump-to-latest"));
     expect(scrollTo).toHaveBeenLastCalledWith({ top: 2000, behavior: "auto" });
+  });
+});
+
+describe("live-to-settled handoff", () => {
+  it.each([false, true])(
+    "keeps the latest reading position across both swaps (process open: %s)",
+    async (open) => {
+      const view = await load();
+      byId("turn").innerHTML = '<div id="entry-reading">Reading this</div>';
+      view.scrollTop = 1000;
+      view.dispatchEvent(new Event("scroll"));
+      // A scroll can reach the DOM before its queued scroll event is delivered.
+      view.scrollTop = 900;
+      vi.spyOn(byId("entry-reading"), "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, -20, 600, 100),
+      );
+      const fragment = document.createDocumentFragment();
+      const template = document.createElement("template");
+      template.innerHTML = `<details class="process-details" ${open ? "open" : ""}><summary>Process</summary><div id="entry-reading">Reading this</div></details>`;
+      fragment.append(template.content);
+      const ctx = {};
+      htmxEvent(document.body, "htmx:before:swap", {
+        ctx,
+        tasks: [
+          {
+            target: byId("messages"),
+            swapSpec: { style: "beforeend" },
+            fragment,
+          },
+          { target: byId("turn"), swapSpec: { style: "innerMorph" } },
+        ],
+      });
+      byId("messages").append(fragment);
+      htmxEvent(byId("messages"), "htmx:after:settle");
+      byId("turn").replaceChildren();
+      // Removal can clamp the viewport and report a spurious return to the tail.
+      setGeometry(view, { scrollHeight: 500 });
+      view.scrollTop = 0;
+      view.dispatchEvent(new Event("scroll"));
+      htmxEvent(byId("turn"), "htmx:after:settle");
+      vi.spyOn(byId("entry-reading"), "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, 880, 600, 100),
+      );
+      setGeometry(view, { scrollHeight: 2000 });
+      htmxEvent(document.body, "htmx:after:swap", { ctx });
+      expect(query(".process-details").hasAttribute("open")).toBe(true);
+      expect(view.scrollTop).toBe(900);
+      expect(byId("jump-to-latest").hidden).toBe(false);
+      // Later updates must not mistake the handoff's clamp for reattachment.
+      setGeometry(view, { scrollHeight: 2400 });
+      htmxEvent(byId("turn"), "htmx:after:settle");
+      expect(view.scrollTop).toBe(900);
+    },
+  );
+
+  it.each([false, true])(
+    "uses stable process identities when the final message splits (partial: %s)",
+    async (partial) => {
+      const view = await load();
+      const before = {
+        ...answerItem,
+        entryId: "before",
+        blocks: [
+          {
+            kind: "thinking" as const,
+            text: "Earlier reasoning",
+            index: 0,
+            deferred: false,
+          },
+        ],
+      };
+      const final = {
+        ...answerItem,
+        entryId: "final",
+        blocks: [
+          {
+            kind: "thinking" as const,
+            text: "Final reasoning",
+            index: 0,
+            deferred: false,
+          },
+          { kind: "text" as const, text: "Answer" },
+        ],
+      };
+      const items = [
+        {
+          kind: "user" as const,
+          entryId: "u",
+          text: "Question",
+          images: [],
+          timestamp: answerItem.timestamp,
+        },
+        before,
+        final,
+      ];
+      const actions = {
+        sessionId: "s1",
+        cwd: "/repo",
+        starred: new Set<string>(),
+      };
+      byId("turn").innerHTML = render(
+        Items({
+          items: [
+            ...items.slice(0, -1),
+            { ...final, entryId: partial ? "partial" : "final" },
+          ],
+          actions: { ...actions, live: true },
+        }),
+      );
+      view.scrollTop = 1000;
+      view.dispatchEvent(new Event("scroll"));
+      const liveId = partial
+        ? `entry-partial-${String(Date.parse(final.timestamp))}`
+        : "entry-final";
+      vi.spyOn(byId(liveId), "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, -20, 600, 300),
+      );
+      vi.spyOn(byId("entry-before"), "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, -180, 600, 100),
+      );
+      const template = document.createElement("template");
+      template.innerHTML = render(Items({ items, actions }));
+      const ctx = {};
+      htmxEvent(document.body, "htmx:before:swap", {
+        ctx,
+        tasks: [
+          {
+            target: byId("messages"),
+            swapSpec: { style: "beforeend" },
+            fragment: template.content,
+          },
+          { target: byId("turn"), swapSpec: { style: "innerMorph" } },
+        ],
+      });
+      byId("messages").append(template.content);
+      byId("turn").replaceChildren();
+      const anchor = partial ? "entry-before" : "entry-final-process";
+      vi.spyOn(byId(anchor), "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, partial ? -150 : 10, 600, 100),
+      );
+      htmxEvent(document.body, "htmx:after:swap", { ctx });
+      expect(query(".process-details").hasAttribute("open")).toBe(true);
+      expect(view.scrollTop).toBe(1030);
+    },
+  );
+
+  it("leaves the default collapse and tail following alone for attached readers", async () => {
+    const view = await load();
+    byId("turn").innerHTML = '<div id="entry-reading">Reading this</div>';
+    const template = document.createElement("template");
+    template.innerHTML =
+      '<details class="process-details"><summary>Process</summary><div id="entry-reading">Reading this</div></details>';
+    const ctx = {};
+    htmxEvent(document.body, "htmx:before:swap", {
+      ctx,
+      tasks: [
+        {
+          target: byId("messages"),
+          swapSpec: { style: "beforeend" },
+          fragment: template.content,
+        },
+        { target: byId("turn"), swapSpec: { style: "innerMorph" } },
+      ],
+    });
+    byId("messages").append(template.content);
+    byId("turn").replaceChildren();
+    setGeometry(view, { scrollHeight: 1200 });
+    view.scrollTop = 700;
+    view.dispatchEvent(new Event("scroll"));
+    htmxEvent(byId("turn"), "htmx:after:settle");
+    htmxEvent(document.body, "htmx:after:swap", { ctx });
+    expect(query(".process-details").hasAttribute("open")).toBe(false);
+    expect(view.scrollTop).toBe(1200);
   });
 });
 

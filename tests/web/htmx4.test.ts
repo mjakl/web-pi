@@ -347,6 +347,50 @@ describe("shipped HTMX 4 with the real browser client", () => {
     });
   });
 
+  it("anchors the replacement entry after an entire live-to-settled frame", async () => {
+    const { document, window } = await htmxBrowser(
+      page(
+        '<main data-session-id="s1"><div id="log"><div><div id="messages"></div><div id="turn"><div id="entry-reading">Reading</div></div></div></div><button id="jump-to-latest" hidden></button></main>',
+      ),
+      () => new Response(""),
+      {
+        afterMarkup(window) {
+          window.eval(`
+            const log = document.getElementById('log');
+            Object.defineProperties(log, {
+              scrollHeight: { get: () => 2000 },
+              clientHeight: { get: () => 500 }
+            });
+            log.getBoundingClientRect = () => new DOMRect(0, 0, 600, 500);
+            HTMLElement.prototype.getBoundingClientRect = function () {
+              if (this.id !== 'entry-reading') return new DOMRect();
+              const offset = this.closest('#messages') ? 1030 : 1000;
+              return new DOMRect(0, offset - log.scrollTop, 600, 100);
+            };
+          `);
+        },
+      },
+    );
+    // No scroll event: capture must use the position already applied by input.
+    window.eval("document.getElementById('log').scrollTop = 1000");
+    await window.eval(`htmx.swap({
+      sourceElement: document.body, target: document.body, swap: 'none',
+      text: '<hx-partial hx-target="#messages" hx-swap="beforeend"><details class="process-details"><summary>Process</summary><div id="entry-reading">Reading</div></details></hx-partial><hx-partial hx-target="#turn" hx-swap="innerMorph"></hx-partial>'
+    })`);
+    expect(required(document.getElementById("log")).scrollTop).toBe(1030);
+    expect(document.querySelectorAll("#entry-reading")).toHaveLength(1);
+    const process = required(document.querySelector("details"));
+    expect(process.open).toBe(true);
+    // A subsequent stream update must respect an intentional reader collapse.
+    process.open = false;
+    await window.eval(`htmx.swap({
+      sourceElement: document.body, target: document.body, swap: 'none',
+      text: '<hx-partial hx-target="#turn" hx-swap="innerMorph"><p>Next turn</p></hx-partial>'
+    })`);
+    expect(process.open).toBe(false);
+    expect(required(document.getElementById("log")).scrollTop).toBe(1030);
+  });
+
   it("runs production settle handlers for OOB status and every newly inserted sibling", async () => {
     const stream = controlledStream();
     const { document, window } = await htmxBrowser(

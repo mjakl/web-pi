@@ -154,7 +154,15 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   let follow = true;
   let previousTop = 0;
   let newMessages = false;
+  let handoff:
+    | {
+        ctx: ReturnType<typeof requestContext>;
+        anchor?: { id: string; top: number };
+      }
+    | undefined;
   const sync = () => {
+    // The two completion swaps can temporarily clamp the viewport to the tail.
+    if (handoff) return;
     const top = view.scrollTop;
     follow = followsTail(
       follow,
@@ -235,13 +243,65 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
     "htmx:before:swap",
     (event) => {
       if (signal.aborted || !view.isConnected) return;
-      const tasks = swapTasks(event) as { target: Element | string }[];
+      const tasks = swapTasks(event) as {
+        target: Element | string;
+        swapSpec?: { style: string };
+        fragment: DocumentFragment;
+      }[];
+      const targetOf = (target: Element | string) =>
+        typeof target === "string" ? document.querySelector(target) : target;
+      const history = tasks.find(
+        (task) =>
+          targetOf(task.target) === view.querySelector("#messages") &&
+          task.swapSpec?.style === "beforeend",
+      );
+      if (
+        history &&
+        tasks.some(
+          (task) => targetOf(task.target) === view.querySelector("#turn"),
+        )
+      ) {
+        // Read the current position, even if its scroll event is still queued.
+        sync();
+        const top = view.getBoundingClientRect().top;
+        let entry: Element | undefined;
+        if (!follow) {
+          for (const item of view.querySelectorAll(
+            '[id^="entry-"]:not([id^="entry-partial-"])',
+          )) {
+            const rect = item.getBoundingClientRect();
+            if (rect.height === 0) continue;
+            entry = item;
+            if (rect.bottom > top) break;
+          }
+        }
+        // An unnamed partial has no settled ID; keep the nearest preceding
+        // stable entry instead. A split message starts at its process half.
+        const replacement = entry
+          ? (history.fragment.querySelector(
+              `#${CSS.escape(`${entry.id}-process`)}`,
+            ) ?? history.fragment.querySelector(`#${CSS.escape(entry.id)}`))
+          : null;
+        handoff = {
+          ctx: requestContext(event),
+          ...(entry
+            ? {
+                anchor: {
+                  id: replacement?.id ?? entry.id,
+                  top: entry.getBoundingClientRect().top,
+                },
+              }
+            : {}),
+        };
+        // Open only the process containing the reader, before it enters layout.
+        // Otherwise its hidden entries cannot anchor the replacement viewport.
+        replacement
+          ?.closest("details.process-details")
+          ?.setAttribute("open", "");
+      }
       if (
         tasks.some(({ target }) => {
-          const element =
-            typeof target === "string"
-              ? document.querySelector(target)
-              : target;
+          const element = targetOf(target);
           return (
             element instanceof Element &&
             view.contains(element) &&
@@ -254,6 +314,23 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
     },
     { signal },
   );
+  const finishHandoff = (event: Event) => {
+    if (!handoff || handoff.ctx !== requestContext(event)) return;
+    const { anchor: reading } = handoff;
+    handoff = undefined;
+    if (signal.aborted || !view.isConnected) return;
+    if (reading) {
+      const entry = document.getElementById(reading.id);
+      if (entry && view.contains(entry))
+        view.scrollTop += entry.getBoundingClientRect().top - reading.top;
+    } else if (follow) view.scrollTop = view.scrollHeight;
+    // Do not interpret our own correction as an upward reader scroll.
+    previousTop = view.scrollTop;
+    sync();
+  };
+  document.addEventListener("htmx:after:swap", finishHandoff, { signal });
+  // Also release the guard when HTMX cancels or fails a swap.
+  document.addEventListener("htmx:finally:swap", finishHandoff, { signal });
   document.addEventListener(
     "htmx:after:settle",
     (event) => {
@@ -269,7 +346,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
       if (anchor !== null) {
         view.scrollTop = Math.max(0, view.scrollHeight - anchor);
         anchor = null;
-      } else if (follow && appended) {
+      } else if (!handoff && follow && appended) {
         view.scrollTop = view.scrollHeight;
       }
       // A morph of #turn-live moves the messages that finished out of it,
@@ -294,7 +371,7 @@ function mountTranscript(view: HTMLElement, signal: AbortSignal): void {
   const content = view.firstElementChild;
   if (content) {
     const resize = new ResizeObserver(() => {
-      if (!signal.aborted && view.isConnected && follow)
+      if (!signal.aborted && view.isConnected && !handoff && follow)
         view.scrollTop = view.scrollHeight;
     });
     resize.observe(content);

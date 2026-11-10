@@ -8,7 +8,7 @@ import {
 import { isPushSubscription } from "@core/push";
 import { createPushSuppression } from "@core/push-suppression";
 import { createECDH } from "node:crypto";
-import webpush from "web-push";
+import * as webpush from "web-push";
 
 const FILE = "push.json";
 

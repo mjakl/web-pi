@@ -15,7 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import webpush from "web-push";
+import * as webpush from "web-push";
+
+vi.mock("web-push", { spy: true });
 
 const directories: string[] = [];
 

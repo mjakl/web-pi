@@ -98,13 +98,13 @@ describe("vendored htmx", () => {
       "--unsafe-paths",
       "--directory",
       root,
-      resolve("patches/htmx-4.0.0.patch"),
+      resolve("patches/htmx-4.0.1.patch"),
     ]);
-    for (const [src, original] of [
-      [HTMX_SRC, "dist/htmx.js"],
-      [HTMX_SSE_SRC, "dist/ext/hx-sse.js"],
+    for (const [src, original, revision] of [
+      [HTMX_SRC, "dist/htmx.js", "-web-pi.1"],
+      [HTMX_SSE_SRC, "dist/ext/hx-sse.js", ""],
     ] as const) {
-      expect(src).toContain(`.min-${version}-web-pi.1.js`);
+      expect(src).toContain(`.min-${version}${revision}.js`);
       const vendored = readFileSync(
         join("static", src.replace("/static/", "")),
       );

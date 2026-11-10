@@ -43,7 +43,7 @@ export async function htmxBrowser(
   const window = new Window({
     url: "http://htmx.test/sessions/s1",
     settings: {
-      disableCSSFileLoading: true,
+      enableCSSFileLoading: false,
       disableJavaScriptFileLoading: true,
     },
   });
@@ -63,7 +63,7 @@ export async function htmxBrowser(
     const controller = new AbortController();
     controllers.push(controller);
     init?.signal?.addEventListener("abort", () => {
-      controller.abort();
+      controller.abort(init.signal?.reason);
     });
     let body: BodyInit | undefined;
     if (init?.body instanceof window.FormData) {

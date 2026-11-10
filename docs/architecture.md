@@ -250,19 +250,21 @@ session's ancestry first, resolves each candidate's ancestors, and stops once
 timestamp intervals prove the first `offset + 50` roots and one more root for
 the next-page cursor. Duplicate IDs, timestamp ties and short pages can require
 classifying every file; there is no fixed cutoff and no background index.
-Classification reads to the end of the file or uses a cache stamped with the
-file's revision, and a scan keeps a snapshot of that cache from its start, so
-early misses cannot evict later hits. The order is certified against the
-revisions seen, not an atomic snapshot: changed or unreadable files are left out
-and reconciled by later refreshes. Counts of children can miss older or
-late-arriving edges, which is accepted rather than adding checking controls.
-Expanding a row classifies the sessions created no earlier than its parent,
-through to the end of each file, so its child pages are exact. The
-starred-answer filter requests complete discovery and reads cached row metadata
-before building and paging the matching tree. Unlike the ordinary list, this
-must inspect all candidates to find older stars. Each tab sends its filter state
-on HTMX requests; the sidebar stream URL fixes the same state until the filter
-replaces its owner.
+Classification reads to the end of the file or uses compact row metadata stamped
+with the file's revision. The catalog retains one metadata entry per inventoried
+file and prunes removed files; it never retains transcript bodies. Complete
+scans therefore cannot evict unchanged rows needed by the same filter. The order
+is certified against the revisions seen, not an atomic snapshot: changed or
+unreadable files are left out and reconciled by later refreshes. Counts of
+children can miss older or late-arriving edges, which is accepted rather than
+adding checking controls. Expanding a row classifies the sessions created no
+earlier than its parent, through to the end of each file, so its child pages are
+exact. The starred-answer filter requests complete discovery and reads cached
+row metadata before building and paging the matching tree. Only matches need
+project metadata. Unlike the ordinary list, its first cold scan must inspect all
+candidates to find older stars; the filter button shows a spinner while waiting.
+Each tab sends its filter state on HTMX requests; the sidebar stream URL fixes
+the same state until the filter replaces its owner.
 
 A delegation origin is a `pi-subagent:delegation` custom entry
 (`{version:1, childSessionId, parentSessionId, agent, handle}`) and belongs only

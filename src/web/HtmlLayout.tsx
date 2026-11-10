@@ -4,8 +4,8 @@ import { ICONS } from "@web/pwa";
 import { raw } from "hono/html";
 import type { PropsWithChildren } from "hono/jsx";
 
-export const HTMX_SRC = "/static/vendor/htmx.min-4.0.0.js";
-export const HTMX_SSE_SRC = "/static/vendor/hx-sse.min-4.0.0.js";
+export const HTMX_SRC = "/static/vendor/htmx.min-4.0.0-web-pi.1.js";
+export const HTMX_SSE_SRC = "/static/vendor/hx-sse.min-4.0.0-web-pi.1.js";
 
 /** What every page configures htmx with; the browser tests load the same. */
 export const HTMX_CONFIG = {
@@ -58,6 +58,7 @@ export function HtmlLayout({
           media="(prefers-color-scheme: dark)"
           content="#1a1a1a"
         />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"

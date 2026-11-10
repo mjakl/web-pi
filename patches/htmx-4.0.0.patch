@@ -1,0 +1,77 @@
+--- a/dist/htmx.js
++++ b/dist/htmx.js
+@@ -116,7 +116,8 @@
+             return "queued"
+         }
+
+-        continue() {
++        continue(abortRequest) {
++            if (this.#current?.abort !== abortRequest) return;
+             this.#current = null    // free current slot
+             this.#queue.shift()?.() // run next request
+         }
+@@ -545,10 +546,11 @@
+             let requestQueue = this.#getRequestQueue(elt);
+             this.#initializeAbortListener(elt);
+
++            const abortRequest = () => ctx.request?.abort?.();
+             if (requestQueue.admit(
+                 syncStrategy,
+                 () => this.#issueRequest(ctx), // run when ready
+-                () => ctx.request?.abort?.()    // abort if replaced
++                abortRequest
+             ) !== "run") return
+
+             ctx.status = "issuing"
+@@ -610,8 +612,13 @@
+                 }
+
+             } catch (error) {
+-                ctx.status = "error: " + error;
+-                this.#trigger(elt, "htmx:error", {ctx, error})
++                if (ctx.request.signal?.aborted && error?.name === 'AbortError' && !ctx.requestTimedOut) {
++                    ctx.status = "cancelled";
++                    ctx.hx = {}; // A cancelled body must not dispatch already-read HX-Trigger headers.
++                } else {
++                    ctx.status = "error: " + error;
++                    this.#trigger(elt, "htmx:error", {ctx, error})
++                }
+             } finally {
+                 // An extension that took over the response reports when it has
+                 // finished delivering. Undefined for a normal request.
+@@ -626,7 +633,7 @@
+                     this.#enableElements(disableElements);
+                 }
+
+-                requestQueue.continue()
++                requestQueue.continue(abortRequest)
+             }
+         }
+
+@@ -671,7 +678,10 @@
+                 ? this.parseInterval(ctx.request.timeout)
+                 : this.config.defaultTimeout;
+             if (timeout) {
+-                ctx.requestTimeout = setTimeout(() => ctx.request?.abort?.(), timeout);
++                ctx.requestTimeout = setTimeout(() => {
++                    ctx.requestTimedOut = true;
++                    ctx.request?.abort?.();
++                }, timeout);
+             }
+         }
+
+--- a/dist/ext/hx-sse.js
++++ b/dist/ext/hx-sse.js
+@@ -347,7 +347,11 @@
+         if (!connection) return;
+
+         connection.abortController?.abort();
+-        connection.reader?.cancel?.();
++        connection.reader?.cancel?.().catch(error => {
++            if (!connection.abortController?.signal?.aborted || error?.name !== 'AbortError') {
++                api.triggerHtmxEvent(element, 'htmx:sse:error', {connection, error});
++            }
++        });
+         if (connection.delayCanceller) connection.delayCanceller();
+         if (connection.visibilityHandler) {
+             document.removeEventListener('visibilitychange', connection.visibilityHandler);

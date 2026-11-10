@@ -134,6 +134,7 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
 export const SESSION_TREE_PAGE_SIZE = 50;
 
 export type SessionTreePageOptions = {
+  starredOnly?: boolean;
   offset?: number;
   parentId?: string;
   selectedId?: string;

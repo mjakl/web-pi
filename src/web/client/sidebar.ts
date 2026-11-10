@@ -685,6 +685,12 @@ function setUpRowSelection(): void {
 }
 
 export function setUpSidebar(): void {
+  document.addEventListener("htmx:config:request", (event) => {
+    const nav = document.getElementById("session-nav");
+    if (nav)
+      requestContext(event).request.headers["X-Web-Pi-Starred"] =
+        nav.dataset["starredOnly"] ?? "false";
+  });
   setUpRegion("#sidebar", mountRelativeTimes);
   setUpFolderMemory();
   setUpUnread();

@@ -496,13 +496,34 @@ export function sessionUseCases({
       );
       const discovery = await deps.sessions.discover({
         ...options,
+        complete: options.starredOnly === true,
         runtime: [...snapshots.values()].map((snapshot) => ({
           ...snapshot.summary,
           live: true,
           running: snapshot.status.running,
         })),
       });
-      const tree = sessionTree(await decorate(discovery.summaries, snapshots));
+      const matchingRows = new Map<
+        string,
+        NonNullable<Awaited<ReturnType<typeof readRow>>>
+      >();
+      if (options.starredOnly) {
+        // Reuse the row rule: last write wins across branches, valid answers only.
+        for (const summary of discovery.summaries) {
+          const found = await readRow(
+            summary.id,
+            isSubagentSession(summary)
+              ? undefined
+              : deps.runtime.get(summary.id),
+          );
+          if (found && found.metadata.starCount > 0)
+            matchingRows.set(summary.id, found);
+        }
+      }
+      const summaries = options.starredOnly
+        ? discovery.summaries.filter((summary) => matchingRows.has(summary.id))
+        : discovery.summaries;
+      const tree = sessionTree(await decorate(summaries, snapshots));
       async function pageOf(
         pageOptions: SessionTreePageOptions,
       ): Promise<SidebarView> {
@@ -510,12 +531,14 @@ export function sessionUseCases({
         const rows = await Promise.all(
           page.nodes.map(async (node) => {
             const { summary, children } = node;
-            const found = await readRow(
-              summary.id,
-              isSubagentSession(summary)
-                ? undefined
-                : deps.runtime.get(summary.id),
-            );
+            const found =
+              matchingRows.get(summary.id) ??
+              (await readRow(
+                summary.id,
+                isSubagentSession(summary)
+                  ? undefined
+                  : deps.runtime.get(summary.id),
+              ));
             if (!found) return undefined;
             const preload =
               children.length > 0 &&
@@ -540,6 +563,7 @@ export function sessionUseCases({
         );
         return {
           rows: rows.filter((row) => row !== undefined),
+          ...(options.starredOnly ? { starredOnly: true } : {}),
           ...(pageOptions.parentId === undefined
             ? {}
             : { parentId: pageOptions.parentId }),

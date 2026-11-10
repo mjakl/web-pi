@@ -197,7 +197,7 @@ it("refreshes the global list without changing the blank draft or selected direc
   );
   expect(
     b.document.querySelector("#sidebar-events")?.getAttribute("hx-sse:connect"),
-  ).toBe("/events");
+  ).toBe("/events?starred=0");
 });
 
 /** A fresh app's sidebar stream, read frame by frame. */

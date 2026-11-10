@@ -12,6 +12,9 @@ export const CWD_COOKIE = "web-pi-cwd";
  */
 export const SESSION_COOKIE = "web-pi-session";
 
+/** Whether the sidebar shows only sessions containing starred answers. */
+export const STARRED_COOKIE = "web-pi-starred";
+
 /** Which settings section was open last. */
 export const SETTINGS_COOKIE = "web-pi-settings";
 

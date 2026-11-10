@@ -77,7 +77,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   /** The landing page always offers a new session, including folder recovery. */
   app.get("/", async (c) => {
-    const sidebar = await sidebarOf();
+    const sidebar = await sidebarOf(c);
     const cwd = newCwd(c);
     const view = await deps.workspace.newSession(cwd);
     // The index is no session, so the panels and settings opened from here
@@ -90,7 +90,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
 
   app.get("/new", async (c) => {
     const fragment = c.req.header("HX-Target") === "div#session-region";
-    const sidebar = fragment ? undefined : await sidebarOf();
+    const sidebar = fragment ? undefined : await sidebarOf(c);
     const cwd = newCwd(c);
     const view = await deps.workspace.newSession(cwd);
     if (!fragment) {
@@ -134,7 +134,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     };
     const fragment = c.req.header("HX-Target") === "div#session-region";
     const [sidebar, view] = await Promise.all([
-      fragment ? undefined : sidebarOf(id),
+      fragment ? undefined : sidebarOf(c, id),
       deps.workspace.viewSession(id, options).catch(() => undefined),
     ]);
     if (!view) return c.notFound();
@@ -356,7 +356,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       };
     };
     const [sidebar, view, { cwd, overlay }] = await Promise.all([
-      sidebarOf(id),
+      sidebarOf(c, id),
       id === undefined
         ? undefined
         : deps.workspace.viewSession(id).catch(() => undefined),

@@ -1,10 +1,11 @@
 // The global session list, directory choices and shared lifecycle stream.
-import { CWD_COOKIE } from "@core/cookies";
+import { CWD_COOKIE, STARRED_COOKIE } from "@core/cookies";
 import { FileAccessError } from "@core/path-access";
 import { type RuntimeEvent } from "@core/ports";
 import { isSessionId } from "@core/sessions";
 import {
   SessionNav,
+  StarredFilter,
   RenameRow,
   SessionList,
   SessionRows,
@@ -14,11 +15,13 @@ import {
   DirectoryPicker,
   ProjectPicker,
 } from "@web/views/Workspace";
+import { Partial } from "@web/views/Partial";
 import { streamSSE } from "hono/streaming";
 import {
   type RouteContext,
   type WebApp,
   currentSessionId,
+  starredOnly,
   errorText,
   field,
   html,
@@ -36,8 +39,17 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     const cwd = c.req.query("cwd");
     if (cwd) return c.redirect(`/new?cwd=${encodeURIComponent(cwd)}`);
     const activeId = currentSessionId(c);
-    const view = await sidebarOf(activeId);
-    return c.html(<SessionNav view={view} activeId={activeId} />);
+    const view = await sidebarOf(c, activeId);
+    if (c.req.query("starred") !== undefined)
+      remember(c, STARRED_COOKIE, String(starredOnly(c)));
+    return c.html(
+      <>
+        <SessionNav view={view} activeId={activeId} />
+        <Partial target="#starred-filter" swap="outerHTML">
+          <StarredFilter active={view.starredOnly} />
+        </Partial>
+      </>,
+    );
   });
 
   /** Session-derived options, without reading any transcript metadata. */
@@ -59,6 +71,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     const activeId = currentSessionId(c);
     const view = await deps.workspace.sidebar({
       offset,
+      starredOnly: starredOnly(c),
       ...(parentId === undefined ? {} : { parentId }),
       ...(activeId === undefined ? {} : { selectedId: activeId }),
     });
@@ -93,6 +106,14 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
       const id = c.req.param("id");
       return guard(c, async () => {
         await act(id);
+        if (path === "stars/clear" && starredOnly(c))
+          return c.html(
+            <SessionList
+              view={await sidebarOf(c, currentSessionId(c))}
+              activeId={currentSessionId(c)}
+              partial
+            />,
+          );
         return row(c, id);
       });
     });
@@ -129,7 +150,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
         } else c.header("HX-Redirect", "/new");
         return c.body(null, 200);
       }
-      const view = await sidebarOf(activeId);
+      const view = await sidebarOf(c, activeId);
       return c.html(<SessionList view={view} activeId={activeId} partial />);
     });
   });
@@ -210,7 +231,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
             listWaiting = false;
             await stream.writeSSE({
               data: await html(
-                <SessionList view={await sidebarOf()} partial />,
+                <SessionList view={await sidebarOf(c)} partial />,
               ),
             });
           });

@@ -1,0 +1,14 @@
+--- a/dist/htmx.js
++++ b/dist/htmx.js
+@@ -620,4 +620,9 @@
+             } catch (error) {
+-                ctx.status = "error: " + error;
+-                if (error?.name !== 'AbortError' || ctx.request.signal.reason === 'timeout') this.#trigger(elt, "htmx:error", {ctx, error})
++                if (ctx.request.signal.aborted && error?.name === 'AbortError' && ctx.request.signal.reason !== 'timeout') {
++                    ctx.status = "cancelled";
++                    ctx.hx = {}; // A cancelled body must not dispatch already-read HX-Trigger headers.
++                } else {
++                    ctx.status = "error: " + error;
++                    this.#trigger(elt, "htmx:error", {ctx, error})
++                }
+             } finally {

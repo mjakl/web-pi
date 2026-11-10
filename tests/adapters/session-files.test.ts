@@ -680,7 +680,7 @@ describe("HTML export", () => {
     const window = new Window({
       url: "http://export.test/",
       settings: {
-        disableCSSFileLoading: true,
+        enableCSSFileLoading: false,
         disableJavaScriptFileLoading: true,
       },
     });

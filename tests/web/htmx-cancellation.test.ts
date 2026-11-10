@@ -82,6 +82,7 @@ it("treats aborted response-body reading as cancellation, not a request failure"
             );
           },
         }),
+        { headers: { "HX-Trigger": "cancelled-body-event" } },
       );
     },
     {
@@ -97,6 +98,10 @@ it("treats aborted response-body reading as cancellation, not a request failure"
   );
   let responses = 0;
   let errors = 0;
+  let cancelledBodyEvents = 0;
+  browser.document.addEventListener("cancelled-body-event", () => {
+    cancelledBodyEvents += 1;
+  });
   browser.document.addEventListener("htmx:before:response", () => {
     responses += 1;
   });
@@ -110,6 +115,7 @@ it("treats aborted response-body reading as cancellation, not a request failure"
     .poll(() => browser.document.querySelector("#result")?.textContent)
     .toBe("Replacement");
   expect(firstSignal?.aborted).toBe(true);
+  expect(cancelledBodyEvents).toBe(0);
   expect(errors).toBe(0);
   expect(logged).toEqual([]);
 });

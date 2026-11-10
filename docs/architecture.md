@@ -257,7 +257,12 @@ revisions seen, not an atomic snapshot: changed or unreadable files are left out
 and reconciled by later refreshes. Counts of children can miss older or
 late-arriving edges, which is accepted rather than adding checking controls.
 Expanding a row classifies the sessions created no earlier than its parent,
-through to the end of each file, so its child pages are exact.
+through to the end of each file, so its child pages are exact. The
+starred-answer filter requests complete discovery and reads cached row metadata
+before building and paging the matching tree. Unlike the ordinary list, this
+must inspect all candidates to find older stars. Each tab sends its filter state
+on HTMX requests; the sidebar stream URL fixes the same state until the filter
+replaces its owner.
 
 A delegation origin is a `pi-subagent:delegation` custom entry
 (`{version:1, childSessionId, parentSessionId, agent, handle}`) and belongs only

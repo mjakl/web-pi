@@ -256,7 +256,7 @@ it("streams activity from every directory even with old project queries and cook
       headers: { cookie: "web-pi-project=/repo/one" },
     })
   ).text();
-  expect(page).toContain('hx-sse:connect="/events"');
+  expect(page).toContain('hx-sse:connect="/events?starred=0"');
   expect(page).not.toContain("sse-swap=");
   expect(page).not.toContain('hx-ext="sse"');
   expect(page).not.toContain("hx-params=");

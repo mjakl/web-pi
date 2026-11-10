@@ -4,7 +4,7 @@
 // composes them.
 
 import { attachmentLimitError } from "@core/composer";
-import { SESSION_COOKIE } from "@core/cookies";
+import { SESSION_COOKIE, STARRED_COOKIE } from "@core/cookies";
 import { baseName } from "@core/file-types";
 import { FileAccessError } from "@core/path-access";
 import type { FileUpload, ImageAttachment, SkillSelection } from "@core/ports";
@@ -39,7 +39,7 @@ export type RouteContext = {
   deps: WebDeps;
   assets: StaticAssets;
   renderIntervalMs: number;
-  sidebarOf: (selectedId?: string) => Promise<SidebarView>;
+  sidebarOf: (c: Context, selectedId?: string) => Promise<SidebarView>;
   remember: (c: Context, name: string, value: string) => void;
   newCwd: (c: Context) => string;
   currentCwd: (c: Context) => Promise<string>;
@@ -138,6 +138,15 @@ export function currentSessionId(c: Context): string | undefined {
   return remembered !== undefined && isSessionId(remembered)
     ? remembered
     : undefined;
+}
+
+/** The current tab wins over the remembered preference in another tab. */
+export function starredOnly(c: Context): boolean {
+  const query = c.req.query("starred");
+  if (query !== undefined) return query === "1";
+  const displayed = c.req.header("X-Web-Pi-Starred");
+  if (displayed !== undefined) return displayed === "true";
+  return getCookie(c, STARRED_COOKIE) === "true";
 }
 
 /** A text field without surrounding whitespace; a missing one is empty. */

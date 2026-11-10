@@ -4,7 +4,7 @@
 import { recoverSkillPrompt } from "@core/skill-prompt";
 import { InspectionOnlySession } from "@core/workspace";
 import { Markdown, StarButton, ToolBody } from "@web/views/Items";
-import { SessionRow } from "@web/views/Sidebar";
+import { SessionList, SessionRow } from "@web/views/Sidebar";
 import { Partial } from "@web/views/Partial";
 import { Rail } from "@web/views/Rail";
 import { SavedMessages } from "@web/views/Transcript";
@@ -12,6 +12,7 @@ import {
   type RouteContext,
   type WebApp,
   currentSessionId,
+  starredOnly,
   errorText,
   field,
   requireWritable,
@@ -163,7 +164,13 @@ export function transcriptRoutes(app: WebApp, ctx: RouteContext): void {
       return c.html(
         <>
           <StarButton sessionId={id} entryId={targetId} starred={starred} />
-          {found ? (
+          {starredOnly(c) ? (
+            <SessionList
+              view={await ctx.sidebarOf(c, currentSessionId(c))}
+              activeId={currentSessionId(c)}
+              partial
+            />
+          ) : found ? (
             <SessionRow {...found} activeId={currentSessionId(c) ?? ""} oob />
           ) : null}
         </>,

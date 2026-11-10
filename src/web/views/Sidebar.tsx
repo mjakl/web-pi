@@ -284,6 +284,15 @@ export function SessionRows({
   if (view.parentId !== undefined) query.set("parent", view.parentId);
   return (
     <>
+      {view.parentId === undefined &&
+      view.rows.length === 0 &&
+      view.nextOffset === undefined ? (
+        <div class="session-list-empty">
+          {view.starredOnly
+            ? "No sessions with starred answers"
+            : "No sessions found"}
+        </div>
+      ) : null}
       {view.parentId !== undefined &&
       view.rows.length === 0 &&
       view.nextOffset === undefined ? (
@@ -318,9 +327,6 @@ export function SessionList({
 }) {
   const body = (
     <>
-      {view.rows.length === 0 && view.nextOffset === undefined ? (
-        <div class="session-list-empty">No sessions found</div>
-      ) : null}
       <SessionRows view={view} activeId={activeId} />
     </>
   );
@@ -342,21 +348,48 @@ export function SessionNav({
   activeId?: string | undefined;
 }) {
   return (
-    <div id="session-nav" class="sidebar-session-nav">
-      <SidebarEvents />
+    <div
+      id="session-nav"
+      class="sidebar-session-nav"
+      data-starred-only={view.starredOnly ? "true" : "false"}
+    >
+      <SidebarEvents starredOnly={view.starredOnly} />
       <SessionList view={view} activeId={activeId} />
     </div>
   );
 }
 
-export function SidebarEvents() {
+export function SidebarEvents({
+  starredOnly = false,
+}: { starredOnly?: boolean } = {}) {
   return (
     <div
       id="sidebar-events"
-      hx-sse:connect="/events"
+      hx-sse:connect={starredOnly ? "/events?starred=1" : "/events?starred=0"}
       hx-trigger="web-pi:sse-start"
       hx-swap="none"
     />
+  );
+}
+
+export function StarredFilter({ active = false }: { active?: boolean }) {
+  return (
+    <button
+      id="starred-filter"
+      type="button"
+      class="sidebar-icon-button sidebar-starred-filter"
+      aria-label="Only sessions with starred answers"
+      aria-pressed={active ? "true" : "false"}
+      title={
+        active ? "Show all sessions" : "Only sessions with starred answers"
+      }
+      hx-get={`/sidebar?starred=${active ? "0" : "1"}`}
+      hx-target="#session-nav"
+      hx-swap="outerHTML"
+      hx-sync="#sidebar:replace"
+    >
+      <StarIcon size={16} filled={active} />
+    </button>
   );
 }
 
@@ -375,6 +408,7 @@ export function Sidebar({
         <div class="sidebar-header-row">
           <span class="sidebar-brand">web-pi</span>
           <div class="sidebar-header-actions">
+            <StarredFilter active={view.starredOnly} />
             <a
               class="sidebar-icon-button"
               href="/new"

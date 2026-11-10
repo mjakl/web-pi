@@ -43,6 +43,11 @@
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
+.sidebar-starred-filter[aria-pressed="true"] {
+  color: var(--warning);
+  background: var(--bg-selected);
+  border-color: var(--warning);
+}
 .sidebar-icon-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -114,8 +119,10 @@
 }
 .sidebar-header-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
 }
 .sidebar-brand {
   font-weight: 700;
@@ -128,6 +135,7 @@
 .sidebar-header-actions {
   display: flex;
   gap: var(--space-3);
+  margin-left: auto;
 }
 .new-session-shortcut {
   display: flex;

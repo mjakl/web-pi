@@ -9,6 +9,7 @@ import { dictationRoutes } from "@web/routes/dictation";
 import { filesRoutes } from "@web/routes/files";
 import {
   currentSessionId,
+  starredOnly,
   displayedCwd,
   errorText,
   type RouteContext,
@@ -37,8 +38,11 @@ export function createWebApp(deps: WebDeps) {
   const renderIntervalMs = deps.renderIntervalMs ?? 100;
   const assets = staticAssets(deps.staticRoot);
 
-  const sidebarOf = (selectedId?: string) =>
-    deps.workspace.sidebar(selectedId === undefined ? {} : { selectedId });
+  const sidebarOf = (c: Context, selectedId?: string) =>
+    deps.workspace.sidebar({
+      ...(selectedId === undefined ? {} : { selectedId }),
+      starredOnly: starredOnly(c),
+    });
 
   function remember(c: Context, name: string, value: string): void {
     if (getCookie(c, name) === value) return;
@@ -87,7 +91,7 @@ export function createWebApp(deps: WebDeps) {
     skills?: SkillSelection[],
   ): Promise<Response> {
     const [sidebar, view] = await Promise.all([
-      sidebarOf(id),
+      sidebarOf(c, id),
       deps.workspace.viewSession(id),
     ]);
     if (!view) return c.notFound();

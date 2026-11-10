@@ -11,6 +11,16 @@ prompts and starred answers from the start. Stars use `web-pi:star` custom
 entries; old `pi-web:star` entries are not recognized or migrated, so answers
 starred in pi-web must be starred again.
 
+The star button immediately left of **+** filters the sidebar to sessions with
+at least one starred answer. It uses the latest star or unstar for each answer
+across all branches, not a separate session favorite. Filtering happens before
+pagination; an unstarred open session stays open but is not listed. Matching
+sub-sessions stay grouped under matching parents, or appear at the top level
+when their parent is filtered out. The browser remembers the filter for later
+visits; turning it off restores the ordinary list. Star changes update the
+current list immediately; changes made elsewhere follow the normal sidebar
+refresh cycle.
+
 Open persisted conversations managed outside web-pi, including inspection-only
 subagents, check for saved updates every two seconds while the page is visible.
 Checks pause in the background and run immediately on return. Only changed files

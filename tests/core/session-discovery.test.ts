@@ -92,6 +92,12 @@ async function check(
   return { result, visits, actual, full };
 }
 
+it("discovers all candidates when filtering needs rows beyond the ordinary page", async () => {
+  const { result, visits } = await check(roots(120), { complete: true });
+  expect(result.summaries).toHaveLength(120);
+  expect(visits).toHaveLength(120);
+});
+
 describe("creation-bounded child discovery", () => {
   it("classifies eligible descendants and concrete ancestry, not older files with recent activity", async () => {
     const files = [

@@ -11,6 +11,8 @@ import {
 import type { SessionSummary } from "@core/sessions";
 
 export type SessionDiscoveryOptions = {
+  /** Filtering needs every candidate, not just the ordinary first page. */
+  complete?: boolean;
   offset?: number;
   selectedId?: string;
   /** All known runtimes, including ones not yet flushed to disk. */
@@ -195,6 +197,10 @@ export async function discoverSessionRoots(
       }),
     ],
   });
+  if (options.complete) {
+    for (const header of headers) await resolve(header.id);
+    return ordered(unflushed);
+  }
   if (options.parentId !== undefined) {
     await resolve(options.parentId);
     const parent = (byId.get(options.parentId) ?? [])

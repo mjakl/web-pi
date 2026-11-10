@@ -98,6 +98,7 @@ export type SessionView = {
 
 /** The global session list, bounded to one page of metadata. */
 export type SidebarView = {
+  starredOnly?: boolean;
   /** This page's readable rows, with metadata ready to render. */
   rows: {
     summary: SessionSummary;

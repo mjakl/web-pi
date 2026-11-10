@@ -52,8 +52,6 @@ import {
 // expansion classifies the parent's creation window and concrete ancestry.
 // Neither retains transcript bodies.
 
-const METADATA_CACHE_MAX = 4096;
-
 type Row = { summary: SessionSummary; metadata: SessionRowMetadata };
 
 type ParsedHeader = { dev: number; ino: number; header: SessionHeader };
@@ -68,14 +66,6 @@ type Header = {
   fileSize: number;
   stamp: string;
 };
-
-function cacheFile<T>(cache: Map<string, T>, filePath: string, value: T): void {
-  if (!cache.has(filePath) && cache.size >= METADATA_CACHE_MAX) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(filePath, value);
-}
 
 function headerOf(header: SessionHeader, info: Stats): Header {
   return {
@@ -217,14 +207,13 @@ export function createPiSessionCatalog(options: {
 }): PiSessionCatalog {
   const sessionsDir = join(options.agentDir, "sessions");
   const paths = new Map<string, string>();
-  const delegations = new Map<
+  // Compact metadata only, one revision per inventoried file. A fixed-size
+  // cache thrashes when complete discovery and filtering traverse a larger
+  // archive; prune deleted files at inventory instead of evicting unchanged rows.
+  const rows = new Map<
     string,
-    { stamp: string; value: SessionDelegation }
+    { stamp: string; row: Row; classification: SessionDelegation }
   >();
-  // One entry per file: a re-read replaces the stamp instead of leaving the
-  // superseded key behind, so the cap never evicts a hot session for a stale
-  // copy of itself.
-  const rows = new Map<string, { stamp: string; row: Row }>();
 
   const pendingRows = new Map<
     string,
@@ -256,11 +245,7 @@ export function createPiSessionCatalog(options: {
           },
           metadata,
         };
-        cacheFile(delegations, filePath, {
-          stamp: header.stamp,
-          value: classification,
-        });
-        cacheFile(rows, filePath, { stamp: header.stamp, row });
+        rows.set(filePath, { stamp: header.stamp, row, classification });
         return { classification, row };
       })
       .finally(() => pendingRows.delete(key));
@@ -350,6 +335,9 @@ export function createPiSessionCatalog(options: {
       }
     }
     parsed = seen;
+    for (const filePath of rows.keys()) {
+      if (!seen.has(filePath)) rows.delete(filePath);
+    }
     return files.map(({ header, summary }) => {
       const parentId = idByPath.get(parents.get(summary.id) ?? "");
       return {
@@ -362,20 +350,14 @@ export function createPiSessionCatalog(options: {
   async function classifyFile(
     header: Header,
     summary: SessionSummary,
-    scanCache: ReadonlyMap<
-      string,
-      { stamp: string; value: SessionDelegation }
-    > = delegations,
   ): Promise<SessionSummary | undefined> {
     const filePath = summary.filePath;
     if (!filePath) return undefined;
     try {
-      const atStart = scanCache.get(filePath);
-      const cached =
-        atStart?.stamp === header.stamp ? atStart : delegations.get(filePath);
+      const cached = rows.get(filePath);
       if (cached?.stamp === header.stamp) {
         return fileStamp(await stat(filePath)) === header.stamp
-          ? { ...summary, ...cached.value }
+          ? { ...summary, ...cached.classification }
           : undefined;
       }
       // A candidate will often become a visible row. Share its concrete EOF
@@ -472,9 +454,6 @@ export function createPiSessionCatalog(options: {
     },
     classification,
     async discover(options) {
-      // Freeze at most the existing cache capacity. Early misses must not
-      // evict later hits from the same scan when the inventory exceeds it.
-      const scanCache = new Map(delegations);
       const files = await inventory();
       const bySummary = new Map(
         files.map((file) => [file.summary, file.header]),
@@ -501,7 +480,7 @@ export function createPiSessionCatalog(options: {
         async (summary) => {
           const header = bySummary.get(summary);
           if (!header) return undefined;
-          const classified = await classifyFile(header, summary, scanCache);
+          const classified = await classifyFile(header, summary);
           if (!classified) return undefined;
           const live = runtime.get(summary.id);
           return live && !isSubagentSession(classified)

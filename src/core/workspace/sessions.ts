@@ -443,21 +443,20 @@ export function sessionUseCases({
   ): Promise<
     { summary: SessionSummary; metadata: SessionRowMetadata } | undefined
   > {
-    return readRow(id, await ownedRuntime(id));
+    const found = await readRow(id, await ownedRuntime(id));
+    if (!found) return undefined;
+    const [summary] = await decorate([found.summary]);
+    return summary ? { summary, metadata: found.metadata } : undefined;
   }
 
   async function readRow(id: string, live: LiveSession | undefined) {
     const snapshot = live?.snapshot();
-    const found = snapshot
+    return snapshot
       ? {
           summary: snapshot.summary,
           metadata: rowMetadata(snapshot.entries, snapshot.summary),
         }
       : await deps.sessions.rowMetadata(id);
-    if (!found) return undefined;
-    const [summary] = await decorate([found.summary]);
-    if (!summary) return undefined;
-    return { summary, metadata: found.metadata };
   }
 
   async function listedSessions(): Promise<SessionSummary[]> {

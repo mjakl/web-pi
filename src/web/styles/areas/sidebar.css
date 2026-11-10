@@ -48,6 +48,17 @@
   background: var(--bg-selected);
   border-color: var(--warning);
 }
+.sidebar-filter-idle,
+.sidebar-starred-filter.htmx-request .sidebar-filter-pending {
+  display: flex;
+}
+.sidebar-filter-pending,
+.sidebar-starred-filter.htmx-request .sidebar-filter-idle {
+  display: none;
+}
+.sidebar-starred-filter.htmx-request {
+  cursor: progress;
+}
 .sidebar-icon-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

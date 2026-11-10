@@ -388,7 +388,12 @@ export function StarredFilter({ active = false }: { active?: boolean }) {
       hx-swap="outerHTML"
       hx-sync="#sidebar:replace"
     >
-      <StarIcon size={16} filled={active} />
+      <span class="sidebar-filter-idle">
+        <StarIcon size={16} filled={active} />
+      </span>
+      <span class="sidebar-filter-pending" aria-hidden="true">
+        <SpinnerIcon size={16} />
+      </span>
     </button>
   );
 }

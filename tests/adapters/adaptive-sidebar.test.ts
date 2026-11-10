@@ -437,7 +437,7 @@ it("bounds child routes by header creation while preserving exact counts, select
   }
 });
 
-it("reuses a bounded scan-start cache for repeated necessary scans beyond 4096 files", async () => {
+it("retains compact metadata across complete scans beyond 4096 files", async () => {
   const files = Array.from({ length: 4201 }, (_, index) => session(index));
   const parent = files[0];
   if (!parent) throw new Error("Missing parent");
@@ -447,14 +447,14 @@ it("reuses a bounded scan-start cache for repeated necessary scans beyond 4096 f
   expect(fs.createReadStream).toHaveBeenCalledTimes(4201);
   resetReads();
   await scan();
-  expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+  expect(fs.createReadStream).not.toHaveBeenCalled();
   const repeatedBytes = io.streamBytes;
   expect(repeatedBytes).toBeLessThan(
     files.reduce((sum, f) => sum + fs.statSync(f.file).size, 0) / 20,
   );
   resetReads();
   await scan();
-  expect(fs.createReadStream).toHaveBeenCalledTimes(105);
+  expect(fs.createReadStream).not.toHaveBeenCalled();
   const changed = files[2100];
   if (!changed) throw new Error("Missing changed session");
   delegate(changed, parent.id);
@@ -463,10 +463,10 @@ it("reuses a bounded scan-start cache for repeated necessary scans beyond 4096 f
   expect(
     summaries.find((summary) => summary.id === changed.id)?.inspectionOnly,
   ).toBe(true);
-  expect(fs.createReadStream).toHaveBeenCalledTimes(106);
+  expect(fs.createReadStream).toHaveBeenCalledTimes(1);
   if (process.env["WEB_PI_REPORT_ADAPTIVE_IO"] === "1") {
     process.stdout.write(
-      `Repeated discovery I/O: ${JSON.stringify({ files: 4201, repeatStreams: 105, repeatedBytes })}\n`,
+      `Repeated discovery I/O: ${JSON.stringify({ files: 4201, repeatStreams: 0, repeatedBytes })}\n`,
     );
   }
 }, 30000);

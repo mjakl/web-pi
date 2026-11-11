@@ -286,7 +286,7 @@ it("retains progressively loaded global rows across cross-directory navigation",
     });
   }
   await b.window.eval(
-    `htmx.ajax('GET','/sidebar',{source:'#sidebar-refresh',target:'#session-nav',swap:'outerHTML'})`,
+    `htmx.ajax('GET','/sidebar',{source:'#session-nav',target:'#session-nav',swap:'outerHTML'})`,
   );
   expect(
     b.document.querySelectorAll("#session-list .session-row"),

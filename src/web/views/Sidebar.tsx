@@ -12,10 +12,8 @@ import { ExplorerSection } from "./Files.tsx";
 import {
   ActiveDotIcon,
   BranchBadgeIcon,
-  CheckIcon,
   MoreDotsIcon,
   PlusIcon,
-  RefreshIcon,
   SettingsSectionIcon,
   SpinnerIcon,
   StarIcon,
@@ -434,25 +432,6 @@ export function Sidebar({
                 <PlusIcon />
               </span>
             </a>
-            {/* Manual refresh stays available alongside automatic discovery. */}
-            <button
-              type="button"
-              id="sidebar-refresh"
-              class="sidebar-refresh-button"
-              title="Refresh"
-              aria-label="Refresh"
-              hx-get="/sidebar"
-              hx-sync="#sidebar:queue first"
-              hx-target="#session-nav"
-              hx-swap="outerHTML"
-            >
-              <span class="sidebar-refresh-done">
-                <CheckIcon size={15} width={2.5} />
-              </span>
-              <span class="sidebar-refresh-idle">
-                <RefreshIcon size={15} width={2} />
-              </span>
-            </button>
             <a
               class="sidebar-icon-button"
               href="/settings"

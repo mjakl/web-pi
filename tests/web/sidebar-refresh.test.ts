@@ -64,7 +64,7 @@ it("discovers stored external sessions on initial connection and real SSE reconn
   ).toHaveLength(2);
 });
 
-it("serializes manual refresh with an in-flight automatic request and retains lifecycle SSE after navigation", async () => {
+it("serializes automatic refresh requests and retains lifecycle SSE after navigation", async () => {
   const { world, workspace, app } = fixture();
   const held = Promise.withResolvers<Response>();
   let scans = 0;
@@ -90,9 +90,7 @@ it("serializes manual refresh with an in-flight automatic request and retains li
   );
   await b.advanceTime(100);
   expect(scans).toBe(1);
-  b.window.eval(
-    "document.querySelector('#sidebar-refresh').click(); window.dispatchEvent(new Event('focus'))",
-  );
+  b.window.eval("window.dispatchEvent(new Event('focus'))");
   await b.advanceTime(100);
   expect(scans).toBe(1);
   world.store.set("external", session("external"));
@@ -126,40 +124,4 @@ it("serializes manual refresh with an in-flight automatic request and retains li
     )
     .toBe("Session active");
   expect(b.document.querySelector("#sidebar-events")).toBe(owner);
-});
-
-it("coalesces automatic triggers into a running manual refresh instead of queueing scans", async () => {
-  const { app } = fixture();
-  const held = Promise.withResolvers<Response>();
-  const b = await htmxBrowser(
-    await (await app.request("/new")).text(),
-    (request) => {
-      if (new URL(request.url).pathname === "/sidebar") return held.promise;
-      return app.request(request);
-    },
-    { clock: true },
-  );
-  await b.advanceTime(200);
-  const rowsRequests = () =>
-    b.requests.filter((r) => new URL(r.url).pathname === "/sidebar/rows")
-      .length;
-  expect(rowsRequests()).toBe(1);
-  b.window.eval("document.querySelector('#sidebar-refresh').click()");
-  await b.advanceTime(1);
-  expect(
-    b.requests.filter((r) => new URL(r.url).pathname === "/sidebar"),
-  ).toHaveLength(1);
-  for (let i = 0; i < 3; i += 1) {
-    b.window.eval("window.dispatchEvent(new Event('focus'))");
-    await b.advanceTime(100);
-  }
-  expect(rowsRequests()).toBe(1);
-  held.resolve(await app.request("/sidebar"));
-  await b.advanceTime(200);
-  expect(rowsRequests()).toBe(2);
-  expect(
-    b.document.querySelector("#sidebar-refresh")?.hasAttribute("data-done"),
-  ).toBe(true);
-  await b.advanceTime(200);
-  expect(rowsRequests()).toBe(2);
 });

@@ -1,4 +1,5 @@
 import type { SlashCommand, SlashSource } from "@core/composer";
+import { settingsUrl } from "@web/settings-url";
 import { sameModel } from "@core/model-settings";
 import type {
   ImageAttachment,
@@ -446,7 +447,11 @@ export function ModelSelector({
             <div class="composer-model-empty">
               No model choices.{" "}
               <a
-                href={`/settings?section=models&cwd=${encodeURIComponent(pick.cwd ?? "")}`}
+                href={settingsUrl(
+                  pick.sessionId ?? "",
+                  pick.cwd ?? "",
+                  "models",
+                )}
               >
                 Choose models in Settings
               </a>

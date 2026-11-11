@@ -110,7 +110,7 @@ it("keeps new-session preference separate from direct session and settings conte
       headers: { cookie: `${headers.cookie}; web-pi-session=s1` },
     })
   ).text();
-  expect(settings).toContain('data-close-href="/sessions/s1"');
+  expect(settings).toContain('class="settings-back" href="/sessions/s1"');
   expect(settings).toContain('value="/repo/one"');
   const blank = await (await app.request("/new", { headers })).text();
   expect(blank).toContain('name="cwd" value="/repo/two"');
@@ -297,8 +297,7 @@ it("remembers a folder's selected skill across requests", async () => {
 
 /**
  * The chrome pi-web keeps on every route: the top bar's three tabs, the file
- * panel, the sidebar's explorer, and settings as a modal over the workspace
- * rather than a page of its own.
+ * panel and the sidebar's explorer. Settings is a separate page.
  */
 describe("the shell chrome, on every route", () => {
   it("disables history on a blank session but keeps the file panel available", async () => {
@@ -321,7 +320,7 @@ describe("the shell chrome, on every route", () => {
     expect(explorer).toMatch(/id="file-search-field"[^>]*hidden/);
   });
 
-  it("opens settings over the workspace, not on a page of its own", async () => {
+  it("opens Settings as a page with the referring conversation as its back link", async () => {
     const { app } = testApp();
     // The Settings link is a full page load from the session's page.
     const html = await (
@@ -329,17 +328,14 @@ describe("the shell chrome, on every route", () => {
         headers: { Referer: "http://x/sessions/s1" },
       })
     ).text();
-    expect(html).toContain('class="settings-dialog"');
-    // The session stays behind the dialog: transcript, composer and rail.
-    expect(html).toContain('class="chat-transcript"');
-    expect(html).toContain('id="composer"');
-    expect(html).toContain('id="rail-column"');
-    expect(html).toContain('data-session-id="s1"');
-    // Its complete row is selected before any client request.
-    expect(html).toMatch(/id="row-s1"[^>]*class="session-row is-selected/);
+    expect(html).toContain('class="settings-page"');
+    expect(html).toContain('class="settings-back" href="/sessions/s1"');
+    expect(html).not.toContain('class="chat-transcript"');
+    expect(html).not.toContain('id="composer"');
+    expect(html).not.toContain('id="rail-column"');
   });
 
-  it("opens settings over the session the reader last opened", async () => {
+  it("resolves a direct Settings link from the last session once", async () => {
     const { app } = testApp();
     // A settings page reached by its own URL carries no referrer, so the
     // session behind it comes from the cookie instead.
@@ -348,12 +344,10 @@ describe("the shell chrome, on every route", () => {
         headers: { cookie: "web-pi-session=s1" },
       })
     ).text();
-    expect(html).toContain('class="settings-dialog"');
+    expect(html).toContain('class="settings-page"');
     expect(html).toContain('data-session-id="s1"');
-    expect(html).toContain('id="rail-column"');
-    expect(html).toContain('class="chat-transcript"');
-    // Full history exports that session, rather than sitting disabled.
-    expect(html).toContain('href="/sessions/s1/export"');
+    expect(html).toContain('class="settings-back" href="/sessions/s1"');
+    expect(html).not.toContain('id="rail-column"');
     // Leaving for the index closes it: settings opened from there is the
     // new-session view again, as it is in pi-web.
     const index = await app.request("/");

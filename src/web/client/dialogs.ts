@@ -17,12 +17,8 @@ export function upgradeDialogs(root: ParentNode | Element = document): void {
     // the dialog straight back out of the page.
     dialog.removeAttribute("open");
     dialog.showModal();
-    // A page that *is* a dialog (settings) goes back to where it came from;
-    // every other dialog is a fragment and simply leaves.
-    const back = dialog.dataset["closeHref"];
     dialog.addEventListener("close", () => {
-      if (back === undefined) dialog.remove();
-      else location.assign(back);
+      dialog.remove();
     });
     if (dialog.dataset["backdropClose"] === undefined) continue;
     dialog.addEventListener("click", (event) => {

@@ -24,8 +24,13 @@ describe("dynamic page caching", () => {
         const html = await response.text();
         expect(response.status).toBe(200);
         expect(response.headers.get("content-type")).toContain("text/html");
-        expect(html).toContain('id="session-region"');
-        expect(html).toContain('id="session-sidebar"');
+        if (path.startsWith("/settings")) {
+          expect(html).toContain('class="settings-page"');
+          expect(html).not.toContain('id="session-region"');
+        } else {
+          expect(html).toContain('id="session-region"');
+          expect(html).toContain('id="session-sidebar"');
+        }
         if ("HX-Request" in headers) {
           expect(html).not.toContain("<html");
           expect(html).not.toContain('<link rel="stylesheet"');
@@ -33,8 +38,6 @@ describe("dynamic page caching", () => {
           expect(html).toContain("<html");
           expect(html).toContain('<link rel="stylesheet"');
         }
-        if (path.startsWith("/settings"))
-          expect(html).toContain('<dialog class="settings-dialog"');
         expect(response.headers.get("cache-control")).toBe("no-store");
       });
     },

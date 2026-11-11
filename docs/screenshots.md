@@ -106,11 +106,11 @@ With the fixture running and agent-browser plus a local Chromium installed, run:
 just settings-scroll http://127.0.0.1:<printed-port>
 ```
 
-This checks the real rendered layout after switching away from General and back
-through HTMX. It scrolls to the notification control and focuses the reset
-control at 1440×1000, 1024×480, 641×360, 640×360, 390×480 and 320×320 in both
-themes, asserting that controls are not clipped or covered and the close button
-stays reachable. It uses a dedicated browser session and closes it on
+This checks the real rendered layout after navigating away from General and back
+with full-page links. It scrolls to the notification control and focuses the
+reset control at 1440×1000, 1024×480, 641×360, 640×360, 390×480 and 320×320 in
+both themes, asserting that controls are not clipped or covered and the back
+link stays reachable. It uses a dedicated browser session and closes it on
 completion. It does not save preferences or request notification permission.
 
 The check saves the focused state at each size to `dist/settings-scroll/`. This

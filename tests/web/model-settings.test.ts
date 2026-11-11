@@ -301,7 +301,8 @@ it.each([
   const before = await readFile(file(), "utf8");
   const response = await save(selection);
   expect(await response.text()).toContain("Could not save models:");
-  expect(response.headers.get("HX-Trigger")).toBeNull();
+  expect(response.headers.get("HX-Trigger")).not.toContain("models-changed");
+  expect(response.headers.get("HX-Reswap")).toBe("none");
   expect(await readFile(file(), "utf8")).toBe(before);
 });
 
@@ -379,7 +380,8 @@ it("reports real load errors without changing the malformed file", async () => {
     }),
   });
   expect(await response.text()).not.toContain("Selection saved.");
-  expect(response.headers.get("HX-Trigger")).toBeNull();
+  expect(response.headers.get("HX-Trigger")).not.toContain("models-changed");
+  expect(response.headers.get("HX-Reswap")).toBe("none");
   expect(await readFile(file(), "utf8")).toBe("{broken");
 });
 
@@ -398,7 +400,8 @@ it("reports real SDK write errors even though flush resolves, without announcing
   const html = await response.text();
   expect(html).toContain('role="alert"');
   expect(html).not.toContain("Selection saved.");
-  expect(response.headers.get("HX-Trigger")).toBeNull();
+  expect(response.headers.get("HX-Trigger")).not.toContain("models-changed");
+  expect(response.headers.get("HX-Reswap")).toBe("none");
 });
 
 it("wires Models to global Pi persistence through the production composition", async () => {
@@ -514,7 +517,7 @@ it.each([
   },
 );
 
-it("refreshes the list and mounted chooser through HTMX, protects unsaved selection and locks pending edits", async () => {
+it("refreshes the list through HTMX, protects unsaved selection and locks pending edits", async () => {
   const { app, world, workspace } = await fixture();
   const before = existsSync(file())
     ? await readFile(file(), "utf8")
@@ -575,13 +578,13 @@ it("refreshes the list and mounted chooser through HTMX, protects unsaved select
       '.settings-models [data-model-search*="new-model"]',
     ),
   ).not.toBeNull();
-  await expect
-    .poll(() =>
-      [...browser.document.querySelectorAll("[data-model-name]")].map((node) =>
-        node.getAttribute("data-model-name"),
-      ),
+  const chooser = await (
+    await app.request(
+      `/workspaces/model-selector?cwd=${encodeURIComponent(temp.project)}`,
     )
-    .toContain("first new-model <model>");
+  ).text();
+  expect(chooser).toContain("first new-model &lt;model&gt;");
+  expect(browser.document.querySelector("#composer")).toBeNull();
   expect(button()?.disabled).toBe(false);
   expect(existsSync(file()) ? await readFile(file(), "utf8") : undefined).toBe(
     before,
@@ -589,7 +592,7 @@ it("refreshes the list and mounted chooser through HTMX, protects unsaved select
   expect((await workspace.modelSettings(temp.project)).patterns).toBeNull();
 });
 
-it("refreshes the mounted chooser after a real HTMX global save and preserves the active model", async () => {
+it("saves from standalone Settings through HTMX and preserves the active model", async () => {
   const { app, world, workspace } = await fixture(["first/shared"]);
   const id = await workspace.createSession(temp.project);
   const active = world.runtime.get(id)?.snapshot().status.model;
@@ -609,13 +612,13 @@ it("refreshes the mounted chooser after a real HTMX global save and preserves th
       () => browser.document.querySelector("[data-model-status]")?.textContent,
     )
     .toBe("Selection saved.");
-  await expect
-    .poll(() =>
-      [...browser.document.querySelectorAll("[data-model-name]")].map((node) =>
-        node.getAttribute("data-model-name"),
-      ),
+  const chooser = await (
+    await app.request(
+      `/workspaces/model-selector?cwd=${encodeURIComponent(temp.project)}`,
     )
-    .toEqual(["second shared <model>"]);
+  ).text();
+  expect(chooser).toContain("second shared &lt;model&gt;");
+  expect(chooser).not.toContain("first shared &lt;model&gt;");
   expect((await globals()).enabledModels).toEqual(["second/shared"]);
   expect(world.runtime.get(id)?.snapshot().status.model).toEqual(active);
 });

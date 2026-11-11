@@ -38,6 +38,23 @@ export function setSwitch(element: Element, on: boolean): void {
 
 let confirmed = { ...DEFAULT_WEB_SETTINGS };
 
+export function hasUnsavedPreferences(): boolean {
+  const prompt = document.querySelector<HTMLTextAreaElement>(
+    "#system-prompt-addition",
+  );
+  const tokens = document.querySelector<HTMLInputElement>("#dumb-zone-tokens");
+  const theme = document.querySelector<HTMLInputElement>(
+    'input[name="theme"]:checked',
+  );
+  return (
+    (theme !== null && theme.value !== confirmed.theme) ||
+    (prompt !== null &&
+      prompt.value !==
+        (confirmed.systemPromptAddition ?? DEFAULT_SYSTEM_PROMPT_ADDITION)) ||
+    (tokens !== null && tokens.value !== String(confirmed.warnTokens))
+  );
+}
+
 function checkTheme(theme: WebSettings["theme"]): void {
   for (const option of document.querySelectorAll<HTMLInputElement>(
     'input[name="theme"]',
@@ -59,14 +76,15 @@ function apply(settings: WebSettings, replacePrompt = false): void {
     prompt.value =
       settings.systemPromptAddition ?? DEFAULT_SYSTEM_PROMPT_ADDITION;
   }
+  const tokens = document.querySelector<HTMLInputElement>("#dumb-zone-tokens");
+  if (tokens && tokens.value === String(confirmed.warnTokens))
+    tokens.value = String(settings.warnTokens);
   confirmed = settings;
   document.documentElement.dataset["theme"] = settings.theme;
   document.documentElement.dataset["sound"] = String(settings.sound);
   checkTheme(settings.theme);
   const sound = document.getElementById("sound-toggle");
   if (sound) setSwitch(sound, settings.sound);
-  const tokens = document.querySelector<HTMLInputElement>("#dumb-zone-tokens");
-  if (tokens) tokens.value = String(settings.warnTokens);
   document.dispatchEvent(new Event("web-pi:settings"));
 }
 

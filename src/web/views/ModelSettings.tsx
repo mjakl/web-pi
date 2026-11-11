@@ -20,7 +20,8 @@ export function ModelSettings({
     <form
       class="settings-general settings-models"
       hx-post="/settings/models"
-      hx-disable="findAll button, findAll input"
+      // HTMX re-enables its matches, so exclude controls already disabled.
+      hx-disable="findAll button:not(:disabled), findAll input:not(:disabled)"
     >
       <input type="hidden" name="cwd" value={cwd} />
       {sessionId ? (

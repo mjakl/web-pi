@@ -1,4 +1,5 @@
 import { baseName } from "@core/file-types";
+import { settingsUrl } from "@web/settings-url";
 import {
   isSubagentSession,
   relativeTime,
@@ -434,7 +435,8 @@ export function Sidebar({
             </a>
             <a
               class="sidebar-icon-button"
-              href="/settings"
+              href={settingsUrl(activeId ?? "", cwd ?? "")}
+              data-settings-link
               title="Settings"
               aria-label="Settings"
             >

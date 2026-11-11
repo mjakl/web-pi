@@ -367,15 +367,17 @@ describe("project trust", () => {
     },
   );
 
-  it("keeps the badge under the settings dialog", async () => {
+  it("returns from Settings to the restricted conversation", async () => {
     const { app } = repoApp({ trustRequired: [repo] });
     const page = await (
       await app.request("/settings?section=general", {
         headers: { cookie: "web-pi-session=s1" },
       })
     ).text();
-    expect(page).toContain('class="settings-dialog"');
-    expect(page).toContain("Restricted mode");
+    expect(page).toContain('class="settings-back" href="/sessions/s1"');
+    expect(await (await app.request("/sessions/s1")).text()).toContain(
+      "Restricted mode",
+    );
   });
 
   it("grants trust and asks the page to reload", async () => {

@@ -1,4 +1,5 @@
 import { COOKIE_MAX_AGE, CWD_COOKIE, SESSION_COOKIE } from "@core/cookies";
+import { settingsUrl } from "@web/settings-url";
 import type { Htmx, HtmxRequestCtx } from "htmx.org";
 import { requestContext } from "./htmx.ts";
 import { setUpRegion } from "./lifecycle.ts";
@@ -260,6 +261,16 @@ export function setUpNavigation(): void {
     }
   });
   setUpRegion("main[data-cwd]", (main) => {
+    const settingsLink = document.querySelector<HTMLAnchorElement>(
+      "[data-settings-link]",
+    );
+    if (settingsLink)
+      settingsLink.href = settingsUrl(
+        main.dataset["sessionId"] ?? "",
+        main.dataset["cwd"] ?? "",
+      );
+    // Settings carries context but does not select a workspace or session.
+    if (main.classList.contains("settings-page")) return;
     // Commit browser preferences only after a winning response is displayed.
     // A canceled GET therefore cannot change them through Set-Cookie headers.
     const id = main.dataset["sessionId"] ?? "";

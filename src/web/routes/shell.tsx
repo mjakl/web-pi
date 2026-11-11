@@ -12,6 +12,7 @@ import {
 import { type DialogAnswer } from "@core/extension-ui";
 import { type PackageScope, isPackageAction } from "@core/packages";
 import { InspectionOnlySession } from "@core/workspace";
+import { isSessionId } from "@core/sessions";
 import { Partial } from "@web/views/Partial";
 import { ExplorerSection } from "@web/views/Files";
 import {
@@ -24,7 +25,7 @@ import { SystemPromptPanel, ToolsPanel } from "@web/views/Panels";
 import { NewSessionPage } from "@web/views/SessionPage";
 import {
   GeneralSettings,
-  SettingsDialog,
+  SettingsPage,
   type SettingsSection,
   resolveSection,
 } from "@web/views/Settings";
@@ -49,16 +50,7 @@ import {
 } from "./shared.ts";
 
 export function shellRoutes(app: WebApp, ctx: RouteContext): void {
-  const {
-    deps,
-    assets,
-    sidebarOf,
-    remember,
-    newCwd,
-    currentCwd,
-    sessionPage,
-    guard,
-  } = ctx;
+  const { deps, assets, sidebarOf, remember, newCwd, sessionPage, guard } = ctx;
 
   // The tools and system-prompt panels refuse an inspection-only session in
   // their own guard; the dialog answers have none, so they need this one.
@@ -299,6 +291,10 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       if (refreshing) hxTrigger(c, { "models-changed": {} });
       message = `Could not ${refreshing ? "refresh catalogs" : "save models"}: ${errorText(error)}`;
     }
+    if (failed && !refreshing) {
+      c.header("HX-Reswap", "none");
+      toastHeader(c, message);
+    }
     try {
       return await c.html(
         <ModelSettings
@@ -322,54 +318,36 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     }
   });
 
-  /**
-   * Settings opens over the workspace as the reader left it, the open session
-   * or else the new-session view, because pi-web opens it over the live
-   * workspace rather than on a page of its own (SettingsPanel.tsx).
-   */
   app.get("/settings", async (c) => {
-    const id = currentSessionId(c);
-    const settingsDialog = async () => {
-      const cwd = await currentCwd(c);
-      const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
-      const section = resolveSection(
-        c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
-        usable !== "",
-      );
-      remember(c, SETTINGS_COOKIE, section);
-      const remembered = rememberedSkill(c, usable);
-      const body = await settingsBody(section, usable, {
-        ...(id ? { sessionId: id } : {}),
-        ...(remembered === undefined ? {} : { selected: remembered }),
-      });
-      return {
-        cwd,
-        overlay: (
-          <SettingsDialog
-            section={section}
-            cwd={usable}
-            back={id === undefined ? "/" : `/sessions/${id}`}
-          >
-            {body}
-          </SettingsDialog>
-        ),
-      };
-    };
-    const [sidebar, view, { cwd, overlay }] = await Promise.all([
-      sidebarOf(c, id),
-      id === undefined
-        ? undefined
-        : deps.workspace.viewSession(id).catch(() => undefined),
-      settingsDialog(),
-    ]);
-    if (view) return c.render(await sessionPage(view, { sidebar, overlay }));
+    // Legacy/direct links resolve once. Every rendered navigation carries even
+    // an empty session, so later requests never consult another tab's cookie.
+    const session = c.req.query("session") ?? currentSessionId(c) ?? "";
+    if (session && !isSessionId(session)) return c.notFound();
+    const folder = session
+      ? await deps.workspace.sessionFolder(session)
+      : undefined;
+    if (session && folder === undefined) return c.notFound();
+    const cwd = folder ?? c.req.query("cwd") ?? newCwd(c);
+    const usable = (await deps.workspace.folderAvailable(cwd)) ? cwd : "";
+    const section = resolveSection(
+      c.req.query("section") ?? getCookie(c, SETTINGS_COOKIE),
+      usable !== "",
+    );
+    remember(c, SETTINGS_COOKIE, section);
+    const remembered = rememberedSkill(c, usable);
+    const body = await settingsBody(section, usable, {
+      ...(session ? { sessionId: session } : {}),
+      ...(remembered === undefined ? {} : { selected: remembered }),
+    });
     return c.render(
-      <NewSessionPage
-        sidebar={sidebar}
-        view={await deps.workspace.newSession(cwd)}
-        home={deps.home}
-        overlay={overlay}
-      />,
+      <SettingsPage
+        section={section}
+        cwd={cwd}
+        session={session}
+        hasProject={usable !== ""}
+      >
+        {body}
+      </SettingsPage>,
     );
   });
 
@@ -608,6 +586,10 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       // A toast, because the add panel that a first install leaves has no
       // room for the detail pane's message.
       toastHeader(c, errorText(error));
+      if (action === "install") {
+        c.header("HX-Reswap", "none");
+        return c.body(null, 200);
+      }
       view = await deps.workspace.plugins(cwd);
     }
     return c.html(

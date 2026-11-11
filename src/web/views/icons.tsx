@@ -71,7 +71,7 @@ export function TrustShieldIcon({ size = 13 }: IconProps) {
   );
 }
 
-/* 2 · refresh: page, session list, explorer, retry banner */
+/* 2 · refresh: page, explorer, retry banner */
 export function RefreshIcon({
   size = 14,
   width = 1.8,

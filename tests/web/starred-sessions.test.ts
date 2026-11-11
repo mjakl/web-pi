@@ -5,7 +5,7 @@ import { htmxBrowser } from "#/web/htmx4-browser";
 
 const headers = { "X-Web-Pi-Starred": "true" };
 
-it("keeps the toggle, navigation, refresh and lifecycle stream in the same mode", async () => {
+it("keeps the toggle, navigation, automatic refresh and lifecycle stream in the same mode", async () => {
   const { app, world, workspace } = testApp();
   world.store.set("plain", storedSession({ id: "plain" }));
   await world.sessions.setStar("s1", "a1", true);
@@ -35,12 +35,18 @@ it("keeps the toggle, navigation, refresh and lifecycle stream in the same mode"
     .toBe(true);
   // The current tab's state wins even if another tab changed the cookie.
   browser.window.document.cookie = "web-pi-starred=false; path=/";
-  browser.window.eval("document.querySelector('#sidebar-refresh').click()");
+  const rowsRequests = () =>
+    browser.requests.filter(
+      (request) => new URL(request.url).pathname === "/sidebar/rows",
+    );
+  const beforeRefresh = rowsRequests().length;
+  browser.window.eval("window.dispatchEvent(new Event('focus'))");
+  await expect.poll(() => rowsRequests().length).toBeGreaterThan(beforeRefresh);
   await expect
     .poll(() =>
       browser.requests.some(
         (request) =>
-          new URL(request.url).pathname === "/sidebar" &&
+          new URL(request.url).pathname === "/sidebar/rows" &&
           request.headers.get("X-Web-Pi-Starred") === "true",
       ),
     )

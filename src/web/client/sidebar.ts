@@ -463,30 +463,6 @@ function mountExplorerFold(button: HTMLElement, signal: AbortSignal): void {
   );
 }
 
-/** The refresh button says it worked: a check for two seconds. */
-function mountSidebarRefresh(button: HTMLElement, signal: AbortSignal): void {
-  button.removeAttribute("data-done");
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  signal.addEventListener(
-    "abort",
-    () => {
-      clearTimeout(timer);
-    },
-    { once: true },
-  );
-  button.addEventListener(
-    "htmx:after:request",
-    () => {
-      button.setAttribute("data-done", "");
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        button.removeAttribute("data-done");
-      }, 2000);
-    },
-    { signal },
-  );
-}
-
 /**
  * Where a row's action menu lands (SessionItem.tsx `menuPositionFor`): a
  * fixed box under the trigger, 144px wide, clamped to the viewport and
@@ -697,7 +673,6 @@ export function setUpSidebar(): void {
   setUpSessionTree();
   setUpProjectFilter();
   setUpRegion("#explorer-toggle", mountExplorerFold);
-  setUpRegion("#sidebar-refresh", mountSidebarRefresh);
   setUpRowMenus();
   setUpShortcuts();
   setUpRowSelection();

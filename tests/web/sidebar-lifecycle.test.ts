@@ -163,26 +163,24 @@ it.each(["row action", "runtime stop"])(
   },
 );
 
-it("refreshes the global list without changing the blank draft or selected directory", async () => {
+it("automatically refreshes the global list without changing the blank draft or selected directory", async () => {
   const b = await fixture();
   b.document.querySelector<HTMLElement>("a[data-session-link]")?.click();
   await expect.poll(() => b.window.location.pathname).toBe("/new");
   const main = b.document.querySelector("main");
   const picker = b.document.querySelector("#project-select");
   const nav = b.document.querySelector("#session-nav");
+  const row = b.document.querySelector("#row-first");
+  const stream = b.document.querySelector("#sidebar-events");
   b.window.eval(
     `document.querySelector('#composer-text').value='keep draft';document.querySelector('#composer-text').dispatchEvent(new Event('input',{bubbles:true}))`,
   );
-  b.document.querySelector<HTMLButtonElement>("#sidebar-refresh")?.click();
+  b.window.eval("window.dispatchEvent(new Event('focus'))");
   await expect
-    .poll(() => b.document.querySelector("#session-nav") !== nav)
+    .poll(() => b.document.querySelector("#row-first") !== row)
     .toBe(true);
-  await expect
-    .poll(
-      () =>
-        b.requests.filter((r) => new URL(r.url).pathname === "/events").length,
-    )
-    .toBeGreaterThan(1);
+  expect(b.document.querySelector("#session-nav")).toBe(nav);
+  expect(b.document.querySelector("#sidebar-events")).toBe(stream);
   await b.workspace.activate("older-stopped");
   await expect
     .poll(

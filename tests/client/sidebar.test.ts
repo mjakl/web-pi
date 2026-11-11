@@ -240,15 +240,13 @@ describe("sidebar replacement", () => {
     expect(select).toHaveBeenCalledOnce();
   });
 
-  it("releases refresh feedback timers and restores the explorer fold on replacement", async () => {
+  it("restores the explorer fold on replacement", async () => {
     mount(
-      '<aside id="sidebar"><button id="sidebar-refresh"></button><button id="explorer-toggle" aria-expanded="true"></button></aside>',
+      '<aside id="sidebar"><button id="explorer-toggle" aria-expanded="true"></button></aside>',
     );
     const { setUpSidebar } = await load();
     setUpSidebar();
-    const oldButton = byId("sidebar-refresh");
     click(byId("explorer-toggle"));
-    htmxEvent(oldButton, "htmx:after:request");
     const replacement = document.createElement("body");
     replacement.innerHTML = document.body.innerHTML;
     document.body.replaceWith(replacement);
@@ -257,10 +255,6 @@ describe("sidebar replacement", () => {
     expect(byId("explorer-toggle").getAttribute("aria-expanded")).toBe("false");
     click(byId("explorer-toggle"));
     expect(byId("explorer-toggle").getAttribute("aria-expanded")).toBe("true");
-    htmxEvent(byId("sidebar-refresh"), "htmx:after:request");
-    vi.advanceTimersByTime(2000);
-    expect(oldButton.hasAttribute("data-done")).toBe(true);
-    expect(byId("sidebar-refresh").hasAttribute("data-done")).toBe(false);
   });
 });
 
@@ -679,7 +673,7 @@ describe("shortcuts", () => {
   });
 });
 
-describe("row menus and the refresh button", () => {
+describe("row menus", () => {
   it("places the menu under its trigger, flipped up when it would not fit", async () => {
     page();
     const { setUpSidebar } = await load();
@@ -697,20 +691,6 @@ describe("row menus and the refresh button", () => {
     menu.showPopover();
     const height = menu.querySelectorAll(".menu-item").length * 34 + 10;
     expect(menu.style.top).toBe(`${String(700 - height - 4)}px`);
-  });
-
-  it("shows a check on the refresh button for two seconds", async () => {
-    page();
-    document.body.insertAdjacentHTML(
-      "beforeend",
-      '<button type="button" id="sidebar-refresh"></button>',
-    );
-    const { setUpSidebar } = await load();
-    setUpSidebar();
-    htmxEvent(byId("sidebar-refresh"), "htmx:after:request");
-    expect(byId("sidebar-refresh").hasAttribute("data-done")).toBe(true);
-    vi.advanceTimersByTime(2000);
-    expect(byId("sidebar-refresh").hasAttribute("data-done")).toBe(false);
   });
 });
 

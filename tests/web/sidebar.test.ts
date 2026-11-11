@@ -14,6 +14,18 @@ it("lists stored sessions with their working folders", async () => {
   expect(html).toContain('href="/sessions/s1"');
 });
 
+it("keeps sidebar actions without a manual session-list refresh", async () => {
+  const { app } = testApp();
+  const html = await (await app.request("/sessions/s1")).text();
+  expect(html).not.toContain('id="sidebar-refresh"');
+  expect(html).toContain('id="starred-filter"');
+  expect(html).toContain('aria-label="New session"');
+  expect(html).toContain('aria-label="Settings"');
+  expect(html).toContain('id="page-refresh"');
+  expect(html).toContain('title="Refresh explorer"');
+  expect(html).toContain('id="sidebar-events"');
+});
+
 it("renders metadata and actions in the initial response, including on revisit", async () => {
   const { app, world } = testApp();
   await world.sessions.setStar("s1", "a1", true);

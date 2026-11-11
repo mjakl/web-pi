@@ -153,30 +153,8 @@
   font-family: var(--font-mono);
   font-size: 10px;
 }
-.new-session-plus,
-.sidebar-refresh-idle {
+.new-session-plus {
   display: flex;
-}
-.sidebar-refresh-done {
-  display: none;
-}
-.sidebar-refresh-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-lg);
-  padding: 0;
-  flex-shrink: 0;
-  transition:
-    background 0.3s,
-    color 0.3s,
-    border-color 0.3s;
 }
 .session-indicator {
   width: 14px;
@@ -514,25 +492,6 @@
    popover is open. React re-renders for that; :has does it without script. */
 .session-row:has(> .menu-surface:popover-open) .session-menu-trigger {
   background: var(--bg-selected);
-}
-
-/* Refresh confirmation remains visible for two seconds. */
-.sidebar-refresh-button:hover:not([data-done]) {
-  background: var(--bg-selected);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.sidebar-refresh-button[data-done] {
-  background: color-mix(in srgb, var(--success) 18%, transparent);
-  border-color: color-mix(in srgb, var(--success) 40%, transparent);
-  color: var(--success);
-}
-.sidebar-refresh-button[data-done] .sidebar-refresh-idle {
-  display: none;
-}
-.sidebar-refresh-button[data-done] .sidebar-refresh-done {
-  display: flex;
-  color: var(--success);
 }
 
 /* SessionSidebar.tsx L1705-L1860: the explorer folds to its header row. The

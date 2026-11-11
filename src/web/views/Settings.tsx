@@ -263,16 +263,16 @@ export function SettingsPage({
       <div class="settings-page-surface">
         <header class="settings-page-header">
           <h1 class="settings-page-title">Settings</h1>
+          <SectionNav
+            active={section}
+            cwd={cwd}
+            session={session}
+            hasProject={hasProject}
+          />
           <a class="settings-back" href={back}>
             ← Back to {session ? "conversation" : "workspace"}
           </a>
         </header>
-        <SectionNav
-          active={section}
-          cwd={cwd}
-          session={session}
-          hasProject={hasProject}
-        />
         <div class="settings-page-main">
           <div
             id="settings-body"

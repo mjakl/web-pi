@@ -536,9 +536,7 @@
 .settings-page-surface {
   display: flex;
   flex-direction: column;
-  max-width: 1080px;
   height: 100%;
-  margin: 0 auto;
   overflow: hidden;
 }
 
@@ -546,20 +544,23 @@
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  min-height: 56px;
-  padding: 12px 18px;
+  gap: var(--space-8);
+  min-height: 44px;
+  padding: 0 max(var(--space-10), calc((100% - 1080px) / 2 + var(--space-10)));
   border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .settings-page-title {
   margin: 0;
   color: var(--text);
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .settings-back {
+  flex-shrink: 0;
+  margin-left: auto;
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
@@ -574,23 +575,19 @@
   align-items: stretch;
   gap: var(--space-1);
   min-width: 0;
-  height: 50px;
-  padding: 0 18px;
+  height: 44px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  overflow: auto hidden;
 }
 
 .settings-section-tab {
   position: relative;
   display: flex;
-  flex: 0 0 96px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  width: 96px;
   height: 100%;
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-6);
   border: 0;
   outline: none;
   background: transparent;
@@ -659,9 +656,18 @@
 .settings-page-main {
   display: flex;
   flex: 1;
+  width: 100%;
+  max-width: 1080px;
   min-width: 0;
   min-height: 0;
+  margin: 0 auto;
   overflow: hidden;
+}
+
+@media (min-width: 1081px) {
+  .settings-section-host > .config-panel-root {
+    border-inline: 1px solid var(--border);
+  }
 }
 
 .settings-section-host {
@@ -675,16 +681,23 @@
 .settings-general {
   width: 100%;
   height: 100%;
-  max-width: 680px;
-  padding: 26px clamp(18px, 4vw, 40px) 40px;
+  max-width: 640px;
+  padding: var(--space-10) var(--space-10) 40px;
   overflow-y: auto;
 }
 
 .settings-models {
-  max-width: 860px;
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+}
+
+.settings-models > .settings-general-description {
+  margin: 0;
+}
+
+.settings-models > .config-input {
+  flex-shrink: 0;
 }
 
 .settings-model-heading {
@@ -705,7 +718,7 @@
 }
 
 .settings-model-list {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 100px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
@@ -782,7 +795,6 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   width: 100%;
-  max-width: 420px;
   padding: 3px;
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
@@ -834,7 +846,6 @@
   justify-content: space-between;
   gap: var(--space-8);
   width: 100%;
-  max-width: 420px;
   min-height: 44px;
   padding: 0 var(--space-5);
   border-radius: var(--radius-md);
@@ -903,7 +914,8 @@
 
   .config-sidebar {
     width: 100%;
-    height: 190px;
+    height: auto;
+    max-height: 190px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
@@ -912,17 +924,32 @@
     padding: 14px;
   }
 
+  .settings-page-header {
+    flex-wrap: wrap;
+    gap: 0 var(--space-4);
+    padding: 0 14px;
+  }
+
+  .settings-page-title,
+  .settings-back {
+    line-height: 44px;
+  }
+
+  .settings-general {
+    padding-inline: 14px;
+  }
+
   .settings-section-tabs {
     display: none;
   }
 
   .settings-mobile-nav {
     display: flex;
-    flex-shrink: 0;
+    flex: 0 0 100%;
+    order: 1;
     align-items: center;
     gap: var(--space-4);
-    padding: 8px 18px;
-    border-bottom: 1px solid var(--border);
+    padding: 6px 0;
   }
 
   .settings-mobile-section-picker {

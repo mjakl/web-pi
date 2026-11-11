@@ -106,6 +106,59 @@ function accepted() {
 }
 
 describe("skill selection", () => {
+  it("lists manual skills first and sorts each group by name", () => {
+    mount(
+      render(
+        SkillsMenu({
+          commands: [
+            {
+              source: "skill",
+              name: "skill:gamma",
+              description: "Auto gamma",
+              skillId: "/skills/gamma/SKILL.md",
+              manual: false,
+            },
+            {
+              source: "skill",
+              name: "skill:zeta",
+              description: "Manual zeta",
+              skillId: "/skills/zeta/SKILL.md",
+              manual: true,
+            },
+            {
+              source: "skill",
+              name: "skill:alpha",
+              description: "Auto alpha",
+              skillId: alpha.id,
+            },
+            {
+              source: "skill",
+              name: "skill:beta",
+              description: "Manual beta",
+              skillId: beta.id,
+              manual: true,
+            },
+            {
+              source: "extension",
+              name: "excluded-extension",
+              description: "Not a skill",
+            },
+            {
+              source: "skill",
+              name: "skill:missing-id",
+              description: "No skill identity",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(
+      [...document.querySelectorAll("[data-skill-id]")].map((row) =>
+        row.getAttribute("data-skill-name"),
+      ),
+    ).toEqual(["beta", "zeta", "alpha", "gamma"]);
+  });
+
   it.each(["s1", null])(
     "searches and multi-selects discovered and manual skills in %s composer",
     async (sessionId) => {
@@ -133,11 +186,12 @@ describe("skill selection", () => {
         "Skills (2)",
       );
       expect(option(beta.id).getAttribute("aria-selected")).toBe("true");
-      keydown(option(alpha.id), "ArrowDown");
+      keydown(option(alpha.id), "ArrowUp");
       expect(document.activeElement).toBe(option(beta.id));
-      keydown(option(beta.id), "ArrowUp");
+      keydown(option(beta.id), "ArrowDown");
       expect(document.activeElement).toBe(option(alpha.id));
       keydown(option(alpha.id), "ArrowUp");
+      keydown(option(beta.id), "ArrowUp");
       expect(document.activeElement).toBe(field("#skills-filter"));
       keydown(field("#skills-filter"), "Escape");
       expect(document.activeElement).toBe(byId("skills-trigger"));

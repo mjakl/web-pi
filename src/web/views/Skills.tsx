@@ -16,6 +16,11 @@ export function SkillsMenu({ commands }: { commands: SlashCommand[] }) {
           (command) =>
             command.source === "skill" && typeof command.skillId === "string",
         )
+        .sort(
+          (a, b) =>
+            Number(Boolean(b.manual)) - Number(Boolean(a.manual)) ||
+            a.name.localeCompare(b.name, "en"),
+        )
         .map((command) => (
           <button
             type="button"

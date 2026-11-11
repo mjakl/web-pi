@@ -281,7 +281,6 @@ export function Shell({
   compacting,
   inspectionOnly = false,
   children,
-  overlay,
 }: {
   sidebar?: SidebarView | undefined;
   fragment?: boolean | undefined;
@@ -299,8 +298,6 @@ export function Shell({
   compacting?: boolean;
   inspectionOnly?: boolean;
   children?: unknown;
-  /** An overlay over the whole shell: the settings dialog. */
-  overlay?: unknown;
 }) {
   const region = (
     <div
@@ -392,7 +389,6 @@ export function Shell({
         aria-label="Resize the file panel"
       />
       <FilePanel />
-      {overlay}
     </div>
   );
 }
@@ -432,14 +428,12 @@ export function NewSessionPage({
   view,
   draft,
   home,
-  overlay,
 }: {
   sidebar?: SidebarView | undefined;
   fragment?: boolean | undefined;
   view: NewSessionView;
   draft?: string;
   home?: string;
-  overlay?: unknown;
 }) {
   return (
     <Shell
@@ -448,7 +442,6 @@ export function NewSessionPage({
       cwd={view.cwd}
       cwdAvailable={view.available}
       trust={view.trust}
-      overlay={overlay}
     >
       <section class="chat-window is-empty" aria-label="Messages">
         <DropZone />
@@ -494,7 +487,6 @@ export function SessionPage({
   images,
   skills,
   trust,
-  overlay,
 }: {
   sidebar?: SidebarView | undefined;
   fragment?: boolean | undefined;
@@ -503,7 +495,6 @@ export function SessionPage({
   images?: ImageAttachment[];
   skills?: SkillSelection[];
   trust?: { requiresTrust: boolean; trusted: boolean };
-  overlay?: unknown;
 }) {
   const { summary } = view;
   const inspectionOnly = isSubagentSession(summary);
@@ -533,7 +524,6 @@ export function SessionPage({
       compactOff={compactDisabled(view)}
       compacting={view.status?.compacting ?? false}
       trust={inspectionOnly ? undefined : trust}
-      overlay={overlay}
     >
       <section class="chat-window" aria-label="Messages">
         {!inspectionOnly && <DropZone />}

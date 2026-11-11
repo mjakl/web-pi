@@ -13,6 +13,7 @@ import { setUpRequestFields } from "./htmx.ts";
 import { setUpSseStartup } from "./sse.ts";
 import { setUpNavigation } from "./navigation.ts";
 import { setUpPushPresence } from "./push-presence.ts";
+import { setUpUnsavedChanges } from "./unsaved.ts";
 
 setUpPushPresence();
 if (!document.body.hasAttribute("data-offline-page")) {
@@ -24,4 +25,5 @@ if (!document.body.hasAttribute("data-offline-page")) {
   setUpComposer();
   setUpFiles();
   setUpNavigation();
+  setUpUnsavedChanges();
 }

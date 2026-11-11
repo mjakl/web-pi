@@ -5,12 +5,10 @@ import {
 import { ConfigButton, ConfigSwitch } from "./ConfigControls.tsx";
 import { SettingsSectionIcon, ThemeIcon } from "./icons.tsx";
 
-// Settings is pi-web's modal over the app: a 1080px surface with a tabbed
-// header over one section. Every class name is pi-web's
-// (components/SettingsPanel.tsx, SettingsUi.tsx; app/settings.css). This
-// module holds the dialog and General; Models, Skills and Plugins have their
-// own (ModelSettings.tsx, SkillSettings.tsx, PluginSettings.tsx). Sections
-// are server-rendered pages swapped by HTMX, not React state.
+import { settingsUrl } from "@web/settings-url";
+import { DialogHost } from "./Dialogs.tsx";
+
+// Sections are full pages; actions inside them retain their HTMX targets.
 
 /** pi-web's order: light, dark, then system. */
 const THEME_OPTIONS = [
@@ -42,45 +40,47 @@ export function resolveSection(
   return section && section.needsProject && !hasProject ? "general" : value;
 }
 
-function sectionHref(section: SettingsSection, cwd: string): string {
-  const query = new URLSearchParams({ section });
-  if (cwd !== "") query.set("cwd", cwd);
-  return `/settings?${query.toString()}`;
-}
-
-/** Desktop tabs and the mobile picker render the same list, one hidden. */
-function SectionNav({ active, cwd }: { active: SettingsSection; cwd: string }) {
+/** Desktop tabs and the mobile GET form share the same explicit context. */
+function SectionNav({
+  active,
+  cwd,
+  session,
+  hasProject,
+}: {
+  active: SettingsSection;
+  cwd: string;
+  session: string;
+  hasProject: boolean;
+}) {
   const usable = (section: (typeof SETTINGS_SECTIONS)[number]) =>
-    !section.needsProject || cwd !== "";
+    !section.needsProject || hasProject;
   return (
     <>
-      <select
-        class="settings-mobile-section-picker"
-        aria-label="Settings"
-        // A native select is the whole mobile navigation: no script, no menu.
-        hx-get="/settings"
-        hx-target="body"
-        hx-swap="innerHTML"
-        hx-push-url="true"
-        name="section"
-        hx-include="#settings-cwd"
-        hx-trigger="change"
-      >
-        {SETTINGS_SECTIONS.map((section) => (
-          <option
-            value={section.key}
-            selected={section.key === active}
-            disabled={!usable(section)}
-          >
-            {section.label}
-          </option>
-        ))}
-      </select>
+      <form class="settings-mobile-nav" action="/settings" method="get">
+        <input type="hidden" name="session" value={session} />
+        <input type="hidden" name="cwd" value={cwd} />
+        <select
+          class="settings-mobile-section-picker"
+          aria-label="Settings section"
+          name="section"
+        >
+          {SETTINGS_SECTIONS.map((section) => (
+            <option
+              value={section.key}
+              selected={section.key === active}
+              disabled={!usable(section)}
+            >
+              {section.label}
+            </option>
+          ))}
+        </select>
+        <ConfigButton type="submit">Go</ConfigButton>
+      </form>
       <nav class="settings-section-tabs" aria-label="Settings">
         {SETTINGS_SECTIONS.map((section) =>
           usable(section) ? (
             <a
-              href={sectionHref(section.key, cwd)}
+              href={settingsUrl(session, cwd, section.key)}
               class="settings-section-tab"
               title={section.label}
               aria-current={section.key === active ? "page" : undefined}
@@ -237,60 +237,57 @@ export function GeneralSettings({ settings }: { settings: WebSettings }) {
   );
 }
 
-/**
- * pi-web opens settings over the workspace, which stays mounted behind the
- * modal, so this is an overlay the shell renders over whatever page the
- * reader was on. `back` is where the close button and Escape lead. A request
- * from inside the section replaces the section unless it names another
- * target.
- */
-export function SettingsDialog({
+export function SettingsPage({
   section,
   cwd,
-  back,
+  session,
+  hasProject,
   children,
 }: {
   section: SettingsSection;
   cwd: string;
-  back: string;
+  session: string;
+  hasProject: boolean;
   children?: unknown;
 }) {
+  const back = session
+    ? `/sessions/${encodeURIComponent(session)}`
+    : `/new?cwd=${encodeURIComponent(cwd)}`;
   return (
-    <>
-      <input id="settings-cwd" type="hidden" name="cwd" value={cwd} />
-      <dialog
-        class="settings-dialog"
-        aria-label="Settings"
-        data-modal
-        data-close-href={back}
-        data-backdrop-close
-        open
-      >
-        <div class="settings-dialog-surface" tabindex={-1} autofocus>
-          <div class="settings-dialog-header">
-            <strong class="settings-dialog-title">Settings</strong>
-            <SectionNav active={section} cwd={cwd} />
-            <a
-              class="config-close-button settings-dialog-close"
-              href={back}
-              title="Close"
-              aria-label="Close"
-            >
-              ×
-            </a>
+    <main
+      class="settings-page"
+      data-settings-url={settingsUrl(session, cwd, section)}
+      data-session-id={session}
+      data-cwd={cwd}
+    >
+      <div class="settings-page-surface">
+        <header class="settings-page-header">
+          <h1 class="settings-page-title">Settings</h1>
+          <a class="settings-back" href={back}>
+            ← Back to {session ? "conversation" : "workspace"}
+          </a>
+        </header>
+        <SectionNav
+          active={section}
+          cwd={cwd}
+          session={session}
+          hasProject={hasProject}
+        />
+        <div class="settings-page-main">
+          <div
+            id="settings-body"
+            class="settings-section-host"
+            hx-target:inherited="#settings-body"
+            hx-swap:inherited="innerHTML"
+          >
+            {children}
           </div>
-          <main class="settings-dialog-main">
-            <div
-              id="settings-body"
-              class="settings-section-host"
-              hx-target:inherited="#settings-body"
-              hx-swap:inherited="innerHTML"
-            >
-              {children}
-            </div>
-          </main>
         </div>
-      </dialog>
-    </>
+      </div>
+      <div class="chat-notices">
+        <div id="toasts" hx-preserve />
+      </div>
+      <DialogHost />
+    </main>
   );
 }

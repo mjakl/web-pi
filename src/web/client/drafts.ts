@@ -39,6 +39,18 @@ export type Draft = {
 
 const drafts = new Map<string, Draft>();
 
+export function hasPendingAttachments(): boolean {
+  return [...drafts.values()].some(
+    (draft) => draft.images.length > 0 || draft.pending > 0,
+  );
+}
+
+export function flushDrafts(): void {
+  for (const draft of drafts.values()) {
+    if (draft.timer !== undefined) saveDraft(draft);
+  }
+}
+
 function read(prefix: string, key: string): string | null {
   try {
     return localStorage.getItem(prefix + key);
@@ -107,11 +119,7 @@ let watching = false;
 function watch(): void {
   if (watching) return;
   watching = true;
-  addEventListener("pagehide", () => {
-    for (const draft of drafts.values()) {
-      if (draft.timer !== undefined) saveDraft(draft);
-    }
-  });
+  addEventListener("pagehide", flushDrafts);
   // The server named the session a folder's draft was written for.
   document.body.addEventListener("web-pi:session-created", (event) => {
     const detail = (event as CustomEvent<{ cwd?: string; id?: string }>).detail;

@@ -32,8 +32,22 @@ it("selects a worktree on the blank composer and retains it after opening old se
   expect(
     b.document.querySelector("#project-select")?.getAttribute("data-cwd"),
   ).toBe("/fixture.wt");
+  const settingsUrl = new URL(
+    b.document.querySelector("[data-settings-link]")?.getAttribute("href") ??
+      "",
+    b.window.location.href,
+  );
+  expect(settingsUrl.searchParams.get("session")).toBe("");
+  expect(settingsUrl.searchParams.get("cwd")).toBe("/fixture.wt");
   click(b, "s1");
   await displayed(b, "s1");
+  const sessionSettingsUrl = new URL(
+    b.document.querySelector("[data-settings-link]")?.getAttribute("href") ??
+      "",
+    b.window.location.href,
+  );
+  expect(sessionSettingsUrl.searchParams.get("session")).toBe("s1");
+  expect(sessionSettingsUrl.searchParams.get("cwd")).toBe("/fixture");
   expect(text(b)).toBe("session draft");
   expect(b.document.querySelector("#project-select")).toBeNull();
   expect(b.document.cookie).toContain("web-pi-cwd=%2Ffixture.wt");
@@ -84,18 +98,17 @@ it("rejects a late folder-picker response without committing preference cookies"
   ).toBe("s2");
 });
 
-it("does not clear the remembered session when a settings modal mounts its own main", async () => {
+it("does not change the remembered session when Settings mounts its own page", async () => {
   const b = await fixture();
   expect(b.document.cookie).toContain("web-pi-session=s1");
   await b.window.eval(
     `htmx.ajax('GET','/settings',{target:'body',swap:'outerHTML'})`,
   );
-  expect(b.document.querySelector("main.settings-dialog-main")).not.toBeNull();
-  expect(
-    b.document
-      .querySelector("#session-region main")
-      ?.getAttribute("data-session-id"),
-  ).toBe("s1");
+  expect(b.document.querySelector("main.settings-page")).not.toBeNull();
+  expect(b.document.querySelector("#session-region")).toBeNull();
+  expect(b.document.querySelector(".settings-back")?.getAttribute("href")).toBe(
+    "/sessions/s1",
+  );
   expect(b.document.cookie).toContain("web-pi-session=s1");
 });
 

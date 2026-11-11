@@ -11,7 +11,7 @@ const { browser, evaluate } = agentBrowser("settings-scroll");
 try {
   browser("open", new URL("/settings", url).href);
   browser("wait", "#push-toggle");
-  // Exercise the HTMX section replacement before measuring its layout.
+  // Exercise full-page section navigation before measuring its layout.
   browser("click", '.settings-section-tab[href*="section=skills"]');
   browser("wait", ".config-split-view");
   browser("click", '.settings-section-tab[href*="section=general"]');
@@ -30,6 +30,9 @@ try {
       [320, 320],
     ]) {
       browser("set", "viewport", String(width), String(height));
+      // Focus must move: refocusing an already-active offscreen control does
+      // not ask the browser to reveal it after a viewport resize.
+      browser("focus", ".settings-back");
       evaluate('document.querySelector(".settings-general").scrollTop = 0');
       browser("scroll", "down", "3000", "--selector", ".settings-general");
       evaluate(`(() => {
@@ -37,7 +40,7 @@ try {
         if (panel.scrollHeight > panel.clientHeight && panel.scrollTop === 0) {
           throw new Error('General settings cannot scroll');
         }
-        for (const selector of ['#push-toggle', '.settings-dialog-close']) {
+        for (const selector of ['#push-toggle', '.settings-back']) {
           const element = document.querySelector(selector);
           const rect = element.getBoundingClientRect();
           const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);

@@ -245,7 +245,12 @@ function AddPluginPanel({
     "/absolute/path/to/plugin",
   ];
   return (
-    <form class="config-detail-stack is-fill" hx-post="/settings/plugins">
+    <form
+      class="config-detail-stack is-fill"
+      hx-post="/settings/plugins"
+      // HTMX re-enables its matches, so exclude controls already disabled.
+      hx-disable="findAll button:not(:disabled), findAll input:not(:disabled)"
+    >
       <input type="hidden" name="cwd" value={cwd} />
       <input type="hidden" name="action" value="install" />
       <div class="plugin-add-heading">

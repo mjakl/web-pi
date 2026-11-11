@@ -156,6 +156,13 @@ provider configuration and resource discovery. Skill toggles change only
 `disable-model-invocation` frontmatter. Re-enabling a disabled package loses its
 per-resource filters, matching Pi's representation.
 
+Settings is a separate page. Section links and the mobile section form keep the
+originating conversation and folder in the URL, independently of other tabs.
+**Back to conversation/workspace** reconstructs that workspace; it does not
+restore file tabs or scroll position. Leaving warns about pending attachments or
+unsaved Settings edits, not persisted text drafts. A deleted originating session
+returns not found rather than selecting another conversation.
+
 Settings → Models chooses the models the model menu cycles through, for the
 browser and terminal Pi alike: it edits Pi's global `enabledModels`. It lists
 every model with credentials, extension-provided ones included; having

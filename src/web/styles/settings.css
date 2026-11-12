@@ -724,6 +724,20 @@
   border-top: 1px solid var(--border);
 }
 
+.settings-model-provider {
+  margin: 0;
+  padding: var(--space-6) 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.settings-model-divider {
+  margin: var(--space-8) 0;
+  border: 0;
+  border-top: 1px solid var(--text-dim);
+}
+
 .settings-model-row {
   display: flex;
   align-items: center;

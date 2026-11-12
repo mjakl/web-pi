@@ -248,6 +248,39 @@ function setUpPluginExamples(): void {
 function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
   const status = form.querySelector<HTMLElement>("[data-model-status]");
   const refresh = form.querySelector<HTMLButtonElement>("[data-model-refresh]");
+  const filter = form.querySelector<HTMLInputElement>("#settings-model-filter");
+  const groups = [
+    ...form.querySelectorAll<HTMLElement>("[data-model-provider]"),
+  ];
+  const sections = [
+    ...form.querySelectorAll<HTMLElement>("[data-model-section]"),
+  ];
+  const updateVisibility = () => {
+    const query = filter?.value.trim().toLocaleLowerCase() ?? "";
+    let count = 0;
+    for (const group of groups) {
+      let visible = 0;
+      for (const row of group.querySelectorAll<HTMLElement>(
+        "[data-model-search]",
+      )) {
+        row.hidden = !(row.dataset["modelSearch"] ?? "")
+          .toLocaleLowerCase()
+          .includes(query);
+        if (!row.hidden) visible++;
+      }
+      group.hidden = visible === 0;
+      count += visible;
+    }
+    for (const section of sections) {
+      section.hidden = !groups.some(
+        (group) => section.contains(group) && !group.hidden,
+      );
+    }
+    const divider = form.querySelector<HTMLElement>("[data-model-divider]");
+    if (divider) divider.hidden = sections.some((section) => section.hidden);
+    const empty = form.querySelector<HTMLElement>("[data-model-empty]");
+    if (empty) empty.hidden = count > 0;
+  };
   let refreshing = false;
   form.addEventListener(
     "htmx:before:request",
@@ -284,6 +317,33 @@ function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
           status.textContent =
             "Keep at least one model selected, or choose Use all models.";
       }
+      const row = checkbox.closest<HTMLElement>("[data-model-search]");
+      const group = row?.closest<HTMLElement>("[data-model-provider]");
+      const section = sections.find(
+        (section) =>
+          section.dataset["modelSection"] === String(checkbox.checked),
+      );
+      const destination = groups.find(
+        (candidate) =>
+          section?.contains(candidate) &&
+          candidate.dataset["modelProvider"] ===
+            group?.dataset["modelProvider"],
+      );
+      if (row && destination && destination !== group) {
+        const name = row.querySelector("strong")?.textContent ?? "";
+        const next = [
+          ...destination.querySelectorAll("[data-model-search]"),
+        ].find(
+          (candidate) =>
+            name.localeCompare(
+              candidate.querySelector("strong")?.textContent ?? "",
+            ) < 0,
+        );
+        const focused = document.activeElement === checkbox;
+        destination.insertBefore(row, next ?? null);
+        updateVisibility();
+        if (focused) checkbox.focus({ preventScroll: true });
+      }
       const save = form.querySelector<HTMLButtonElement>("[data-model-save]");
       if (save) save.disabled = false;
       const dirty = [
@@ -297,25 +357,7 @@ function mountModelSettings(form: HTMLElement, signal: AbortSignal): void {
     },
     { signal },
   );
-  const filter = form.querySelector<HTMLInputElement>("#settings-model-filter");
-  filter?.addEventListener(
-    "input",
-    () => {
-      const query = filter.value.trim().toLocaleLowerCase();
-      let count = 0;
-      for (const row of form.querySelectorAll<HTMLElement>(
-        "[data-model-search]",
-      )) {
-        row.hidden = !(row.dataset["modelSearch"] ?? "")
-          .toLocaleLowerCase()
-          .includes(query);
-        if (!row.hidden) count++;
-      }
-      const empty = form.querySelector<HTMLElement>("[data-model-empty]");
-      if (empty) empty.hidden = count > 0;
-    },
-    { signal },
-  );
+  filter?.addEventListener("input", updateVisibility, { signal });
 }
 
 export function setUpShell(): void {

@@ -16,6 +16,16 @@ export function ModelSettings({
 }) {
   const all = !view.patterns?.length;
   const hasModels = view.available.length > 0;
+  const models = [...view.available].sort(
+    (a, b) =>
+      a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name),
+  );
+  const providers = [...new Set(models.map((model) => model.provider))];
+  const selectedModels = new Set(
+    models.filter((model) =>
+      view.selected.some((selected) => sameModel(selected, model)),
+    ),
+  );
   return (
     <form
       class="settings-general settings-models"
@@ -101,30 +111,66 @@ export function ModelSettings({
             aria-controls="settings-model-list"
           />
           <div id="settings-model-list" class="settings-model-list">
-            {view.available.map((model) => (
-              <label
-                class="settings-model-row"
-                data-model-search={`${model.name} ${model.provider} ${model.id}`}
-              >
-                <input
-                  type="checkbox"
-                  name="model"
-                  value={JSON.stringify({
-                    provider: model.provider,
-                    id: model.id,
+            {[true, false].map((selected) => (
+              <>
+                {!selected ? (
+                  <hr
+                    class="settings-model-divider"
+                    data-model-divider
+                    hidden={
+                      selectedModels.size === 0 ||
+                      selectedModels.size === models.length
+                    }
+                  />
+                ) : null}
+                <div
+                  data-model-section={String(selected)}
+                  hidden={
+                    selected
+                      ? selectedModels.size === 0
+                      : selectedModels.size === models.length
+                  }
+                >
+                  {providers.map((provider) => {
+                    const group = models.filter(
+                      (model) =>
+                        model.provider === provider &&
+                        selectedModels.has(model) === selected,
+                    );
+                    return (
+                      <div
+                        data-model-provider={provider}
+                        hidden={group.length === 0}
+                      >
+                        <h3 class="settings-model-provider">{provider}</h3>
+                        {group.map((model) => (
+                          <label
+                            class="settings-model-row"
+                            data-model-search={`${model.name} ${model.provider} ${model.id}`}
+                          >
+                            <input
+                              type="checkbox"
+                              name="model"
+                              value={JSON.stringify({
+                                provider: model.provider,
+                                id: model.id,
+                              })}
+                              checked={selected}
+                            />
+                            <span class="settings-model-info">
+                              <strong>{model.name}</strong>
+                              <span>
+                                {model.provider} / {model.id}
+                              </span>
+                            </span>
+                            <span class="settings-model-include">Include</span>
+                          </label>
+                        ))}
+                      </div>
+                    );
                   })}
-                  checked={view.selected.some((selected) =>
-                    sameModel(selected, model),
-                  )}
-                />
-                <span class="settings-model-info">
-                  <strong>{model.name}</strong>
-                  <span>
-                    {model.provider} / {model.id}
-                  </span>
-                </span>
-                <span class="settings-model-include">Include</span>
-              </label>
+                </div>
+              </>
             ))}
           </div>
           <p class="settings-general-description" data-model-empty hidden>

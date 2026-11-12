@@ -88,31 +88,71 @@ describe("persisted session tree", () => {
       expect(tree.byId.get(id)?.parentId).toBeUndefined();
   });
 
-  it("ranks each sibling subtree by best activity then newest member then id without changing summaries", () => {
-    const newer = "2026-02-01T00:00:00.000Z";
+  it("keeps live siblings together by user recording time, ignoring status and child activity", () => {
+    const older = "2026-01-02T00:00:00.000Z";
+    const newer = "2026-01-03T00:00:00.000Z";
     const summaries = [
-      summary("dormant", { modifiedAt: newer }),
-      summary("live", { live: true }),
-      summary("running", { running: true }),
-      summary("ancestor"),
-      child("worker", "ancestor", { running: true }),
-      child("recent", "ancestor", { modifiedAt: newer }),
-      child("z", "ancestor"),
-      child("a", "ancestor"),
-      child("live-child", "ancestor", { live: true }),
+      summary("stored", { modifiedAt: newer }),
+      summary("idle", { live: true, lastUserAt: newer }),
+      summary("running", { live: true, running: true, lastUserAt: older }),
+      summary("empty", { live: true }),
+      child("worker", "running", { modifiedAt: newer }),
+      child("inspection", "running", {
+        live: true,
+        running: true,
+        lastUserAt: newer,
+      }),
     ];
     const before = structuredClone(summaries);
     const tree = sessionTree(summaries);
-    expect(ids(tree.roots)).toEqual(["ancestor", "running", "live", "dormant"]);
-    expect(ids(tree.byId.get("ancestor")?.children ?? [])).toEqual([
+    expect(ids(tree.roots)).toEqual(["idle", "running", "empty", "stored"]);
+    expect(ids(tree.byId.get("running")?.children ?? [])).toEqual([
       "worker",
-      "live-child",
+      "inspection",
+    ]);
+    expect(summaries).toEqual(before);
+    expect(
+      ids(
+        sessionTree(summaries.map((s) => ({ ...s, running: !s.running })))
+          .roots,
+      ),
+    ).toEqual(ids(tree.roots));
+  });
+
+  it("uses stable creation time and ID for live sessions with no user entry", () => {
+    expect(
+      ids(
+        sessionTree([
+          summary("z", { live: true, modifiedAt: "2099-01-01T00:00:00.000Z" }),
+          summary("a", { live: true }),
+          summary("new", { live: true, createdAt: "2026-01-02T00:00:00.000Z" }),
+        ]).roots,
+      ),
+    ).toEqual(["new", "a", "z"]);
+  });
+
+  it("ranks stored sibling subtrees by newest member then id without changing summaries", () => {
+    const newer = "2026-02-01T00:00:00.000Z";
+    const summaries = [
+      summary("dormant", { modifiedAt: newer }),
+      summary("plain"),
+      summary("ancestor"),
+      child("worker", "ancestor"),
+      child("recent", "ancestor", { modifiedAt: newer }),
+      child("z", "ancestor"),
+      child("a", "ancestor"),
+    ];
+    const before = structuredClone(summaries);
+    const tree = sessionTree(summaries);
+    expect(ids(tree.roots)).toEqual(["ancestor", "dormant", "plain"]);
+    expect(ids(tree.byId.get("ancestor")?.children ?? [])).toEqual([
       "recent",
       "a",
+      "worker",
       "z",
     ]);
     expect(summaries).toEqual(before);
-    expect(tree.byId.get("ancestor")?.summary).toBe(summaries[3]);
+    expect(tree.byId.get("ancestor")?.summary).toBe(summaries[2]);
   });
 
   it("pages 50 roots independently of descendants and 50 children independently of roots", () => {

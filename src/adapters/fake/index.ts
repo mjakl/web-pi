@@ -387,6 +387,7 @@ class FakeLiveSession implements LiveSession {
   private readonly delayMs: number;
   private readonly slashCommands: SlashCommand[];
   private readonly onStop: () => void;
+  private readonly onHistoryChange: () => void;
 
   constructor(
     stored: FakeStoredSession,
@@ -394,12 +395,14 @@ class FakeLiveSession implements LiveSession {
     delayMs: number,
     slashCommands: SlashCommand[],
     onStop: () => void,
+    onHistoryChange: () => void,
   ) {
     this.stored = stored;
     this.script = script;
     this.delayMs = delayMs;
     this.slashCommands = slashCommands;
     this.onStop = onStop;
+    this.onHistoryChange = onHistoryChange;
     this.id = stored.summary.id;
     this.turnStart = branchOf(stored).length;
   }
@@ -422,6 +425,8 @@ class FakeLiveSession implements LiveSession {
     this.stored.entries.push(entry);
     this.stored.leafId = entry.id;
     touch(this.stored);
+    if (entry.type === "message" && entry.message.role === "user")
+      this.onHistoryChange();
   }
 
   /** What Pi would report as the tokens in context: the last answer's total. */
@@ -891,6 +896,7 @@ class FakeLiveSession implements LiveSession {
     if (!entry) throw new Error("Select an existing conversation message");
     this.stored.leafId = targetId;
     this.turnStart = branchOf(this.stored).length;
+    this.onHistoryChange();
     this.emit({ type: "activity" });
     const draft = editableUserMessage(entry);
     return Promise.resolve(
@@ -1015,6 +1021,9 @@ export function createFakeWorld(
       () => {
         live.delete(stored.summary.id);
         announce({ type: "stopped", sessionId: stored.summary.id });
+      },
+      () => {
+        announce({ type: "history_changed", sessionId: stored.summary.id });
       },
     );
     let wasBusy = false;

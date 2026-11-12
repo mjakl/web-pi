@@ -526,7 +526,13 @@ describe("session commands", () => {
     );
 
     // Moving the leaf to the question offers its text and drops the answer.
+    const changed: RuntimeEvent[] = [];
+    h.runtime.subscribeAll((event) => changed.push(event));
     expect(await session.navigateTree(user?.id ?? "")).toBe("q");
+    expect(changed).toContainEqual({
+      type: "history_changed",
+      sessionId: session.id,
+    });
     expect(messages(session)).toEqual([]);
     expect(session.snapshot().turnStart).toBe(session.snapshot().branch.length);
   });

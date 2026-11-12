@@ -14,6 +14,7 @@ import type {
 import {
   branchTo,
   lastAssistantText,
+  lastUserAt,
   readStars,
   rowMetadata,
   sessionStats,
@@ -499,6 +500,7 @@ export function sessionUseCases({
         runtime: [...snapshots.values()].map((snapshot) => ({
           ...snapshot.summary,
           live: true,
+          lastUserAt: lastUserAt(snapshot.branch),
           running: snapshot.status.running,
         })),
       });

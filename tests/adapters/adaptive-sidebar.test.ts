@@ -1,4 +1,8 @@
-import { assistantEntry, createFakeWorld } from "@adapters/fake/index";
+import {
+  assistantEntry,
+  createFakeWorld,
+  userEntry,
+} from "@adapters/fake/index";
 import { createPiSessionCatalog } from "@adapters/pi/session-catalog";
 import { createWorkspace } from "@core/workspace";
 import { DELEGATION_TYPE } from "@core/session-delegation";
@@ -129,6 +133,53 @@ it("initial sidebar and a direct link do not scan a whole archive beyond the met
   const direct = await directApp.request(`/sessions/${oldest.id}`);
   expect(direct.status).toBe(200);
   expect(fs.createReadStream).toHaveBeenCalledTimes(51);
+});
+
+it("uses snapshot user clocks across active page boundaries without reading the stored archive", async () => {
+  const files = Array.from({ length: 120 }, (_, index) => session(index));
+  const active = files.slice(65);
+  const world = createFakeWorld({
+    sessions: active.map((file, index) => ({
+      summary: {
+        id: file.id,
+        cwd: root,
+        createdAt: file.manager.getHeader()?.timestamp ?? "",
+        modifiedAt: new Date(1700000000000 - index * 1000).toISOString(),
+        fileSize: 0,
+      },
+      entries: [
+        {
+          ...userEntry(`${file.id}-user`, null, "live question"),
+          timestamp: new Date(1800000000000 + index * 1000).toISOString(),
+        },
+      ],
+    })),
+  });
+  world.sessions = createPiSessionCatalog({ agentDir: root });
+  for (const file of active) await world.runtime.open({ sessionId: file.id });
+  const workspace = createWorkspace(world);
+  const read = vi.spyOn(world.sessions, "read");
+  resetReads();
+  const first = await workspace.sidebar();
+  expect(first.rows.map((row) => row.summary.id)).toEqual(
+    active
+      .toReversed()
+      .slice(0, 50)
+      .map((file) => file.id),
+  );
+  expect(first.nextOffset).toBe(50);
+  expect(fs.createReadStream).toHaveBeenCalledTimes(55);
+  const second = await workspace.sidebar({ offset: 50 });
+  expect(second.rows.map((row) => row.summary.id)).toEqual([
+    ...active
+      .toReversed()
+      .slice(50)
+      .map((file) => file.id),
+    ...files.slice(0, 45).map((file) => file.id),
+  ]);
+  expect(second.nextOffset).toBe(100);
+  expect(read).not.toHaveBeenCalled();
+  expect(fs.createReadStream).toHaveBeenCalledTimes(101);
 });
 
 it("shares cold direct-link inventory with its concurrent sidebar read", async () => {
@@ -476,7 +527,7 @@ it("prioritizes old known running and idle sessions without classifying the rest
   const running = files[199],
     idle = files[198];
   if (!running || !idle) throw new Error("Missing old runtime fixtures");
-  const runtimeSessions = [running, idle].map((f) => ({
+  const runtimeSessions = [running, idle].map((f, index) => ({
     summary: {
       id: f.id,
       cwd: root,
@@ -484,7 +535,12 @@ it("prioritizes old known running and idle sessions without classifying the rest
       modifiedAt: new Date(0).toISOString(),
       fileSize: 0,
     },
-    entries: [],
+    entries: [
+      {
+        ...userEntry(`${f.id}-user`, null, "question"),
+        timestamp: new Date(1800000000000 + index * 1000).toISOString(),
+      },
+    ],
   }));
   const world = createFakeWorld({ sessions: runtimeSessions });
   const live = await world.runtime.open({ sessionId: running.id });
@@ -499,11 +555,11 @@ it("prioritizes old known running and idle sessions without classifying the rest
   resetReads();
   const first = await workspace.sidebar();
   expect(first.rows.slice(0, 2).map((row) => row.summary.id)).toEqual([
-    running.id,
     idle.id,
+    running.id,
   ]);
-  expect(first.rows[0]?.summary.running).toBe(true);
-  expect(first.rows[1]?.summary).toMatchObject({ live: true, running: false });
+  expect(first.rows[1]?.summary.running).toBe(true);
+  expect(first.rows[0]?.summary).toMatchObject({ live: true, running: false });
   expect(first.nextOffset).toBe(50);
   expect(fs.createReadStream).toHaveBeenCalledTimes(51);
 });

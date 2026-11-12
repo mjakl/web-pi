@@ -10,6 +10,15 @@ import { contentParts, preview } from "./transcript.ts";
 // rewind keeps, and when a session is busy. Pure functions over what the
 // SessionCatalog read; no file or SDK access.
 
+/** Recording time, not the message timestamp retained from queue admission. */
+export function lastUserAt(
+  branch: readonly SessionEntry[],
+): string | undefined {
+  return branch.findLast(
+    (entry) => entry.type === "message" && entry.message.role === "user",
+  )?.timestamp;
+}
+
 /** Custom-entry type for web-pi's stars. */
 export const STAR_TYPE = "web-pi:star";
 

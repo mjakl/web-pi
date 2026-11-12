@@ -49,7 +49,8 @@ adapter, and callers read a `snapshot()` and receive four events: `activity`,
 `turn_done`, `completed` (see [Notifications](#notifications)) and `stopped`.
 `AgentRuntime.subscribeAll` reports every live session's lifecycle as `opened`,
 `started` (the session became busy, not every token), `finished` (a turn ended),
-`completed` and `stopped`.
+`completed` and `stopped`. It also reports `history_changed` after a user entry
+is recorded or the active branch moves, not for queued input or tokens.
 
 ## Rendering a session
 
@@ -209,13 +210,13 @@ UI when a stop was missed. Inspection-only sessions never hand off.
 ### The sidebar
 
 `GET /events` is the global session list's stream. On `opened`, `started`,
-`finished` and `stopped` it re-renders the list's first page through
-`hx-partial`; a render that has not started yet covers every event queued before
-it, so a burst of events costs one scan of the store. Named `finished` and
-`completed` events carry `{"id": …}`. The browser plays the completion tone for
-another session's `completed`, since the session on screen already rang through
-its own `done`. The list and its stream owner live in `#session-nav` and survive
-conversation and folder navigation.
+`finished`, `stopped` and `history_changed` it re-renders the list's first page
+through `hx-partial`; a render that has not started yet covers every event
+queued before it, so a burst of events costs one scan of the store. Named
+`finished` and `completed` events carry `{"id": …}`. The browser plays the
+completion tone for another session's `completed`, since the session on screen
+already rang through its own `done`. The list and its stream owner live in
+`#session-nav` and survive conversation and folder navigation.
 
 The workspace tracks unread activity once per runtime event, independently of
 connected browsers. Each eligible `finished` replaces that session's pending
@@ -239,35 +240,38 @@ written them to the session directory.
 The list is a global tree of delegations, paged because a real store of about
 2,750 sessions in 256 folders made every page 3 MB when it shipped every row.
 `src/core/session-tree.ts` groups persisted delegation origins across folders.
-Each sibling subtree sorts by its most urgent member (running, then live, then
-stored), then its newest member's mtime, then ID; a row's own timestamp and
-status never inherit its descendants'. Roots come 50 at a time, and children
-load in pages of 50 when expanded. A selected session's off-page ancestor is
-included on the first page and left out of later pages.
+Backend-owned live sessions, running or idle, sort ahead of stored sessions, by
+the last user entry's recording time on the current branch (or stable header
+creation time if no user entry exists), then ID. Assistant writes and delegated
+child activity never raise a live parent's sort time. Entirely stored subtrees
+keep sorting by their newest member's mtime, then ID. Displayed modification
+ages stay independent of these sort clocks. Roots come 50 at a time, and
+children load in pages of 50 when expanded. A selected session's off-page
+ancestor is included on the first page and left out of later pages.
 
 Every sidebar request lists and stats every session file; a header is read again
 only when its file is new or was replaced (another inode), and concurrent
 requests share one listing. Header IDs, not file names, identify sessions and
 delegation parents. Root discovery classifies known runtimes and the selected
 session's ancestry first, resolves each candidate's ancestors, and stops once
-timestamp intervals prove the first `offset + 50` roots and one more root for
-the next-page cursor. Duplicate IDs, timestamp ties and short pages can require
-classifying every file; there is no fixed cutoff and no background index.
-Classification reads to the end of the file or uses compact row metadata stamped
-with the file's revision. The catalog retains one metadata entry per inventoried
-file and prunes removed files; it never retains transcript bodies. Complete
-scans therefore cannot evict unchanged rows needed by the same filter. The order
-is certified against the revisions seen, not an atomic snapshot: changed or
-unreadable files are left out and reconciled by later refreshes. Counts of
-children can miss older or late-arriving edges, which is accepted rather than
-adding checking controls. Expanding a row classifies the sessions created no
-earlier than its parent, through to the end of each file, so its child pages are
-exact. The starred-answer filter requests complete discovery and reads cached
-row metadata before building and paging the matching tree. Only matches need
-project metadata. Unlike the ordinary list, its first cold scan must inspect all
-candidates to find older stars; the filter button shows a spinner while waiting.
-Each tab sends its filter state on HTMX requests; the sidebar stream URL fixes
-the same state until the filter replaces its owner.
+the live clocks and stored timestamp bounds prove the first `offset + 50` roots
+and one more root for the next-page cursor. Duplicate IDs, timestamp ties and
+short pages can require classifying every file; there is no fixed cutoff and no
+background index. Classification reads to the end of the file or uses compact
+row metadata stamped with the file's revision. The catalog retains one metadata
+entry per inventoried file and prunes removed files; it never retains transcript
+bodies. Complete scans therefore cannot evict unchanged rows needed by the same
+filter. The order is certified against the revisions seen, not an atomic
+snapshot: changed or unreadable files are left out and reconciled by later
+refreshes. Counts of children can miss older or late-arriving edges, which is
+accepted rather than adding checking controls. Expanding a row classifies the
+sessions created no earlier than its parent, through to the end of each file, so
+its child pages are exact. The starred-answer filter requests complete discovery
+and reads cached row metadata before building and paging the matching tree. Only
+matches need project metadata. Unlike the ordinary list, its first cold scan
+must inspect all candidates to find older stars; the filter button shows a
+spinner while waiting. Each tab sends its filter state on HTMX requests; the
+sidebar stream URL fixes the same state until the filter replaces its owner.
 
 A delegation origin is a `pi-subagent:delegation` custom entry
 (`{version:1, childSessionId, parentSessionId, agent, handle}`) and belongs only

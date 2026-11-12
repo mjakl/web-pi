@@ -178,7 +178,7 @@ tarball:
 
 ```bash
 mise install
-pnpm install --frozen-lockfile   # pnpm 12.3.4
+pnpm install --frozen-lockfile   # use the packageManager pin
 just build                     # refreshes and records stable latest Pi
 just doctor                    # reports the locally installed Pi
 pnpm pack                      # web-pi-0.1.0.tgz
@@ -187,12 +187,15 @@ web-pi                         # http://127.0.0.1:30142
 ```
 
 The tarball installs the Pi version it was built with, and `web-pi --version`
-reports the installed web-pi and Pi versions. To upgrade Pi, rebuild and
-reinstall web-pi as [Upgrade](docs/deployment.md#upgrade) describes; upgrading a
-system Pi does not change web-pi. Documentation and screenshots ship inside the
-tarball so these relative links also work in an installed package.
+reports that installation's web-pi and Pi versions. For a persistent backend and
+separately restartable web service, use the
+[immutable-release deployment](docs/deployment.md#immutable-releases).
+`web-pi-deploy` publishes a complete release but normally restarts only web;
+`--full` also restarts backend and interrupts agents. A system Pi upgrade does
+not change web-pi. Documentation and screenshots ship inside the tarball so
+these relative links also work in an installed package.
 
-Use the documented global npm installation or pnpm 12.3.4's default isolated
+Use the documented global npm installation or the pinned pnpm's isolated
 checkout/consumer layout. Runtime checks refuse ancestor SDKs, legacy links to
 system Pi, mismatched versions, hoisted local npm installs, and pnpm's global
 virtual store. These layouts cannot establish the same package-owned dependency

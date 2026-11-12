@@ -414,6 +414,8 @@ it("wires Models to global Pi persistence through the production composition", a
     runtime: "pi",
     agentDir: temp.agentDir,
     defaultCwd: temp.project,
+    role: "standalone",
+    socketPath: "unused",
     host: "127.0.0.1",
     port: 0,
     staticRoot: "static",

@@ -11,10 +11,13 @@ Usage: web-pi [options]
   --port <number>    port to listen on (default 30142, or WEB_PI_PORT)
   --lan              bind 0.0.0.0; see the security note in the README
   --runtime <name>   "pi" (default) or "fake" for a scripted demo runtime
+  --role <name>      standalone (default), web, or backend
+  --socket <path>    private backend Unix socket
   --help             show this text
   --version          show the web-pi and Pi versions
 
 Environment: WEB_PI_HOST, WEB_PI_PORT, WEB_PI_RUNTIME, WEB_PI_DEFAULT_CWD,
+WEB_PI_ROLE, WEB_PI_SOCKET,
 WEB_PI_NOTIFICATION_GRACE_PERIOD, PI_CODING_AGENT_DIR, HTTP_PROXY, HTTPS_PROXY,
 NO_PROXY.
 `;
@@ -38,6 +41,8 @@ export function parseOptions(argv: string[]): CliOptions {
         port: { type: "string" },
         lan: { type: "boolean" },
         runtime: { type: "string" },
+        role: { type: "string" },
+        socket: { type: "string" },
         help: { type: "boolean" },
         version: { type: "boolean" },
       },
@@ -54,6 +59,8 @@ export function parseOptions(argv: string[]): CliOptions {
   if (values.host !== undefined) env["WEB_PI_HOST"] = values.host;
   if (values.port !== undefined) env["WEB_PI_PORT"] = values.port;
   if (values.runtime !== undefined) env["WEB_PI_RUNTIME"] = values.runtime;
+  if (values.role !== undefined) env["WEB_PI_ROLE"] = values.role;
+  if (values.socket !== undefined) env["WEB_PI_SOCKET"] = values.socket;
   return {
     help: values.help === true,
     version: values.version === true,

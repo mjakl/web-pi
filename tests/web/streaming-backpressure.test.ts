@@ -2,6 +2,32 @@ import { expect, it, vi } from "vitest";
 import { streamingFixture } from "#/web/fixtures/streaming";
 import { required } from "#/web/helpers";
 
+it("disconnects a stalled browser when semantic deliveries exceed the bounded queue", async () => {
+  const f = await streamingFixture(100);
+  const entered = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const list = f.world.models.list.bind(f.world.models);
+  f.world.models.list = async (...args) => {
+    entered.resolve(undefined);
+    await release.promise;
+    return list(...args);
+  };
+  const response = await f.app.request(`/sessions/${f.id}/events?after=`);
+  const reader = required(response.body?.getReader());
+  try {
+    await entered.promise;
+    for (let i = 0; i < 200; i += 1) f.emit("turn_done");
+    await vi.waitFor(() => {
+      expect(f.subscribers).toBe(0);
+    });
+    expect((await reader.read()).done).toBe(true);
+  } finally {
+    release.resolve(undefined);
+    await reader.cancel();
+    await f.live.stop();
+  }
+});
+
 it.each(["enrichment", "transport"] as const)(
   "bounds waiting activity renders behind blocked %s without dropping semantic delivery",
   async (phase) => {

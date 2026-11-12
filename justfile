@@ -53,6 +53,10 @@ build-js:
 build: update-pi doctor typecheck build-css build-js
     {{ esbuild-server }}
 
+# RELEASE: Publish a complete immutable release without restarting any service
+release:
+    node scripts/release.ts
+
 # DEV: Start the built server on port 30143, as the published bin does
 start: build
     WEB_PI_PORT="${WEB_PI_PORT:-30143}" node bin/web-pi.js

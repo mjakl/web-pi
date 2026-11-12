@@ -190,7 +190,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       </div>
     );
     if (section === "general")
-      return <GeneralSettings settings={deps.workspace.webSettings()} />;
+      return <GeneralSettings settings={await deps.workspace.webSettings()} />;
     if (section === "skills")
       return skillsSection(
         cwd,
@@ -217,9 +217,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       );
   }
 
-  app.get("/settings/web", (c) => {
+  app.get("/settings/web", async (c) => {
     c.header("Cache-Control", "no-store");
-    return c.json(deps.workspace.webSettings());
+    return c.json(await deps.workspace.webSettings());
   });
   app.post("/settings/web", async (c) => {
     let patch;
@@ -234,7 +234,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
         400,
       );
     }
-    return c.json(deps.workspace.updateWebSettings(patch));
+    return c.json(await deps.workspace.updateWebSettings(patch));
   });
 
   app.post("/settings/models", async (c) => {
@@ -696,9 +696,9 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
   app.get(OFFLINE_URL, (c) => c.html(offlinePage(assets)));
 
   /** The key a browser needs before it can subscribe; the private one stays. */
-  app.get("/push/config", (c) => {
+  app.get("/push/config", async (c) => {
     c.header("Cache-Control", "no-store");
-    return c.json({ publicKey: deps.workspace.pushKey() });
+    return c.json({ publicKey: await deps.workspace.pushKey() });
   });
 
   app.post("/push/:action", async (c) => {
@@ -708,7 +708,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
       c.header("Cache-Control", "no-store");
       if (!isPushPresence(presence))
         return c.json({ error: "Invalid push presence" }, 400);
-      deps.workspace.reportPushPresence(presence);
+      await deps.workspace.reportPushPresence(presence);
       return c.json({ ok: true });
     }
     if (!["subscribe", "unsubscribe", "status"].includes(action))
@@ -723,11 +723,13 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
     }
     c.header("Cache-Control", "no-store");
     if (action === "status")
-      return c.json({ subscribed: deps.workspace.hasPush(subscription) });
-    if (action === "unsubscribe") deps.workspace.unsubscribePush(subscription);
+      return c.json({ subscribed: await deps.workspace.hasPush(subscription) });
+    if (action === "unsubscribe")
+      await deps.workspace.unsubscribePush(subscription);
     else {
       if (
-        (body as { publicKey?: unknown }).publicKey !== deps.workspace.pushKey()
+        (body as { publicKey?: unknown }).publicKey !==
+        (await deps.workspace.pushKey())
       )
         return c.json(
           {
@@ -736,7 +738,7 @@ export function shellRoutes(app: WebApp, ctx: RouteContext): void {
           },
           409,
         );
-      deps.workspace.subscribePush({
+      await deps.workspace.subscribePush({
         endpoint: subscription.endpoint,
         keys: {
           p256dh: subscription.keys.p256dh,

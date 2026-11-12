@@ -1,8 +1,58 @@
 import { required } from "#/web/helpers";
+import { createWebApp } from "@web/app";
+import type { UnreadActivity } from "@core/session-activity";
+import { setImmediate } from "node:timers/promises";
 import type { HTMLElement } from "happy-dom";
 import { expect, it, vi } from "vitest";
 import { controlledStream, htmxBrowser } from "#/web/htmx4-browser";
 import { storedSession, testApp } from "#/web/fixtures/test-app";
+
+it("does not overwrite a subscription update with an older delayed initial snapshot", async () => {
+  const { workspace } = testApp();
+  const entered = Promise.withResolvers<undefined>();
+  const snapshot = Promise.withResolvers<UnreadActivity>();
+  let notify: (state: UnreadActivity) => void = () => {
+    throw new Error("Not subscribed");
+  };
+  const app = createWebApp({
+    workspace: {
+      ...workspace,
+      subscribeActivity(listener) {
+        notify = listener;
+        return () => {};
+      },
+      unreadActivity() {
+        entered.resolve(undefined);
+        return snapshot.promise;
+      },
+    },
+    staticRoot: "static",
+    defaultCwd: "/work",
+  });
+  const response = await app.request("/events");
+  const reader = required(response.body?.getReader());
+  let output = "";
+  const draining = (async () => {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) return;
+      output += new TextDecoder().decode(next.value);
+    }
+  })();
+  try {
+    await entered.promise;
+    notify({ s1: "new-completion" });
+    snapshot.resolve({});
+    await vi.waitFor(() => {
+      expect(output).toContain("new-completion");
+    });
+    await setImmediate();
+    expect(output).not.toContain("data: {}\n");
+  } finally {
+    await reader.cancel();
+    await draining;
+  }
+});
 
 it("reading in one browser clears another browser's halo, but later unseen work marks it again", async () => {
   const { app, workspace } = testApp({

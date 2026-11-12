@@ -1,0 +1,17 @@
+#!/bin/sh
+# Installed beside web-pi-release.js; systemd puts Node 24 on PATH via mise.
+set -eu
+role=${1:?Expected web or backend}
+shift
+root=${WEB_PI_RELEASE_ROOT:-"$HOME/.local/share/web-pi"}
+if [ "$role" = backend ]; then
+    # FD 9 survives exec: keep one owner through recovery and for its lifetime.
+    exec 9>"$root/.backend.lock"
+    if ! /usr/bin/flock --nonblock 9; then
+        echo "web-pi: a backend already owns $root" >&2
+        exit 1
+    fi
+fi
+package=$(/usr/bin/flock "$root/.publication.lock" node "$(dirname "$0")/web-pi-release.js" select "$root" "$role")
+cd "$package"
+exec node "$package/bin/web-pi.js" --role "$role" "$@"

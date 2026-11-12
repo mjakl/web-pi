@@ -4,65 +4,141 @@ web-pi is a long-running local server. On a workstation that means a systemd
 user service: it starts with your session, restarts if it dies, and logs to the
 journal.
 
-## Install
+## Process ownership
 
-Build a tarball from a checkout and install it globally, as
-[the README](../README.md#install-and-run) describes. The package brings its own
-Pi ([ADR 0002](adr/0002-package-owned-pi-runtime.md)), so the service needs no
-system Pi, and a Pi upgrade reaches it only through a new build and reinstall.
+The backend owns one Workspace: live Pi sessions, tools and subprocesses,
+session writes, extension UI, completion notifications and warm metadata caches.
+The web process renders HTTP and browser SSE against it over a private Unix
+socket. Restarting or crashing web does not stop backend work. Browser streams
+reconnect and recover current state; requests are never automatically replayed.
+A submission whose response was lost may already have been accepted.
 
-## The unit
+A backend restart interrupts active work and loses warm caches. Its saved data
+stays in the existing agent directory. Run **one backend per agent directory**,
+and retain the existing one-writer-per-session rule with terminal Pi.
 
-`~/.config/systemd/user/web-pi.service`:
+The ordinary `web-pi` CLI and `just dev` remain standalone by default: one
+process owns both sides. `--role backend` serves only the private socket;
+`--role web` connects to it. These direct CLI roles run the named package,
+useful for development. For a manual **deployed** start, use
+`web-pi-service backend` or `web-pi-service web`; those launchers perform
+release selection. Both accept `--socket PATH` (or `WEB_PI_SOCKET`). The default
+is `$XDG_RUNTIME_DIR/web-pi/backend.sock`. The containing directory must belong
+to the user and have no group/other permissions; the socket is 0600. A live
+socket is never replaced. No backend TCP listener or public endpoint is added.
 
-```ini
-[Unit]
-Description=web-pi
-After=network.target
+## Immutable releases
 
-[Service]
-Type=simple
-ExecStart=%h/.local/share/npm/bin/web-pi
-Environment=WEB_PI_HOST=127.0.0.1
-Environment=WEB_PI_PORT=30142
-Environment=PI_CODING_AGENT_DIR=%h/.pi/agent
-Restart=on-failure
-RestartSec=2
+`web-pi-deploy` remains a manual command:
 
-[Install]
-WantedBy=default.target
+- No arguments: build and publish a **complete** release, select it as
+  `web-current` and `backend-next`, then restart **only web**.
+- `--full`: publish the same complete artifact, then restart backend and web,
+  interrupting current work, including a tool or session that invoked the
+  deploy. Invoke it from an external terminal when you need to receive its final
+  exit status; a killed invoking session cannot report completion.
+- `just release`: prepare and publish without restarting services, for initial
+  installation. It is not a reduced web-only build.
+
+Every build still refreshes Pi to stable latest under
+[ADR 0002](adr/0002-package-owned-pi-runtime.md). Publication packs the compiled
+code/assets with `pnpm pack`, installs that tarball with production dependencies
+in an isolated consumer, and checks that installation's exact Pi ownership. The
+completed consumer lockfile records the transitive versions actually installed;
+the checkout lockfile alone does not freeze consumer resolution. No startup
+installs, updates or builds anything, and no dependency link points back to the
+checkout. Configured external extensions retain Pi's existing
+installation/loading behavior; they are not frozen into a release.
+
+The default root is `~/.local/share/web-pi`; `WEB_PI_RELEASE_ROOT` can select
+another root consistently for publication and both services:
+
+```text
+releases/<unique-id>/       complete installation, tarball, lockfile, release.json
+web-current -> releases/…  selected web release
+backend-current -> …       release selected at the last backend start
+backend-next -> …          latest pending backend release (optional)
 ```
 
-`ExecStart` is wherever your package manager put the bin — `npm prefix -g` says
-where. Then:
+Backend startup, including systemd crash restart, promotes `backend-next` to
+`backend-current` before launching; absent next, it uses current. A newer
+deployment replaces any earlier pending next. Thus a backend crash deliberately
+adopts the latest deployment, even after a web-only deploy.
+Selection/publication share a short filesystem lock; neither holds that lock
+while the service runs. The backend launcher also holds a separate lifetime lock
+so a duplicate start cannot consume a pending release or race stale-socket
+recovery. Launchers resolve real paths before executing. Leave every running or
+referenced release intact, including its full dependency tree: old processes may
+load code or launch subprocesses later. There is no automatic deletion.
 
-```bash
+A build, pack, install or validation failure leaves existing pointers unchanged.
+The two final pointer renames are not a transaction: an I/O failure during
+publication can leave next updated before web-current, and is reported as a
+failure. Inspect the pointers before retrying. Startup failures do not fall back
+to old code. There are no idle checks, drains, prompts, compatibility gates,
+automatic full deploys or automatic rollbacks. A changed private interface may
+require an explicit `--full`.
+
+## systemd installation and first cutover
+
+The templates in [deploy/](../deploy/) keep web and backend in **independent
+cgroups**. Web is ordered after backend but neither requires nor stops the
+other. Both retain the SSH agent socket, shell/PATH setup and private HTTP
+listener. They use `Type=notify`: startup succeeds only after the listener is
+ready, so `systemctl restart` reports failed startup. Node 24 and
+`systemd-notify` must already be installed; mise selects the installed Node, not
+a system Pi.
+
+Coordinate the first cutover: the old monolith must stop before backend starts
+against the same agent directory. The first stop necessarily interrupts its
+agents. Build only in a separate worktree while it is still running. Back up
+host configuration and mutable agent data privately before the stop. The code
+must also be available in `~/Projects/pi-web` before later no-argument manual
+deployments; that is the wrapper's default source path, overridable with
+`WEB_PI_SOURCE`.
+
+From the validated new checkout, at the agreed cutover time:
+
+```sh
+just release                         # complete release; no service restart
+backup="$HOME/.local/share/web-pi/migration-backup"
+install -d -m 700 "$backup"
+mkdir -p "$HOME/.local/bin"
+cp -a "$HOME/.local/bin/web-pi-deploy" "$backup/"
+cp -a "$HOME/.config/systemd/user/web-pi.service" "$backup/"
+cp -a "$HOME/.config/systemd/user/web-pi.service.d" "$backup/"
+systemctl --user stop web-pi.service
+# Use the effective agent directory if PI_CODING_AGENT_DIR is overridden.
+cp -a "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" "$backup/agent"
+install -m 755 bin/web-pi-deploy bin/web-pi-service bin/web-pi-release.js "$HOME/.local/bin/"
+install -m 644 deploy/web-pi.service deploy/web-pi-backend.service "$HOME/.config/systemd/user/"
+mkdir -p "$HOME/.config/systemd/user/web-pi-backend.service.d"
+install -m 644 deploy/web-pi-backend.service.d/environment.conf "$HOME/.config/systemd/user/web-pi-backend.service.d/"
 systemctl --user daemon-reload
-systemctl --user enable --now web-pi
-journalctl --user -u web-pi -f
-loginctl enable-linger "$USER"   # keep it running while you are logged out
+systemctl --user enable --now web-pi-backend.service
+systemctl --user enable --now web-pi.service
+systemctl --user status web-pi-backend.service web-pi.service
+journalctl --user -u web-pi-backend.service -u web-pi.service -n 50
 ```
 
-## Upgrade
+Keep the existing web `cloudflare.conf` environment-file drop-in. The supplied
+backend drop-in reads the **same** `~/.config/web-pi/secrets.env`; do not print
+or copy its contents into a unit. Mirror any other existing runtime environment
+or agent-directory override onto backend; retain HTTP settings on web. Systems
+without that environment file should omit the supplied backend drop-in. This
+procedure changes no tunnel, firewall, credential policy or HTTP exposure.
 
-Upgrading is a new tarball, `npm install -g`, and
-`systemctl --user restart web-pi`. Builds move Pi to its latest stable release
-and record it in `package.json` and `pnpm-lock.yaml`. Run `just ci` against the
-refreshed dependency set before installing it; this checks sources and the
-installed tarball without a model call. A failed refresh or validation is not a
-deployable upgrade. Keep a note of what `web-pi --version` reports: it names the
-web-pi and Pi versions you deployed.
+The backend log names its actual Pi version and resolved release path. Web's
+startup log obtains the connected backend's versions, which can differ from the
+web package's `--version` output. After a backend crash/restart, consult its new
+startup log and `backend-current`, not web's old startup line.
 
-When a build has changed `package.json` and `pnpm-lock.yaml` and you have not
-committed them, a later `git pull` can refuse to overwrite them. The changes
-only record the Pi release that build installed, so discard them and update; the
-next build refreshes Pi again:
-
-```bash
-git restore package.json pnpm-lock.yaml
-git pull
-pnpm install --frozen-lockfile
-```
+For a web-only rollback, select a retained compatible release as web-current and
+restart only web. A backend rollback requires stopping backend, deliberately
+selecting backend-current and removing/replacing any pending backend-next before
+starting it again. Do not restore the monolith while backend is running. No
+binary rollback undoes session/settings writes or upstream Pi migrations; use
+backups and assess compatibility before downgrading.
 
 ### Pi upgrade compatibility
 
@@ -94,8 +170,8 @@ undo newer writes.
 
 ## Voice dictation
 
-Set `OPENAI_API_KEY` in the **server process environment** and restart web-pi to
-use the composer's **Dictate** button. For a service, supply it through a
+Set `OPENAI_API_KEY` in the **backend process environment** and restart backend
+to use the composer's **Dictate** button. For a service, supply it through a
 private environment file or your service manager's secret mechanism, not a
 checked-in unit or browser setting. Pi provider credentials and ChatGPT
 subscriptions are not used for this feature; the key needs OpenAI API access and
@@ -162,14 +238,14 @@ authentication boundary described below.
 
 ## Completion-notification grace period
 
-Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the server environment to change the
+Set `WEB_PI_NOTIFICATION_GRACE_PERIOD` in the backend environment to change the
 fixed delay after the first eligible completion while away. The default is **15
 minutes**. Acceptable values are decimal whole minutes from **0 to 35791**, with
 surrounding whitespace allowed. **0** means immediate delivery while away, not
 disabled notifications. Empty, fractional, negative, nonnumeric or larger values
 fail startup with a configuration error. The upper bound keeps timers within
 Node's signed 32-bit millisecond limit instead of overflowing into immediate
-delivery. Changing the setting takes effect on the next server start; there is
+delivery. Changing the setting takes effect on the next backend start; there is
 no UI preference.
 
 For example, `WEB_PI_NOTIFICATION_GRACE_PERIOD=30` delays the broadcast thirty
@@ -177,7 +253,7 @@ minutes from the first completion. The
 [notification contract](behavior.md#extensions-and-notifications) describes
 which completions it collects and what cancels it.
 
-## Running from a checkout
+## Running standalone from a checkout
 
 To run the service from a checkout instead, install dependencies with
 `pnpm install --frozen-lockfile` and run `just build` using the tools in
@@ -202,8 +278,8 @@ web-pi reads and writes the same agent directory as terminal Pi and any other
 interface pointed at it, so each sees the other's sessions. Nothing coordinates
 their writes:
 
-- **Run one web-pi server per agent directory.** Push state is held in memory,
-  and whole-file writes do not coordinate servers.
+- **Run one backend (or standalone web-pi) per agent directory.** Push state is
+  held in memory, and whole-file writes do not coordinate servers.
 - **Use one writer per session.** web-pi and other Pi runtimes do not coordinate
   cross-process writes or live in-memory state. Do not run simultaneous live
   turns, rename, star, rewind, delete, or otherwise edit the same session from
@@ -246,9 +322,9 @@ such as stars, stays in Pi's session files.
 Reading a session acknowledges its displayed activity across browsers. Pending
 versions and successful acknowledgments survive ordinary server restarts; a
 reconnecting browser receives the current map, not a replay of old markers. This
-assumes one web-pi process owns the agent directory. Work completed while that
-process is stopped, or solely by another Pi process, is not reconstructed as
-unread activity.
+assumes one backend owns the agent directory. Work completed while that process
+is stopped, or solely by another Pi process, is not reconstructed as unread
+activity.
 
 On upgrade, reload open browsers. Old `web-pi:unread` localStorage IDs are
 discarded rather than imported: they cannot distinguish old reads from new
@@ -290,10 +366,11 @@ refuses unreadable or malformed state but cannot recover an in-memory latch that
 was never saved. Resolve storage errors before restarting rather than using
 restart to retry notifications. Foreground leases and their short-lived ordering
 records are memory-only and expire after 60 seconds; the durable latch survives
-ordinary restarts. Pending timers and completion counts do not survive restart
-or shutdown, and disposal cancels scheduling without recalling an already
-admitted broadcast. A future completion can start a new timer if the allowance
-remains available. Reporting remains best effort while clients reconnect.
+ordinary restarts. Pending timers and completion counts survive web restart but
+not backend restart or shutdown, and disposal cancels scheduling without
+recalling an already admitted broadcast. A future completion can start a new
+timer if the allowance remains available. Reporting remains best effort while
+clients reconnect.
 
 ### Upgrade an existing installation
 
@@ -321,9 +398,9 @@ remains available. Reporting remains best effort while clients reconnect.
 
 ### Reset or remove web state
 
-After a successful cutover, stop the web-pi server and delete only
-`<agentDir>/web-pi/`. Starting again restores shared defaults and creates a new
-push identity on first use. This also deletes all
+After a successful cutover, stop both services (or standalone web-pi) and delete
+only `<agentDir>/web-pi/`. Starting again restores shared defaults and creates a
+new push identity on first use. This also deletes all
 [uploaded files](#uploaded-files); back them up first if retained sessions still
 need them. Pi session files are untouched; removed-worktree grouping may be lost
 until rediscovered. Do not restore legacy files beside Pi's settings, because a

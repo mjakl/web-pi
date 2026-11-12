@@ -87,7 +87,7 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
     if (!isSessionId(id) || !version)
       return c.text("Invalid activity acknowledgment", 400);
     try {
-      deps.workspace.acknowledgeActivity(id, version);
+      await deps.workspace.acknowledgeActivity(id, version);
       return c.body(null, 204);
     } catch {
       return c.text(
@@ -216,10 +216,25 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
   app.get("/events", (c) =>
     streamSSE(c, async (stream) => {
       let queue: Promise<void> = Promise.resolve();
+      let closed = false;
+      let queued = 0;
       const enqueue = (task: () => Promise<void>) => {
-        queue = queue.then(task).catch(() => {
-          // A closed stream ends rendering; the abort handler cleans up.
-        });
+        if (closed) return;
+        if (queued >= 128) {
+          stream.abort();
+          return;
+        }
+        queued += 1;
+        queue = queue
+          .then(async () => {
+            if (!closed) await task();
+          })
+          .catch(() => {
+            stream.abort();
+          })
+          .finally(() => {
+            queued -= 1;
+          });
       };
       // A render that has not started yet reads the store after every event
       // queued before it, so a burst of events costs one scan of the store.
@@ -245,33 +260,56 @@ export function sidebarRoutes(app: WebApp, ctx: RouteContext): void {
           );
         }
       };
+      let unreadData = "";
+      let unreadWaiting = false;
       const sendUnread = (
         unread: import("@core/session-activity").UnreadActivity,
       ) => {
-        const data = JSON.stringify(unread);
-        enqueue(() => stream.writeSSE({ event: "unread", data }));
-      };
-      const unsubscribeActivity = deps.workspace.subscribeActivity(sendUnread);
-      sendUnread(deps.workspace.unreadActivity());
-      const unsubscribe = deps.workspace.subscribeSessions(send);
-      let heartbeat: ReturnType<typeof setInterval> | undefined;
-      await new Promise<void>((resolve) => {
-        heartbeat = setInterval(() => {
-          queue = queue
-            .then(async () => {
-              await stream.write(": ping\n\n");
-            })
-            .catch(() => {
-              resolve();
-            });
-        }, 30_000);
-        stream.onAbort(() => {
-          resolve();
+        unreadData = JSON.stringify(unread);
+        if (unreadWaiting) return;
+        unreadWaiting = true;
+        enqueue(async () => {
+          unreadWaiting = false;
+          await stream.writeSSE({ event: "unread", data: unreadData });
         });
-      });
-      if (heartbeat) clearInterval(heartbeat);
-      unsubscribe();
-      unsubscribeActivity();
+      };
+      const ended = Promise.withResolvers<undefined>();
+      const disconnected = () => {
+        closed = true;
+        ended.resolve(undefined);
+        stream.abort();
+      };
+      stream.onAbort(disconnected);
+      let unsubscribeActivity: (() => void) | undefined;
+      let unsubscribe: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      try {
+        let activityArrived = false;
+        unsubscribeActivity = await deps.workspace.subscribeActivity(
+          (state) => {
+            activityArrived = true;
+            sendUnread(state);
+          },
+          disconnected,
+        );
+        unsubscribe = await deps.workspace.subscribeSessions(
+          send,
+          disconnected,
+        );
+        const initial = await deps.workspace.unreadActivity();
+        // The separate snapshot reply can trail a newer subscription event.
+        if (!activityArrived) sendUnread(initial);
+        heartbeat = setInterval(() => {
+          enqueue(async () => {
+            await stream.write(": ping\n\n");
+          });
+        }, 30_000);
+        await ended.promise;
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+        unsubscribe?.();
+        unsubscribeActivity?.();
+      }
     }),
   );
 }

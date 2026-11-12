@@ -35,6 +35,8 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 let base = "";
 let child: ChildProcess | undefined;
 let closed: Promise<unknown> | undefined;
+let backend: ChildProcess | undefined;
+let backendClosed: Promise<unknown> | undefined;
 let origin = "";
 let sessionId = "";
 let output = "";
@@ -73,7 +75,7 @@ function installTarball(consumer: string): string {
     join(consumer, "package.json"),
     JSON.stringify({
       name: "web-pi-smoke-consumer",
-      packageManager: "pnpm@12.3.4",
+      packageManager: "pnpm@12.18.0",
       private: true,
       version: "0.0.0",
       dependencies: { "web-pi": `file:${tarball}` },
@@ -208,6 +210,9 @@ afterAll(async () => {
     child.kill("SIGTERM");
   }
   if (closed) await closed;
+  if (backend?.exitCode === null && backend.signalCode === null)
+    backend.kill("SIGTERM");
+  if (backendClosed) await backendClosed;
   if (base) rmSync(base, { recursive: true, force: true });
 });
 
@@ -394,3 +399,118 @@ it("opens the session stream without starting a turn", async () => {
   expect(stream.headers.get("content-type")).toContain("text/event-stream");
   controller.abort();
 });
+
+it("restarts a separately installed web while the original packaged backend can still spawn its Pi exporter", async () => {
+  child?.kill("SIGTERM");
+  if (closed) await closed;
+  const socket = join(base, "private", "backend.sock");
+  const releases = join(base, "published");
+  const tools = join(base, "release-tools");
+  mkdirSync(tools);
+  // just ci/smoke already built these inputs. Exercise the real publisher and
+  // installation without refreshing the producer a second time inside smoke.
+  writeFileSync(join(tools, "just"), '#!/bin/sh\ntest "$1" = build\n', {
+    mode: 0o755,
+  });
+  const restarts = join(base, "restarts");
+  writeFileSync(
+    join(tools, "systemctl"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${restarts}'\n`,
+    { mode: 0o755 },
+  );
+  const releaseEnv = {
+    ...process.env,
+    WEB_PI_RELEASE_ROOT: releases,
+    PATH: `${tools}:${process.env["PATH"] ?? ""}`,
+  };
+  execFileSync(process.execPath, [join(repoRoot, "scripts/deploy.ts")], {
+    cwd: repoRoot,
+    env: releaseEnv,
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  expect(readFileSync(restarts, "utf8")).toBe(
+    "--user restart web-pi.service\n",
+  );
+  const selected = execFileSync(
+    process.execPath,
+    [join(repoRoot, "bin/web-pi-release.js"), "select", releases, "backend"],
+    { encoding: "utf8" },
+  ).trim();
+  const publishedBin = join(selected, "bin", "web-pi.js");
+  expect(existsSync(join(releases, "backend-next"))).toBe(false);
+  expect(realpathSync(join(releases, "backend-current"))).toBe(
+    realpathSync(join(releases, "web-current")),
+  );
+  const port = await freePort();
+  origin = `http://127.0.0.1:${String(port)}`;
+  async function start(bin: string, role: string) {
+    const processChild = spawn(
+      process.execPath,
+      [bin, "--role", role, "--socket", socket, "--port", String(port)],
+      {
+        cwd: isolatedEnv["HOME"],
+        env: isolatedEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const ended = once(processChild, "close");
+    if (role === "backend") {
+      backend = processChild;
+      backendClosed = ended;
+    } else {
+      child = processChild;
+      closed = ended;
+    }
+    await new Promise<void>((resolve, reject) => {
+      let output = "";
+      const timeout = setTimeout(() => {
+        reject(new Error(`No ${role} readiness: ${output}`));
+      }, 30_000);
+      const receive = (chunk: Buffer) => {
+        output += String(chunk);
+        if (output.includes("listening on")) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      processChild.stdout?.on("data", receive);
+      processChild.stderr?.on("data", receive);
+      processChild.once("exit", () => {
+        clearTimeout(timeout);
+        reject(new Error(output));
+      });
+    });
+    return processChild;
+  }
+  const originalBackend = await start(publishedBin, "backend");
+  await start(publishedBin, "web");
+  expect((await fetch(`${origin}/sessions/${sessionId}`)).status).toBe(200);
+  child?.kill("SIGKILL");
+  if (closed) await closed;
+  // The npm installation is a distinct complete artifact; backend keeps the
+  // pnpm installation and must launch its lazy exporter from there, not web.
+  await start(npmBin, "web");
+  expect(originalBackend.exitCode).toBeNull();
+  const response = await fetch(`${origin}/sessions/${sessionId}/export`);
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('id="session-data"');
+  for (const [file, original] of preservedFiles)
+    expect(readFileSync(file, "utf8")).toBe(original);
+  execFileSync(
+    process.execPath,
+    [join(repoRoot, "scripts/deploy.ts"), "--full"],
+    {
+      cwd: repoRoot,
+      env: releaseEnv,
+      encoding: "utf8",
+      timeout: 120_000,
+    },
+  );
+  expect(readFileSync(restarts, "utf8")).toBe(
+    "--user restart web-pi.service\n--user restart web-pi.service web-pi-backend.service\n",
+  );
+  expect(realpathSync(join(releases, "backend-current"))).not.toBe(
+    realpathSync(join(releases, "backend-next")),
+  );
+}, 120_000);

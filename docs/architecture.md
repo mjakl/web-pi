@@ -35,8 +35,11 @@ how it works and why.
   composer, files), so work on different areas does not collide. Hono matches on
   the path, so the order in which `src/web/app.tsx` registers the route modules
   carries no meaning. The web layer talks only to `Workspace`.
-- `src/container.ts` is the composition root, the only file outside
-  `src/adapters` that imports adapters.
+- `src/container.ts` constructs the backend-owned Workspace and adapters. The
+  web role never calls it. `src/workspace-rpc.ts` carries the closed set of use
+  cases over a private Unix socket; `WorkspaceConnection` in
+  `src/core/workspace/connection.ts` makes remote reads, writes and subscription
+  registration awaitable without moving platform code into core.
 
 `AGENTS.md` lists the import rules that oxlint enforces.
 
@@ -428,8 +431,9 @@ touch the file; when it runs out they fail with
 runs deletes, rewinds and its runtime opens of the same session one at a time,
 in the order they arrive (`serialised` in `src/core/workspace/deps.ts`), so no
 runtime loads a file that is about to be rewritten or writes one that was
-removed; an open queued behind a delete fails as for an unknown session. Server
-shutdown stops every live session the same way.
+removed; an open queued behind a delete fails as for an unknown session. Backend
+(or standalone server) shutdown stops every live session the same way; web
+shutdown only disconnects its requests and subscriptions.
 
 Manual compaction reserves admission before entering the SDK and refuses to
 start while prompt input hooks are pending. Submissions during that reservation
@@ -678,6 +682,30 @@ lists, and enabling writes the plain source string back, so filters the entry
 carried are lost. That is Pi's own representation; the button's title says so.
 
 ## Packaging and process
+
+The service installation runs independent web and backend processes. Only
+backend constructs Workspace, so SDK sessions, subprocess pipes, extension UI,
+notification timers, catalog metadata and project caches survive web restart.
+The default standalone CLI still owns both roles in one process.
+
+The private transport permits only named Workspace operations. Request/reply
+values use Node/V8 serialization, preserving Sets, undefined and upload bytes.
+Known errors are reconstructed explicitly so route status and inspection-only
+checks retain their semantics. File downloads have separate backpressured byte
+streams; file watches and runtime subscriptions register before acknowledging
+the connection and release their listeners on disconnect. Subscription output is
+bounded at 64 KiB or one complete event, whichever is larger. Web coalesces
+activity and unread snapshots and caps queued semantic deliveries at 128; a
+stalled consumer reconnects rather than retaining unlimited output. Browser
+reconnection uses the existing settled cursor/current snapshot protocol. No
+mutation or pending-notice consumption is retried. Dictation and model refresh
+propagate request cancellation; loss of a web request never aborts agent work.
+The transport assumes compatible Node and application interfaces; an
+incompatible change requires a full deployment.
+
+[Deployment](deployment.md#immutable-releases) describes complete immutable
+releases, pointer promotion and the one-time service cutover. Both roles enter
+through the guarded bootstrap, and startup never builds or updates packages.
 
 Pi is a package-owned runtime, refreshed at build time; see
 [ADR 0002](adr/0002-package-owned-pi-runtime.md).

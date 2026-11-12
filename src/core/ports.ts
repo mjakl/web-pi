@@ -372,12 +372,20 @@ export type LiveSession = {
 };
 
 /**
- * Lifecycle of every live session in this process. `finished` drives the
- * sidebar; `completed` is the narrower "the agent finished a run and is idle"
- * that notifications key off, and never fires for a stop or a shell command.
+ * Lifecycle and ordering changes of every live session in this process.
+ * `finished` and `history_changed` drive the sidebar; `completed` is the narrower
+ * "the agent finished a run and is idle" that notifications key off, and never
+ * fires for a stop or a shell command.
  */
 export type RuntimeEvent = {
-  type: "opened" | "started" | "finished" | "completed" | "stopped";
+  /** history_changed: a user entry was recorded or the active branch moved. */
+  type:
+    | "opened"
+    | "started"
+    | "finished"
+    | "completed"
+    | "stopped"
+    | "history_changed";
   sessionId: string;
   /** Settlement during full session shutdown, not an ordinary turn abort. */
   stopping?: boolean;

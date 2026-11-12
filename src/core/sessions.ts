@@ -9,6 +9,8 @@ export type SessionSummary = {
   fileSize: number;
   /** Set while a runtime for this session is alive in this process. */
   live?: boolean;
+  /** Latest user entry recording time on the live runtime's current branch. */
+  lastUserAt?: string;
   /** False when the working folder is gone: the session is read-only. */
   cwdAvailable?: boolean;
   /** Set while that runtime is working on a turn. */

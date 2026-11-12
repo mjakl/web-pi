@@ -124,6 +124,7 @@ class PiLiveSession implements LiveSession {
   private readonly inner: AgentSession;
   private readonly shellOperations: () => BashOperations;
   private readonly onStop: () => void;
+  private readonly onHistoryChange: () => void;
 
   constructor(
     inner: AgentSession,
@@ -133,6 +134,7 @@ class PiLiveSession implements LiveSession {
       queuedImages: Map<string, ImageAttachment[]>;
       services: AgentSessionServices;
       invalidatePreparation: () => void;
+      onHistoryChange: () => void;
     },
     onStop: () => void,
   ) {
@@ -142,6 +144,7 @@ class PiLiveSession implements LiveSession {
     this.queuedImages = options.queuedImages;
     this.shellOperations = options.shellOperations;
     this.onStop = onStop;
+    this.onHistoryChange = options.onHistoryChange;
     this.id = inner.sessionId;
     this.turnStart = inner.sessionManager.getBranch().length;
     this.unsubscribe = inner.subscribe((event) => {
@@ -233,6 +236,11 @@ class PiLiveSession implements LiveSession {
         this.emit({ type: "activity" });
         break;
       case "message_end":
+        if (event.message.role === "user") {
+          // Pi notifies listeners before appending the entry synchronously.
+          // Wait for that recording, not queue admission or token activity.
+          queueMicrotask(this.onHistoryChange);
+        }
         this.partial = undefined;
         this.partialArguments.clear();
         this.emit({ type: "activity" });
@@ -694,6 +702,7 @@ class PiLiveSession implements LiveSession {
       ...(summarize === undefined ? {} : { summarize }),
     });
     this.turnStart = this.inner.sessionManager.getBranch().length;
+    if (!result.cancelled) this.onHistoryChange();
     this.emit({ type: "activity" });
     return result;
   }
@@ -1113,6 +1122,9 @@ export function createPiAgentRuntime(options: {
           preparations.invalidate(cwd);
         },
         queuedImages,
+        onHistoryChange: () => {
+          announce({ type: "history_changed", sessionId: id });
+        },
         // `/reload` re-reads the settings, and the agent's bash tool with
         // them; `!cmd` reads the shell path when it runs, so both agree.
         shellOperations: () =>

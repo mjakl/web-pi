@@ -118,9 +118,10 @@ function certified(
     return (
       left.rank !== right.rank ||
       outranks(
-        left.modifiedAt,
+        left.time,
         leftId,
-        right.modifiedAt > upperTime ? right.modifiedAt : upperTime,
+        // Runtime clocks are complete; unread stored descendants cannot raise them.
+        right.rank === 0 || right.time > upperTime ? right.time : upperTime,
         rightId,
       )
     );
@@ -137,8 +138,8 @@ function certified(
   for (const outside of tree.roots.slice(k)) {
     if (!dominates(id, outside.summary.id)) return false;
   }
-  if (score(id).rank === 2) {
-    if (!outranks(score(id).modifiedAt, id, upperTime, bestId)) return false;
+  if (score(id).rank === 1) {
+    if (!outranks(score(id).time, id, upperTime, bestId)) return false;
   }
   return true;
 }

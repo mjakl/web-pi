@@ -484,7 +484,12 @@ export function createPiSessionCatalog(options: {
           if (!classified) return undefined;
           const live = runtime.get(summary.id);
           return live && !isSubagentSession(classified)
-            ? { ...classified, live: true, running: live.running ?? false }
+            ? {
+                ...classified,
+                live: true,
+                lastUserAt: live.lastUserAt,
+                running: live.running ?? false,
+              }
             : classified;
         },
         options,

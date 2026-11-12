@@ -4,7 +4,7 @@ import type {
   HTMLElement,
   HTMLFormElement,
 } from "happy-dom";
-import { createFakeWorld } from "@adapters/fake";
+import { createFakeWorld, userEntry } from "@adapters/fake";
 import { createWorkspace } from "@core/workspace";
 import { createWebApp } from "@web/app";
 import { htmxBrowser } from "#/web/htmx4-browser";
@@ -18,7 +18,7 @@ async function fixture() {
           id,
           cwd: `/${id}`,
           name: id,
-          createdAt: "2026-09-01T00:00:00.000Z",
+          createdAt: `2026-09-0${String(6 - index)}T00:00:00.000Z`,
           modifiedAt: `2026-09-0${String(6 - index)}T00:00:00.000Z`,
           fileSize: 0,
         },
@@ -118,7 +118,7 @@ it("keeps the global list and stream across directories while explorer and new-s
   expect((await b.workspace.row("middle"))?.summary.cwd).toBe("/middle");
 });
 
-it("reorders already-live sessions on turn start in another directory and after abort", async () => {
+it("reorders already-live sessions on recorded input in another directory, not on abort", async () => {
   const b = await fixture();
   const main = b.document.querySelector("main");
   await b.workspace.send("last", "wait for confirmation");
@@ -137,9 +137,37 @@ it("reorders already-live sessions on turn start in another directory and after 
     )
     .toBe("Session active");
   expect(b.document.querySelector("main")).toBe(main);
-  expect(b.order().indexOf("last")).toBeLessThan(
-    b.order().indexOf("newer-stopped"),
+  expect(b.order()).toEqual([
+    "last",
+    "first",
+    "middle",
+    "newer-stopped",
+    "older-stopped",
+  ]);
+});
+
+it("refreshes order on branch navigation without a lifecycle transition or reconnect", async () => {
+  const b = await fixture();
+  const stream = b.document.querySelector("#sidebar-events");
+  const stored = b.world.store.get("last");
+  if (!stored) throw new Error("Missing last session");
+  stored.entries.push(
+    {
+      ...userEntry("old-user", null, "old"),
+      timestamp: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      ...userEntry("new-user", "old-user", "new"),
+      timestamp: "2026-12-01T00:00:00.000Z",
+    },
   );
+  await b.world.runtime.get("last")?.navigateTree("new-user");
+  await expect.poll(() => b.order()[0]).toBe("last");
+  await b.world.runtime.get("last")?.navigateTree("old-user");
+  await expect
+    .poll(() => b.order().slice(0, 3))
+    .toEqual(["first", "middle", "last"]);
+  expect(b.document.querySelector("#sidebar-events")).toBe(stream);
 });
 
 it.each(["row action", "runtime stop"])(

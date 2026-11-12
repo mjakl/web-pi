@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@core/sessions";
+import { isSubagentSession, type SessionSummary } from "@core/sessions";
 
 export type SessionTreeNode = {
   summary: SessionSummary;
@@ -6,7 +6,7 @@ export type SessionTreeNode = {
   parentId?: string;
 };
 
-export type SessionTreeScore = { rank: number; modifiedAt: string };
+export type SessionTreeScore = { rank: 0 | 1; time: string };
 
 export function compareSessionTreeScores(
   left: SessionTreeScore,
@@ -16,7 +16,7 @@ export function compareSessionTreeScores(
 ): number {
   return (
     left.rank - right.rank ||
-    right.modifiedAt.localeCompare(left.modifiedAt) ||
+    right.time.localeCompare(left.time) ||
     leftId.localeCompare(rightId)
   );
 }
@@ -35,13 +35,17 @@ export function delegationInTime(
   return Date.parse(child.createdAt) >= Date.parse(parent.createdAt);
 }
 
-/** A subtree sorts by its most urgent session and its latest activity. */
+/** Stored descendants may raise stored activity, never a live user clock. */
 export function mergeSessionTreeScore(
   into: SessionTreeScore,
   from: SessionTreeScore,
 ): void {
-  into.rank = Math.min(into.rank, from.rank);
-  if (from.modifiedAt > into.modifiedAt) into.modifiedAt = from.modifiedAt;
+  if (from.rank < into.rank) {
+    into.rank = from.rank;
+    into.time = from.time;
+  } else if (from.rank === into.rank && from.time > into.time) {
+    into.time = from.time;
+  }
 }
 
 /** Delegation is the only edge: Pi's parentId describes a fork, not a child. */
@@ -96,9 +100,12 @@ export function sessionTree(summaries: readonly SessionSummary[]): SessionTree {
       node.parentId = parentId;
       parent.children.push(node);
     } else roots.push(node);
+    const active = node.summary.live && !isSubagentSession(node.summary);
     scores.set(id, {
-      rank: node.summary.running ? 0 : node.summary.live ? 1 : 2,
-      modifiedAt: node.summary.modifiedAt,
+      rank: active ? 0 : 1,
+      time: active
+        ? (node.summary.lastUserAt ?? node.summary.createdAt)
+        : node.summary.modifiedAt,
     });
   }
   const ready: SessionTreeNode[] = [];

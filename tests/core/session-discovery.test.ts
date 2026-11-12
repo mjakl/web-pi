@@ -46,7 +46,13 @@ function file(
     summary: {
       ...summary,
       ...fold.finish(),
-      ...(live ? { live: true, running: live === "running" } : {}),
+      ...(live
+        ? {
+            live: true,
+            running: live === "running",
+            lastUserAt: new Date(time).toISOString(),
+          }
+        : {}),
     },
   };
 }
@@ -241,18 +247,26 @@ describe("priority interval root discovery", () => {
     expect(selected.full.roots[50]?.summary.id).not.toBe("old-selected");
     expect((await check(files, { offset: 50 })).visits).toHaveLength(101);
   });
-  it("must exhaust ambiguous same-priority live intervals but stops after a separating child", async () => {
+  it("certifies live clocks without letting unread children raise them", async () => {
     const live = [
       file("a", 1, undefined, "running"),
       file("b", 2, undefined, "running"),
     ];
-    expect((await check([...live, ...roots(200)])).visits).toHaveLength(202);
+    const bounded = await check([...live, ...roots(200)]);
+    expect(bounded.visits).toHaveLength(51);
+    expect(bounded.actual.roots.slice(0, 2).map((n) => n.summary.id)).toEqual([
+      "b",
+      "a",
+    ]);
     const separated = await check([
       ...live,
       file("new-child", 2000, "a"),
       ...roots(200),
     ]);
     expect(separated.visits).toHaveLength(52);
+    expect(separated.actual.roots.slice(0, 2).map((n) => n.summary.id)).toEqual(
+      ["b", "a"],
+    );
   });
   it("compares known boundary rivals and actual root IDs on timestamp ties", async () => {
     const live = Array.from({ length: 49 }, (_, i) =>
@@ -265,7 +279,8 @@ describe("priority interval root discovery", () => {
       file("rival-child", 150, "rival"),
       ...roots(100, 140),
     ]);
-    expect(rival.visits).toHaveLength(52);
+    expect(rival.visits).toHaveLength(51);
+    expect(rival.actual.roots[49]?.summary.id).toBe("last");
     const equal = Array.from({ length: 60 }, (_, i) =>
       file(`id-${String(i).padStart(3, "0")}`, 100),
     );

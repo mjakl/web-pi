@@ -34,6 +34,7 @@ import type {
   UploadStore,
 } from "@core/ports";
 import { isSubagentSession, type SessionSummary } from "@core/sessions";
+import { lastUserAt } from "@core/session-entries";
 import { InspectionOnlySession } from "./views.ts";
 import { type ProjectInfo, unavailableFolderMessage } from "@core/workspaces";
 
@@ -104,24 +105,23 @@ export function createShared(deps: WorkspaceDeps) {
     );
     return sessions.map((session) => {
       const inspectionOnly = isSubagentSession(session);
-      const live =
-        inspectionOnly ||
-        savedOnly ||
-        (snapshots !== undefined && !snapshots.has(session.id))
+      const snapshot =
+        inspectionOnly || savedOnly
           ? undefined
-          : deps.runtime.get(session.id);
+          : snapshots === undefined
+            ? deps.runtime.get(session.id)?.snapshot()
+            : snapshots.get(session.id);
       const project = roots.get(session.cwd);
       return {
         ...session,
         ...(inspectionOnly
           ? { inspectionOnly: true, live: false, running: false }
           : {}),
-        ...(live
+        ...(snapshot
           ? {
               live: true,
-              running:
-                snapshots?.get(session.id)?.status.running ??
-                live.snapshot().status.running,
+              lastUserAt: lastUserAt(snapshot.branch),
+              running: snapshot.status.running,
             }
           : {}),
         ...(project ? { projectRoot: project.root } : {}),

@@ -1,4 +1,9 @@
-import { createFakeWorld, userEntry } from "@adapters/fake/index";
+import {
+  assistantEntry,
+  bashEntry,
+  createFakeWorld,
+  userEntry,
+} from "@adapters/fake/index";
 import type { SessionSummary } from "@core/sessions";
 import { createWorkspace } from "@core/workspace";
 import { describe, expect, it, vi } from "vitest";
@@ -32,6 +37,72 @@ const ids = (rows: readonly { summary: SessionSummary }[]) =>
   rows.map((row) => row.summary.id);
 
 describe("workspace persisted sidebar tree", () => {
+  it("derives live order from the current branch's entry time on every fresh sidebar", async () => {
+    const old = {
+      ...userEntry("old", null, "old"),
+      timestamp: "2026-01-02T00:00:00.000Z",
+    };
+    const recent = {
+      ...userEntry("recent", "old", "recent"),
+      timestamp: "2026-01-04T00:00:00.000Z",
+    };
+    const middle = {
+      ...userEntry("middle", null, "middle"),
+      timestamp: "2026-01-03T00:00:00.000Z",
+    };
+    // Queue-admission time disagrees with recording time.
+    if (recent.type === "message") recent.message.timestamp = 1;
+    const world = createFakeWorld({
+      sessions: [
+        { ...stored("a"), entries: [old, recent], leafId: "old" },
+        {
+          ...stored("b"),
+          entries: [
+            middle,
+            assistantEntry("answer", "middle", "answer", Date.now()),
+          ],
+        },
+        { ...stored("empty"), entries: [] },
+        {
+          ...stored("shell"),
+          entries: [bashEntry("bash", null, "pwd", "/repo", false)],
+        },
+        stored("child", "a"),
+        stored("saved"),
+      ],
+    });
+    const workspace = createWorkspace(world);
+    for (const id of ["a", "b", "empty", "shell"]) await workspace.activate(id);
+    const read = vi.spyOn(world.sessions, "read");
+    const open = vi.spyOn(world.runtime, "open");
+    expect(ids((await workspace.sidebar()).rows)).toEqual([
+      "b",
+      "a",
+      "empty",
+      "shell",
+      "saved",
+    ]);
+    const a = world.runtime.get("a");
+    if (!a) throw new Error("Missing live session");
+    await a.navigateTree("recent");
+    expect(ids((await createWorkspace(world).sidebar()).rows)).toEqual([
+      "a",
+      "b",
+      "empty",
+      "shell",
+      "saved",
+    ]);
+    const row = (await workspace.sidebar()).rows[0];
+    expect(row?.summary.modifiedAt).toBe("2026-01-01T00:00:00.000Z");
+    await a.navigateTree("old");
+    expect(ids((await workspace.sidebar()).rows).slice(0, 2)).toEqual([
+      "b",
+      "a",
+    ]);
+    expect(read).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("loads metadata only for the requested root or child page", async () => {
     const world = createFakeWorld({
       sessions: [

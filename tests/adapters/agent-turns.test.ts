@@ -1,4 +1,7 @@
 import type { RuntimeEvent } from "@core/ports";
+import { createFakeWorld } from "@adapters/fake/index";
+import { createWorkspace } from "@core/workspace";
+import { lastUserAt } from "@core/session-entries";
 import { projectTranscript } from "@core/transcript";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -26,11 +29,105 @@ import {
 let h: Harness;
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await h.dispose();
 });
 
 describe("a turn", () => {
+  it.each(["steer", "followUp"] as const)(
+    "reorders on recorded %s input, not queue admission, while the run continues",
+    async (behavior) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      h = await createHarness({
+        extensions: [
+          (pi) => {
+            pi.on("input", (event) =>
+              event.text === "rejected"
+                ? { action: "handled" as const }
+                : undefined,
+            );
+          },
+        ],
+      });
+      const a = await h.open();
+      const b = await h.open();
+      const workspace = createWorkspace({
+        ...createFakeWorld(),
+        runtime: h.runtime,
+        sessions: h.catalog,
+      });
+      const order = async () =>
+        (await workspace.sidebar()).rows.map((row) => row.summary.id);
+      const recorded: (string | undefined)[] = [];
+      h.runtime.subscribeAll((event) => {
+        if (event.type === "history_changed" && event.sessionId === a.id)
+          recorded.push(lastUserAt(a.snapshot().branch));
+      });
+      const first = gate(),
+        second = gate();
+      h.script(
+        async (turn) => {
+          turn.text("first partial");
+          await first.wait;
+          turn.done();
+        },
+        reply("b answer"),
+        async (turn) => {
+          turn.text("second partial");
+          await second.wait;
+          turn.done();
+        },
+      );
+      await a.prompt("first");
+      await until(a, (s) => s.partial !== undefined);
+      expect(recorded).toEqual(["2026-01-01T00:00:00.000Z"]);
+      vi.setSystemTime(new Date("2026-01-02T00:00:00Z"));
+      const bDone = next(b, "turn_done");
+      await b.prompt("b question");
+      await bDone;
+      expect(await order()).toEqual([b.id, a.id]);
+      vi.setSystemTime(new Date("2026-01-03T00:00:00Z"));
+      await a.prompt("rejected", { behavior });
+      expect(a.snapshot().status.queue).toEqual([]);
+      await a.prompt("recalled", { behavior });
+      expect(a.clearQueue().map((message) => message.text)).toEqual([
+        "recalled",
+      ]);
+      await a.prompt("second", { behavior });
+      expect(await order()).toEqual([b.id, a.id]);
+      expect(recorded).toHaveLength(1);
+      vi.setSystemTime(new Date("2026-01-04T00:00:00Z"));
+      first.open();
+      await until(
+        a,
+        (s) =>
+          s.partial?.content.some(
+            (part) => part.type === "text" && part.text === "second partial",
+          ) === true,
+      );
+      expect(recorded).toEqual([
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-04T00:00:00.000Z",
+      ]);
+      const entry = a
+        .snapshot()
+        .branch.findLast(
+          (e) => e.type === "message" && e.message.role === "user",
+        );
+      expect(entry?.type === "message" && entry.message.timestamp).toBe(
+        new Date("2026-01-03T00:00:00Z").getTime(),
+      );
+      expect(await order()).toEqual([a.id, b.id]);
+      const aDone = next(a, "turn_done");
+      second.open();
+      await aDone;
+      expect(await order()).toEqual([a.id, b.id]);
+      expect(recorded).toHaveLength(2);
+    },
+  );
+
   it("streams a growing partial, then settles the turn once with its usage", async () => {
     h = await createHarness();
     const session = await h.open();
@@ -78,7 +175,12 @@ describe("a turn", () => {
     expect(settled.status.contextTokens).toBe(125);
     expect(events.filter((type) => type === "turn_done")).toHaveLength(1);
     expect(events).toContain("completed");
-    expect(announced).toEqual(["started", "finished", "completed"]);
+    expect(announced).toEqual([
+      "started",
+      "history_changed",
+      "finished",
+      "completed",
+    ]);
     expect(existsSync(settled.summary.filePath ?? "")).toBe(true);
   });
 

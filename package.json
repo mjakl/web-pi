@@ -19,6 +19,7 @@
     "static/vendor",
     "README.md",
     "docs",
+    "deploy",
     "LICENSE",
     "LICENSE.pi-web"
   ],

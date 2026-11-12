@@ -1,0 +1,5 @@
+#!/bin/sh
+# Copy to ~/.local/bin/web-pi-deploy once; normal deploys retain this command.
+set -eu
+cd "${WEB_PI_SOURCE:-$HOME/Projects/pi-web}"
+exec /usr/bin/mise exec -- node scripts/deploy.ts "$@"

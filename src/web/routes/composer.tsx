@@ -689,6 +689,23 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       };
       let timer: ReturnType<typeof setTimeout> | undefined;
       let queue: Promise<void> = Promise.resolve();
+      let queued = 0;
+      const schedule = (task: () => Promise<void>) => {
+        if (aborted) return;
+        // A stalled browser must reconnect from its cursor rather than retain
+        // an unbounded list of completed turns and their render promises.
+        if (queued >= 128) {
+          stream.abort();
+          return;
+        }
+        queued += 1;
+        queue = queue
+          .then(task)
+          .catch(fail)
+          .finally(() => {
+            queued -= 1;
+          });
+      };
       let activityWaiting = false;
       const enqueue = (kind: "activity" | "turn_done") => {
         // A waiting activity render reads the latest state when it starts.
@@ -697,12 +714,10 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           if (activityWaiting) return;
           activityWaiting = true;
         }
-        queue = queue
-          .then(async () => {
-            if (kind === "activity") activityWaiting = false;
-            await render(kind);
-          })
-          .catch(fail);
+        schedule(async () => {
+          if (kind === "activity") activityWaiting = false;
+          await render(kind);
+        });
       };
       /**
        * The agent finished a run and went idle. The browser decides what to
@@ -710,11 +725,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
        * knows whether anyone is looking.
        */
       const announceDone = () => {
-        queue = queue
-          .then(async () => {
-            if (!aborted) await stream.writeSSE({ event: "done", data: id });
-          })
-          .catch(fail);
+        schedule(async () => {
+          if (!aborted) await stream.writeSSE({ event: "done", data: id });
+        });
       };
       stream.onAbort(() => {
         aborted = true;
@@ -737,13 +750,15 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
           // A stopped runtime can have persisted its final entries just before
           // removal. Reconcile that boundary before allowing reconnection.
           enqueue("turn_done");
-          queue = queue.then(async () => {
+          schedule(async () => {
             await stream.close();
             ended.resolve(undefined);
           });
         }
       };
-      const unsubscribe = await deps.workspace.subscribe(id, listener);
+      const unsubscribe = await deps.workspace.subscribe(id, listener, () => {
+        stream.abort();
+      });
       if (!unsubscribe) {
         // A stop can precede the first connection or happen while disconnected.
         // The browser retains its rendered branch cursor; the saved file's
@@ -754,11 +769,9 @@ export function composerRoutes(app: WebApp, ctx: RouteContext): void {
       // The client may have missed activity between page render and connect.
       enqueue("activity");
       const heartbeat = setInterval(() => {
-        queue = queue
-          .then(async () => {
-            await stream.write(": ping\n\n");
-          })
-          .catch(fail);
+        schedule(async () => {
+          await stream.write(": ping\n\n");
+        });
       }, 30_000);
       await ended.promise;
       clearInterval(heartbeat);

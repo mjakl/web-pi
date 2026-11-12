@@ -148,11 +148,14 @@ export function createWebApp(deps: WebDeps) {
   );
   app.use(
     "*",
-    jsxRenderer(({ children }, c) =>
+    jsxRenderer(async ({ children }, c) =>
       c.req.header("HX-Request") === "true" ? (
         <>{children}</>
       ) : (
-        <HtmlLayout assets={assets} settings={deps.workspace.webSettings()}>
+        <HtmlLayout
+          assets={assets}
+          settings={await deps.workspace.webSettings()}
+        >
           {children}
         </HtmlLayout>
       ),

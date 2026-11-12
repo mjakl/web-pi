@@ -10,7 +10,8 @@ import { FileAccessError } from "@core/path-access";
 import type { FileUpload, ImageAttachment, SkillSelection } from "@core/ports";
 import { skillSelections } from "@core/skill-prompt";
 import { isSessionId } from "@core/sessions";
-import type { SessionView, SidebarView, Workspace } from "@core/workspace";
+import type { SessionView, SidebarView } from "@core/workspace";
+import type { WorkspaceConnection } from "@core/workspace/connection";
 import type { StaticAssets } from "@web/assets";
 import type { SessionPage } from "@web/views/SessionPage";
 import type { Context, Env, Hono } from "hono";
@@ -19,7 +20,7 @@ import { getCookie } from "hono/cookie";
 export type WebApp = Hono;
 
 export type WebDeps = {
-  workspace: Workspace;
+  workspace: WorkspaceConnection;
   /** Directory served under /static. */
   staticRoot: string;
   /** Suggested working folder for new sessions. */

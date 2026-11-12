@@ -1,0 +1,23 @@
+[Unit]
+Description=web-pi web
+Requires=ssh-agent.socket
+After=ssh-agent.socket web-pi-backend.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+TimeoutStartSec=90
+WorkingDirectory=%h
+Environment=SHELL=/bin/bash
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+Environment="PATH=%h/.bin:%h/.local/bin:%h/go/bin:/usr/local/bin:/usr/bin"
+Environment=WEB_PI_HOST=127.0.0.1
+Environment=WEB_PI_PORT=30142
+Environment=WEB_PI_SOCKET=%t/web-pi/backend.sock
+ExecStart=/usr/bin/mise exec node@24 -- %h/.local/bin/web-pi-service web
+KillMode=control-group
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

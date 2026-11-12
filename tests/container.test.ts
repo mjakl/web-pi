@@ -109,6 +109,8 @@ it("serves the demo sessions for --runtime fake", async () => {
     runtime: "fake",
     agentDir: join(cwd, "agent"),
     defaultCwd: cwd,
+    role: "standalone",
+    socketPath: "unused",
     host: "127.0.0.1",
     port: 0,
     staticRoot: "/nonexistent",

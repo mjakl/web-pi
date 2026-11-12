@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 export type Config = {
   host: string;
   port: number;
+  role: "standalone" | "web" | "backend";
+  socketPath: string;
   /** Pi's agent directory (~/.pi/agent or PI_CODING_AGENT_DIR). */
   agentDir: string;
   defaultCwd: string;
@@ -34,10 +36,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       "WEB_PI_NOTIFICATION_GRACE_PERIOD must be a whole number of minutes from 0 to 35791",
     );
   }
+  const role = env["WEB_PI_ROLE"] ?? "standalone";
+  if (role !== "standalone" && role !== "web" && role !== "backend")
+    throw new Error('WEB_PI_ROLE must be "standalone", "web" or "backend"');
+  const socketPath =
+    env["WEB_PI_SOCKET"] ??
+    resolve(
+      env["XDG_RUNTIME_DIR"] ?? `/run/user/${String(process.getuid?.())}`,
+      "web-pi/backend.sock",
+    );
   const openaiApiKey = env["OPENAI_API_KEY"]?.trim();
   return {
     ...(openaiApiKey ? { openaiApiKey } : {}),
     notificationGracePeriodMs: Number(graceMinutes) * 60_000,
+    role,
+    socketPath,
     host,
     port,
     agentDir: getAgentDir(),

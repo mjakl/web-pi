@@ -190,7 +190,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
           "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
       }
       if (header === undefined) {
-        return c.body(file.open(), 200, {
+        return c.body(await file.open(), 200, {
           ...headers,
           "Content-Length": String(size),
         });
@@ -222,7 +222,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
       }
       end = Math.min(end, size - 1);
       if (start > end || start >= size) return unsatisfiable();
-      return c.body(file.open({ start, end }), 206, {
+      return c.body(await file.open({ start, end }), 206, {
         ...headers,
         "Content-Range": `bytes ${String(start)}-${String(end)}/${String(size)}`,
         "Content-Length": String(end - start + 1),
@@ -259,7 +259,7 @@ export function filesRoutes(app: WebApp, ctx: RouteContext): void {
           });
       };
       let failed = false;
-      const stop = start({
+      const stop = await start({
         change(info) {
           send("change", JSON.stringify(info));
         },

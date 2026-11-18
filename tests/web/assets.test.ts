@@ -4,7 +4,8 @@ import { createWebApp } from "@web/app";
 import { staticAssets } from "@web/assets";
 import { HTMX_SRC, HTMX_SSE_SRC } from "@web/HtmlLayout";
 import {
-  cpSync,
+  copyFileSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -92,26 +93,27 @@ describe("vendored htmx", () => {
       readFileSync(join(htmx, "package.json"), "utf8"),
     ) as { version: string };
     root = mkdtempSync(join(tmpdir(), "web-pi-vendor-"));
-    cpSync(join(htmx, "dist"), join(root, "dist"), { recursive: true });
+    mkdirSync(join(root, "dist"));
+    copyFileSync(join(htmx, "dist/htmx.js"), join(root, "dist/htmx.js"));
     execFileSync("git", [
       "apply",
       "--unsafe-paths",
       "--directory",
       root,
-      resolve("patches/htmx-4.0.1.patch"),
+      resolve(`patches/htmx-${version}.patch`),
     ]);
     for (const [src, original, revision] of [
-      [HTMX_SRC, "dist/htmx.js", "-web-pi.1"],
-      [HTMX_SSE_SRC, "dist/ext/hx-sse.js", ""],
+      [HTMX_SRC, join(root, "dist/htmx.js"), "-web-pi.1"],
+      [HTMX_SSE_SRC, join(htmx, "dist/ext/hx-sse.js"), ""],
     ] as const) {
       expect(src).toContain(`.min-${version}${revision}.js`);
       const vendored = readFileSync(
         join("static", src.replace("/static/", "")),
       );
-      const expected = transformSync(
-        readFileSync(join(root, original), "utf8"),
-        { minify: true, target: "es2022" },
-      ).code;
+      const expected = transformSync(readFileSync(original, "utf8"), {
+        minify: true,
+        target: "es2022",
+      }).code;
       expect(vendored.toString(), src).toBe(expected);
     }
   });

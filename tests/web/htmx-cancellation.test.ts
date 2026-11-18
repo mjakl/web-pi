@@ -123,7 +123,6 @@ it("treats aborted response-body reading as cancellation, not a request failure"
 it.each(["network", "unrelated AbortError", "HTTP", "timeout"])(
   "still reports a real %s failure",
   async (failure) => {
-    const logged: unknown[][] = [];
     const browser = await htmxBrowser(
       markup,
       (request) => {
@@ -147,22 +146,31 @@ it.each(["network", "unrelated AbortError", "HTTP", "timeout"])(
         afterMarkup(window) {
           window.console = {
             ...window.console,
-            error: (...args: unknown[]) => {
-              logged.push(args);
+            error() {
+              // Expected failures are asserted through HTMX events below.
             },
           };
         },
       },
     );
-    let httpErrors = 0;
-    browser.document.addEventListener("htmx:response:error", () => {
-      httpErrors += 1;
-    });
+    const events: string[] = [];
+    // Observe HTMX's notification before application listeners filter stale
+    // errors. A console log by itself does not prove the event was dispatched.
+    for (const type of ["htmx:response:error", "htmx:error"]) {
+      browser.window.addEventListener(
+        type,
+        (event) => {
+          events.push(event.type);
+        },
+        true,
+      );
+    }
     browser.window.eval(
       "htmx.config.defaultTimeout = 10; document.querySelector('#request').click()",
     );
-    if (failure === "HTTP") await expect.poll(() => httpErrors).toBe(1);
-    else await expect.poll(() => logged.length).toBeGreaterThan(0);
+    await expect
+      .poll(() => events)
+      .toEqual([failure === "HTTP" ? "htmx:response:error" : "htmx:error"]);
   },
 );
 

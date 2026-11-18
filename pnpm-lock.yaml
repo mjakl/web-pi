@@ -216,8 +216,8 @@ importers:
         specifier: 4.13.17
         version: 4.13.17
       htmx.org:
-        specifier: 4.0.1
-        version: 4.0.1
+        specifier: 4.0.2
+        version: 4.0.2
       marked:
         specifier: 18.1.3
         version: 18.1.3
@@ -1522,8 +1522,8 @@ packages:
     resolution: {integrity: sha512-Hc+ghLoSt6QaYZUv0WBiIvmMDZuZZ7oaDvdH8MbfOO4lOsxdXLEvuC6ePoGs9H1X9oCLyq6+NVN0MKqD+ydxyg==}
     engines: {node: ^20.17.0 || >=22.9.0}
 
-  htmx.org@4.0.1:
-    resolution: {integrity: sha512-oF7JgXhDW9UXCy/k1ZYFUQgzu/rm19ORWPSPNL91vPluB2PB9+MV55tyQdH/w7o2EAbTYUG5SDW1R60mdkdqGg==}
+  htmx.org@4.0.2:
+    resolution: {integrity: sha512-rt+yUQwgQXLhpMZQZmT97vP9wiThqfTyxsPy60WntlQHKyS0o4uBCbcdNWOTh6n5LCCPuI8WYSQedP1K7xaQlQ==}
     hasBin: true
 
   http-proxy-agent@9.1.0:
@@ -3313,7 +3313,7 @@ snapshots:
     dependencies:
       lru-cache: 11.5.3
 
-  htmx.org@4.0.1: {}
+  htmx.org@4.0.2: {}
 
   http-proxy-agent@9.1.0:
     dependencies:
